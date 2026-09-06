@@ -13,6 +13,37 @@ memory/.channel/
 # venv
 .venv 
 
+# ---- Tabletop platform ----
+
+# Local architecture research repositories
+/research/
+
+# Local campaign data and operator artifacts
+/campaigns/
+tabletop_data/
+tabletop/campaigns/
+
+# Sourcebooks and document library (copyrighted material)
+/library/
+library/
+
+# Vector stores and retrieval caches
+tabletop/vector/
+*.vecdb
+/vector/
+
+# SQLite runtime databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Generated model cache
+__pycache__/
+*.pyc
+
+# tabletop runtime data dir
+/tabletop/data/
+
 # editor backup files
 *~
 Autotests/venv/
