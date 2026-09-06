@@ -102,7 +102,7 @@ TODO (commit): `chore: bootstrap gamemaster from omega` - verify git status --sh
 clean, commit UPSTREAM.md + .gitignore.
 
 ### Phase 2: Research Workspace
-Status: IN PROGRESS
+Status: COMPLETE
 - Created `research/` and added `/research/` to `.gitignore`.
 - Added ignores for campaign data, sourcebooks/library, vector stores, SQLite DBs,
   caches, secrets, `/tabletop/data/`.
@@ -116,11 +116,10 @@ Status: IN PROGRESS
 - Deep architectural research done on all six repos via subagents (reports received,
   findings below).
 
-TODO: Write `docs/research/prior-art.md` capturing architectural findings only
-(not copied code): purpose, architecture, persistence, RAG, ingestion, deterministic
-mechanics, campaign state, NPC model, visibility, session history, relationships,
-rule citation, useful ideas, rejected ideas, license, reuse verdict for each repo.
-TODO: Record the six final research reports into `docs/research/` for reference.
+Done: `docs/research/prior-art.md` written (commit `6959a07`).
+Done: six per-repo research reports recorded in `docs/research/` (AiChatTrpg,
+dungeonmaster, claude-dnd-skill, open-tabletop-gm, mythweaver, dnd_experience),
+each verified against the cloned code (commit `42aab81`).
 
 #### Research findings digest
 - AiChatTrpg (Apache-2.0): adapter-protocol framework core with pure dataclass I/O;
@@ -425,7 +424,7 @@ No placeholders presented as implemented.
 ## Current TODO state (tracker)
 
 - [x] Phase 1: Bootstrap repo from Omega
-- [ ] Phase 2: Research workspace and prior art  [IN PROGRESS: write docs/research/prior-art.md]
+- [x] Phase 2: Research workspace and prior art
 - [ ] Phase 3-4: Architecture docs and project structure
 - [ ] Phase 5-7: Omega adapter plugin and plugin system
 - [ ] Phase 8-10: Action/resolution models and dice engine
