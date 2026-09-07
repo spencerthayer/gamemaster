@@ -21,3 +21,12 @@ The tabletop platform is a separate layer. It does not rewrite Omega's agent
 loop, provider layer, communication layer, memory layer, or plugin machinery
 unless necessary. Tabletop-specific functionality is isolated behind a single
 Omega-facing plugin.
+
+## Local changes to upstream Omega files
+
+- `config/plugins.yaml`: registers the local `tabletop` MeTTa plugin from
+  `{REPO}/plugins/tabletop`.
+
+No Omega agent-loop, provider, channel, memory, or plugin-loader implementation
+is modified by Phase 5. The adapter uses Omega's existing plugin extension
+points.
