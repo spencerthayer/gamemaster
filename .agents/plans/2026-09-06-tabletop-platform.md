@@ -170,7 +170,10 @@ only clearly permissive repo; everything else is AGPL or unlicensed. All archite
 is clean-room.
 
 ### Phase 3: Document the Target Architecture
-Status: PENDING
+Status: COMPLETE
+Done: `docs/architecture.md` defines the full layer stack, ownership table,
+and key rules (commit `42aab81`). TODO text below retained as the original
+requirement record.
 TODO: create `docs/architecture.md` defining layers:
 Player/GM -> Omega channel/provider/runtime -> omega-tabletop adapter -> Tabletop
 Runtime -> (Game System Plugins, Content Packs, Campaign Store, Rules/RAG, Event Log,
@@ -181,7 +184,12 @@ material. Campaign state provides truth. Omega-facing code is thin. Game-system
 plugins must not depend on Omega or MeTTa.
 
 ### Phase 4: Create the Project Structure
-Status: PARTIAL (directories created; code TODOs below)
+Status: COMPLETE
+Done: package skeleton created on `phase-3-4-structure` — all modules below
+exist with contract docstrings, wired as importable packages, plus a
+structure smoke test (`tests/tabletop/test_skeleton.py`: 46 module imports +
+subprocess check that the runtime imports no Omega/MeTTa modules) and repo
+root added to pytest `pythonpath`.
 Target structure:
 - `plugins/tabletop/tabletop.py` (Omega adapter)
 - `tabletop/api/{plugin,capabilities,actions,resolution,events,entities,rules,visibility}.py`
@@ -425,7 +433,7 @@ No placeholders presented as implemented.
 
 - [x] Phase 1: Bootstrap repo from Omega
 - [x] Phase 2: Research workspace and prior art
-- [ ] Phase 3-4: Architecture docs and project structure
+- [x] Phase 3-4: Architecture docs and project structure
 - [ ] Phase 5-7: Omega adapter plugin and plugin system
 - [ ] Phase 8-10: Action/resolution models and dice engine
 - [ ] Phase 11-16: Campaign persistence, events, visibility, relationships, NPC
