@@ -1,188 +1,197 @@
-# Meet Oma
-
-Oma is the first Telegram agent built on the Omega framework. Interacting
-with Oma is the fastest way to experience what we’re building with Omega.
-
 <p align="center">
-  <a href="https://t.me/ASI_Alliance">
-    <img src="/docs/assets/tg-button.png" width="25%" alt="Chat with Oma">
-  </a>
+  <img src="./assets/readme/hero.svg" width="100%" alt="Gamemaster: a platform-agnostic tabletop RPG game-master runtime built on SingularityNET Omega. The hero shows Omega at the base providing cognition and tools, then the Tabletop Runtime for orchestration, game-system plugins for mechanics, content packs for rules and world material, and campaign state as the source of truth.">
 </p>
 
----
+Gamemaster is a platform-agnostic tabletop RPG game-master platform. It is not
+a D&D chatbot. It is a modular runtime where cognition, mechanics, rules, and
+world state are separate layers that can each be swapped, replaced, or
+validated on their own.
 
-## Overview
+Built on top of [SingularityNET Omega](https://github.com/singnet/Omega),
+Gamemaster adds a tabletop orchestration layer above Omega's agent runtime.
+Omega keeps doing what it does best, cognition, tools, model interaction, and
+channels. The Tabletop Runtime owns everything else: campaign orchestration,
+persistence, knowledge boundaries, and continuity.
 
-Omega is a neural-symbolic agent framework built on the Hyperon AGI stack.
-It unifies large language models with a formal symbolic layer to create a
-stateful cognitive architecture capable of auditable inference, autonomous
-self-improvement, and long-term persistence.
+## Why Omega
 
-Unlike reactive, session-based agents, Omega operates in a continuous
-execution loop, managing its own goals and providing auditable proof trails for
-its reasoning.
+Omega is a neural-symbolic agent framework built on the Hyperon AGI stack. It
+already provides the hardest parts of a game-master agent:
 
-The primary design criteria for Omega were simplicity, ease of extension,
-and transparent implementation. This results in a minimalist MeTTa-based core
-of approximately 200 lines of code.
+- a continuous agent loop with tool use and skill dispatch
+- LLM provider and channel integrations
+- reasoning and memory layers
+- a plugin API for extending skills and the prompt
 
----
+Rather than rebuild any of that, Gamemaster treats it as the foundation and
+works above it.
 
-## Installation
+## The boundary that holds it together
 
-Prerequisites: Git, Python 3.10 or later including dev headers, Pip and [venv](https://docs.python.org/3/library/venv.html) library, C compiler (for building [janus-swi](https://pypi.org/project/janus-swi/) library)
+| Layer | Owns |
+|---|---|
+| **Omega** | cognition, tools, model interaction, channels |
+| **Tabletop Runtime** | campaign orchestration, persistence, knowledge boundaries |
+| **Game System Plugin** | mechanics and system-specific schemas |
+| **Content Pack** | rules, settings, adventures, lore |
+| **Campaign** | authoritative world state and history |
+| **LLM** | intent interpretation, narration, ambiguous adjudication |
 
-Under Ubuntu one can use the following command to install prerequisites:
+The rule that keeps the layers from collapsing: the LLM may interpret intent,
+narrate outcomes, and adjudicate genuinely ambiguous situations, but it never
+silently replaces deterministic mechanics. When a mechanic is known, a
+game-system plugin resolves it. When a resolution cannot be decided, the
+runtime returns a request for the GM to rule, with rule references attached,
+instead of letting the model invent an outcome.
+
+## Architecture
+
+```text
+Player / GM
+   |
+Omega channel / provider / runtime
+   |
+omega-tabletop adapter
+   |
+Tabletop Runtime
+   |
+   +-- Game System Plugins    capabilities-based mechanics
+   +-- Content Packs          rules, settings, adventures (non-executable)
+   +-- Campaign Store         SQLite, authoritative state
+   +-- Rules / RAG            retrieval with provenance
+   +-- Event Log              append-only sourced history
+   +-- Visibility Engine      who may know which fact
+   +-- Relationship Graph     typed edges over SQLite
+   +-- Source Document Store  original files kept separate from RAG
 ```
-sudo apt-get install git python3 python3-dev python3-pip python3-venv build-essential
-```
 
-Get [SWI-Prolog 10.0.2 or later](https://www.swi-prolog.org/).
+Design constraints that shape the code:
 
-Install Omega:
-```
+- Omega-facing code is thin. One plugin (`plugins/tabletop`) is the only
+  integration point, and it translates Omega skill calls into Tabletop Runtime
+  calls.
+- Game-system plugins never depend on Omega or MeTTa. They speak a
+  platform-agnostic Python API.
+- The tabletop API is not D&D-shaped. It uses generic concepts: entities,
+  actions, resolution, visibility, events. Armor class, saving throws, spell
+  slots, and sanity are meanings that game-system plugins attach, not concepts
+  the core knows.
+- Campaign truth does not depend on vector-memory recall. Facts live in a
+  structured store and append-only event history; retrieval only helps the
+  agent find material.
+
+## Status
+
+Early first draft. The upstream Omega bootstrap is committed on the
+`tabletop-platform` branch, prior art has been researched and recorded, and the
+execution plan with milestones and decisions is in
+[.agents/plans/2026-09-06-tabletop-platform.md](.agents/plans/2026-09-06-tabletop-platform.md).
+The tabletop runtime and plugin APIs are under construction.
+
+Working today:
+
+- Omega runs unchanged as the foundation (see Quick start).
+- Architecture: [docs/architecture.md](docs/architecture.md).
+- Prior-art research: [docs/research/prior-art.md](docs/research/prior-art.md).
+- Project and upstream provenance: [UPSTREAM.md](UPSTREAM.md).
+
+Not yet implemented (see Roadmap):
+
+- game-system plugin API and the freeform reference system
+- campaign persistence, event sourcing, visibility, relationships
+- document ingestion and rules retrieval
+- the Omega tabletop adapter plugin and skills
+
+## Quick start
+
+Gamemaster runs on top of Omega. The fastest way to see the foundation run is
+to start Omega itself: see the upstream
+[Omega README](https://github.com/singnet/Omega#readme) for installation. The
+short path is:
+
+```bash
 git clone https://github.com/trueagi-io/PeTTa
 cd PeTTa
 mkdir -p repos
 git clone https://github.com/singnet/Omega.git repos/Omega
 git clone https://github.com/patham9/petta_lib_chromadb.git repos/petta_lib_chromadb
 cp repos/Omega/run.metta ./
-```
-
-Setup Python virtual environment (or use your own):
-```
 python3 -m venv ./.venv
 source ./.venv/bin/activate
-```
-
-If you have CPU only machine or don't want calculate embeddings on GPU:
-```
-python3 -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-```
-
-Install Python dependencies:
-```
 python3 -m pip install -r ./repos/Omega/requirements.txt
-```
----
-
-## Run Omega in Docker
-
-Ensure that you have [Docker installed](https://docs.docker.com/engine/install/)
-
-Run Omega using the next command:
-```
-curl -fsSL https://github.com/singnet/Omega/raw/refs/tags/v0.1.19/scripts/omegaclaw | bash -s -- singularitynet/omega:v0.1.19
+export ANTHROPIC_API_KEY=<your-key>   # or OPENAI_API_KEY
+sh run.sh run.metta provider=Anthropic
 ```
 
-To run a specific version of Omega set version in `TAG` environment variable and run the following command:
-```
-export TAG=<version>; curl -fsSL  https://github.com/singnet/Omega/raw/refs/tags/$TAG/scripts/omegaclaw | bash -s -- singularitynet/omegaclaw:$TAG
-```
+The tabletop plugin is registered through Omega's `config/plugins.yaml` using
+Omega's own plugin API. When the runtime is ready, adding it to that file is
+the only integration step needed.
 
-To stop the Omega Docker container:
-```
-docker stop omegaclaw
-```
+## Creating a game-system plugin
 
-To restart the Omega Docker container:
-```
-docker start omegaclaw
-```
+Game systems are capability-based. A plugin declares what it can do; the
+runtime offers it those actions and nothing more. The initial capability set
+includes `dice`, `action-resolution`, `opposed-resolution`, `turn-order`,
+`damage`, `conditions`, and similar. A system that does not want hit points or
+classes simply does not advertise those capabilities.
 
-### Memory portability
+The intended plugin shape (API under construction in `tabletop/api/`):
 
-Memory export is disabled by default. See the [memory portability reference](./docs/reference-memory-portability.md)
-for setup, export controls, archive contents, and import modes.
+```python
+class GameSystemPlugin:
+    id: str
+    api_version: str
 
-> **Current limitation:** Memory import does not work in a standalone Omega
-> run. Import and interrupted-import recovery are supported only through Docker
-> using `scripts/omega`, because both operations run from the container
-> entrypoint before the agent loop starts.
-
-To restore an archive while upgrading to a tagged image, use the same transfer directory:
-
-```sh
-scripts/omega start -d singularitynet/omega:<tag> -p OpenAI -t telegram \
-  --memory-transfer-dir "$HOME/omega-transfers" \
-  --memory-import omegaclaw-memory-<timestamp>.tar.gz \
-  --memory-mode overwrite
+    def capabilities(self) -> set[str]: ...
+    def resolve(self, action, context): ...
+    def character_schema(self): ...
+    def rule_namespaces(self): ...
 ```
 
----
+See the full contract, manifest format, capability negotiation, and lifecycle
+in the plugin API documentation (target: `docs/plugin-api.md` in the runtime
+phase). Plugins live under
+`systems/` (or a mounted `/tabletop/plugins/` directory in containers) and are
+discovered at runtime without rebuilding Omega.
 
-## Usage
+## Creating a content pack
 
-Before running the system you need to choose your LLM API provider and export the API key as the environment variable.
-| Provider | Env var name | Notes |
-|---|---|---|
-| `Anthropic` (default) | `ANTHROPIC_API_KEY` | Claude models via the Anthropic API. |
-| `OpenAI` | `OPENAI_API_KEY` | GPT models. Also reused by the OpenAI embedding provider below. |
-| `ASICloud` | `ASI_API_KEY` |  MiniMax models via ASI Alliance inference endpoint (`inference.asicloud.cudos.org`). |
-| `ASIOne` | `ASIONE_API_KEY` |  ASI1 Ultra model via ASI:One inference endpoint (`https://api.asi1.ai/v1`). |
-| `OpenAIAPI` | `OPENAIAPI_API_KEY` |  Use OpenAI API with any endpoint and model. API endpoint and model are set via `openaiapi_url` and `model` command line parameters. |
-| `OpenRouter` | `OPENROUTER_API_KEY` |  GLM model via OpenRouter inference endpoint. |
+Content packs are data, never code. They ship rules, settings, adventures, and
+campaign seeds as markdown, text, or PDF, with a manifest declaring their
+system compatibility and any GM-only material:
 
-Run the system via the following command which ensures the system is started from the root folder of PeTTa:
-```
-OMEGA_AUTH_SECRET=<channel-secret> sh run.sh run.metta IRC_channel="<irc-channel>"
-```
-After start go to https://webchat.quakenet.org/ to communicate with the agent. Join `<irc-channel>` and after agent is joined send `auth <channel-secret>` message to authenticate yourself as an agent owner. Please replace `<irc-channel>` and `<channel-secret>` by your own values.
-
-### Import Knowledge
-
-If you are running Omega without Docker and would like to load it with preset knowledge, follow these steps:
-
-1. Set EMBEDDING_PROVIDER in your environment. It can be set to either OpenAI or Local. OpenAI embeddings also require OPENAI_API_KEY to be set in your environment.
-
-2. Run:
-```
-  sh ./import_knowledge.sh
-```
-After the script finishes, your Omega bot will have the preset knowledge stored in its long-term memory (LTM).
-
-If you want to skip preloading the knowledge then run `export IMPORT_KB_ON_START=0`
-
-## Configuration Options
-
-These are the following sources of the configuration parameters for the
-Omega agent:
-- command line parameters
-- environment variables
-- configuration file
-
-Omega looks for parameters in each of the locations. Command line
-parameters override environment variables which in turn override configuration
-file values. Environment variables should be named `OMEGA_<parameter>` in
-order to separate them from other variables. For example to override the
-default LLM model one can set an `OMEGA_model` environment variable. The full
-list of parameters with descriptions and default values can be found in
-[default configuration file](/config/config.yaml).
-
-The configuration file location can be specified manually using `config` option:
-```sh
-sh run.sh run.metta config=<config.yaml path>
+```yaml
+id: example-adventure
+kind: adventure          # rules | setting | adventure | campaign-seed | supplement
+compatible_systems: [dnd5e-2014]
+sources:
+  - adventure.md
+gm_only:
+  - secrets.md
+  - npc-agendas.md
 ```
 
-The LLM API keys (see [table above](#usage)) and communication channel tokens
-from the table below are passed via environment variables (without `OMEGA_`
-prefix) to prevent agent accessing them.
+Original source files stay available for direct inspection. RAG representations
+are built from them separately and never replace the originals.
 
-| Environment variable | Meaning |
-|---|---|
-| `TG_BOT_TOKEN` | Telegram bot token. |
-| `MM_BOT_TOKEN` | Mattermost bot token. |
-| `SL_BOT_TOKEN` | Slack bot token (`xoxb-...`). |
+## Security
 
----
+Sourcebooks and uploaded documents are treated as data, not instructions.
+Game-system plugins are executable code and must be explicitly trusted; content
+packs never execute code. A full security note lands in `docs/security.md` with
+the runtime and container work.
 
-## Documentation
+## Roadmap
 
-Full documentation lives in [`docs/`](./docs/README.md): introduction,
-tutorials, and API reference as a flat set of markdown files.
+The milestones are tracked in `docs/roadmap.md` (written with the first draft):
+runtime skeleton, persistence and visibility, documents and RAG, the play loop,
+a D&D 5e reference system, a GURPS cross-validation, and channel/UI
+improvements.
 
----
+## Upstream Omega
 
-### Disclaimer
-
-<sub>Omega is experimental, open-source software developed by SingularityNET Foundation, a Swiss foundation, and distributed and promoted by Superintelligence Alliance Ltd., a Singapore company (collectively, the "Parties"), and is provided "AS IS" and "AS AVAILABLE," without warranty of any kind, express or implied, including but not limited to the implied warranties of merchantability, fitness for a particular purpose, and non-infringement. Omega is an autonomous AI agent that is designed to independently set goals, make decisions, and take actions (including actions that the user did not specifically request or anticipate) and whose behavior is influenced by large language models provided by third parties, the outputs of which are inherently non-deterministic. Depending on its configuration and the permissions granted to it, Omega may execute operating-system shell commands, read, write, modify, or delete files, access network resources, send and receive messages through connected communication channels, and modify its own skills, memory, and operational logic at runtime. Omega may also be susceptible to prompt injection and other adversarial manipulation techniques whereby malicious content embedded in data sources consumed by the agent could influence its behavior in unintended ways. Omega supports third-party skills and extensions that have not necessarily been reviewed, audited, or endorsed by either of the Parties and that may introduce security vulnerabilities, cause data loss, or result in unintended behavior including data exfiltration. Omega relies on third-party services, including large language model providers, whose availability, accuracy, cost, and conduct are outside the control of the Parties and whose use is subject to their respective terms, conditions, and privacy policies. The user is solely responsible for configuring appropriate access controls, sandboxing, and permission boundaries, for monitoring, supervising, and constraining Omega's actions, for ensuring that no sensitive personal data is exposed to the agent without adequate safeguards, and for all actions taken by Omega on the user's systems or on the user's behalf, including communications sent and files modified. The user is strongly advised to run Omega in an isolated environment with the minimum permissions necessary for the intended use case. To the maximum extent permitted by applicable law, in no event shall the Parties, their respective board members, directors, contributors, employees, or affiliates be liable for any direct, indirect, incidental, special, consequential, or exemplary damages (including but not limited to damages for loss of data, loss of profits, business interruption, unauthorized transactions, reputational harm, or any damages arising from the autonomous actions taken by Omega) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise), even if advised of the possibility of such damages. By downloading, installing, running, or otherwise using Omega, the user acknowledges that they have read, understood, and agreed to this disclaimer in its entirety. This disclaimer supplements but does not replace the terms of the Apache License, Version 2.0, under which Omega is released.</sub>
+This repository is a layer over
+[SingularityNET Omega](https://github.com/singnet/Omega), Apache-2.0. Upstream
+history is preserved in the `upstream` remote; the exact bootstrap commit is
+recorded in [UPSTREAM.md](UPSTREAM.md). Gamemaster is itself Apache-2.0; see
+[LICENSE](LICENSE).
