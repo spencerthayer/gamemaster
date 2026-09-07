@@ -206,7 +206,14 @@ Target structure:
 - `library/raw/` mounting layout, `library/processed/`
 
 ### Phase 5: Build One Omega Adapter Plugin
-Status: PENDING
+Status: COMPLETE
+Done: `plugins/tabletop/tabletop.metta` MeTTa plugin + `omega_tabletop_adapter.py`
+bridge (runtime init, JSON-safe responses, exception containment) +
+`tabletop/runtime.py` facade with shallow non-executing discovery and
+`capability_unavailable` responses. Registered in `config/plugins.yaml`,
+documented in `UPSTREAM.md`. 7 Phase 5 tests. Merged as PR #3 (`2e8833c`).
+Adapter module named `omega_tabletop_adapter.py` (not `tabletop.py`) to
+avoid colliding with the runtime package under Omega's loader.
 TODO: one plugin `tabletop`, the only Omega-specific integration point.
 Responsibilities: initialize Tabletop Runtime; register tabletop skills; add prompt
 instructions; discover configured campaigns; discover game-system plugins; translate
@@ -217,7 +224,16 @@ Add `tabletop` to `config/plugins.yaml`. Document any modification to upstream
 Omega files.
 
 ### Phase 6: Define the Game-System Plugin API
-Status: PENDING
+Status: COMPLETE
+Done: `tabletop/api/plugin.py` (`TABLETOP_PLUGIN_API_VERSION = "tabletop/v1"`,
+`GameSystemInfo`, `GameSystemPlugin` ABC with `supports()`/
+`require_capability()`/lifecycle/schema hooks/`validate_state()` returning
+`ValidationResult`, forward-annotated `resolve()` for Phase 8),
+`tabletop/api/capabilities.py` (13-member string-backed `Capability` enum),
+`tabletop/api/errors.py` (5-class hierarchy),
+`docs/plugin-api.md` incl. architecture falsification notes. `freeform` and
+`dnd5e` conform with honestly empty capabilities. 16 new tests. No
+discovery, no mechanics.
 TODO: `GameSystemPlugin` class (id, api_version, capabilities(), resolve(), etc.)
 per prompt. Capability negotiation. Create `docs/plugin-api.md` (manifest format,
 API versioning, discovery, lifecycle, capability negotiation, errors, system-specific
@@ -434,7 +450,9 @@ No placeholders presented as implemented.
 - [x] Phase 1: Bootstrap repo from Omega
 - [x] Phase 2: Research workspace and prior art
 - [x] Phase 3-4: Architecture docs and project structure
-- [ ] Phase 5-7: Omega adapter plugin and plugin system
+- [x] Phase 5: Omega adapter plugin
+- [x] Phase 6: Game-system plugin API
+- [ ] Phase 7: Plugin discovery
 - [ ] Phase 8-10: Action/resolution models and dice engine
 - [ ] Phase 11-16: Campaign persistence, events, visibility, relationships, NPC
 - [ ] Phase 17-21: Content packs, document storage, ingestion, RAG
