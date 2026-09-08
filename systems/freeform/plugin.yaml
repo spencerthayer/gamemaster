@@ -1,0 +1,6 @@
+id: freeform
+name: Freeform Reference System
+api_version: tabletop/v1
+version: 0.1.0
+entrypoint: freeform:FreeformPlugin
+description: Platform-agnostic freeform play; minimal contract test system

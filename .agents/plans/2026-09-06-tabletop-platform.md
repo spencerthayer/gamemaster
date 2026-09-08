@@ -240,7 +240,19 @@ API versioning, discovery, lifecycle, capability negotiation, errors, system-spe
 state, extension points).
 
 ### Phase 7: Plugin Discovery
-Status: PENDING
+Status: COMPLETE
+Done: strict `plugin.yaml` manifest (`tabletop/plugins/manifest.py`, safe
+YAML, unknown fields rejected, entrypoint `module:ClassName` validated);
+`discovery.py` (immediate-children-only discovery, symlink-escape rejection,
+deterministic id sorting, discover/load separation, discovery never executes
+plugin code, API version checked before import, identity cross-check);
+`registry.py` (duplicate ids fail closed, id-sorted listing,
+shutdown_all collects failures). Runtime owns its registry instance,
+replacing Phase 5 shallow system discovery; campaigns stay shallow until
+Phase 11. `TABLETOP_PLUGIN_PATH` env (os.pathsep) + built-in systems root.
+Built-in freeform/dnd5e and external plugins use the same pipeline via
+`plugin.yaml` manifests. 30+ new tests incl. sentinel pre-import-execution
+regressions. Docs: `docs/plugin-api.md` installation section.
 TODO: `tabletop/plugins/{manifest,discovery,registry}.py`. Support discovery without
 rebuilding Omega (`/tabletop/plugins/` mounted dir). Executable system plugins vs
 non-executable content packs kept separate. No dynamic execution of untrusted
@@ -452,7 +464,7 @@ No placeholders presented as implemented.
 - [x] Phase 3-4: Architecture docs and project structure
 - [x] Phase 5: Omega adapter plugin
 - [x] Phase 6: Game-system plugin API
-- [ ] Phase 7: Plugin discovery
+- [x] Phase 7: Plugin discovery
 - [ ] Phase 8-10: Action/resolution models and dice engine
 - [ ] Phase 11-16: Campaign persistence, events, visibility, relationships, NPC
 - [ ] Phase 17-21: Content packs, document storage, ingestion, RAG

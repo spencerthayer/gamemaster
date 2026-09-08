@@ -47,3 +47,39 @@ class StateValidationError(GameSystemError):
     """System-owned state is structurally unusable, not merely game-invalid."""
 
     code = "state_validation_error"
+
+
+class PluginManifestError(GameSystemError):
+    """A plugin.yaml is missing required fields, malformed, or unsafe."""
+
+    code = "plugin_manifest_error"
+
+
+class PluginApiVersionError(GameSystemError):
+    """A manifest declares an API version the runtime does not support."""
+
+    code = "plugin_api_version_error"
+
+
+class PluginLoadError(GameSystemError):
+    """A plugin entrypoint could not be imported or does not conform."""
+
+    code = "plugin_load_error"
+
+
+class DuplicatePluginError(GameSystemError):
+    """Two configured plugins claim the same system id."""
+
+    code = "duplicate_plugin_error"
+
+
+class PluginNotFoundError(GameSystemError):
+    """A system id is not present in the registry."""
+
+    code = "plugin_not_found"
+
+
+class PluginIdentityMismatchError(GameSystemError):
+    """A loaded plugin's identity disagrees with its manifest."""
+
+    code = "plugin_identity_mismatch"

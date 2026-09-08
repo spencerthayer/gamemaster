@@ -31,33 +31,31 @@ def _load_adapter():
     return module
 
 
-def test_bootstrap_discovery_is_shallow_and_non_executing(tmp_path):
+def test_bootstrap_campaign_discovery_stays_shallow(tmp_path):
+    """Campaign directory discovery is a Phase 5 placeholder; dirs without
+    manifests are ignored by the plugin pipeline (Phase 7 replaced shallow
+    *system* discovery only)."""
     campaign_root = tmp_path / "campaigns"
-    system_root = tmp_path / "systems"
     (campaign_root / "alpha").mkdir(parents=True)
     (campaign_root / ".hidden").mkdir()
-    (system_root / "freeform").mkdir(parents=True)
-    (system_root / "freeform" / "__init__.py").write_text(
-        "raise RuntimeError('discovery must not import system plugins')"
-    )
-    (system_root / "not_a_plugin").mkdir()
+    plugin_root = tmp_path / "systems"
+    (plugin_root / "not-a-plugin").mkdir(parents=True)
 
     runtime = TabletopRuntime(
         tmp_path,
         campaign_roots=[campaign_root],
-        system_roots=[system_root],
+        plugin_roots=[plugin_root],
     )
 
     status = runtime.bootstrap_status()
     assert status["data"]["campaigns"] == ["alpha"]
-    assert status["data"]["systems"] == ["freeform"]
 
 
 def test_current_campaign_requires_explicit_choice_when_ambiguous(tmp_path):
     root = tmp_path / "campaigns"
     (root / "alpha").mkdir(parents=True)
     (root / "beta").mkdir()
-    runtime = TabletopRuntime(tmp_path, campaign_roots=[root], system_roots=[])
+    runtime = TabletopRuntime(tmp_path, campaign_roots=[root], plugin_roots=[])
 
     result = runtime.current_campaign()
     assert result["ok"] is False
@@ -66,7 +64,7 @@ def test_current_campaign_requires_explicit_choice_when_ambiguous(tmp_path):
 
 
 def test_future_phase_operation_is_explicitly_unavailable(tmp_path):
-    runtime = TabletopRuntime(tmp_path, campaign_roots=[], system_roots=[])
+    runtime = TabletopRuntime(tmp_path, campaign_roots=[], plugin_roots=[])
     result = runtime.roll("2d6")
 
     assert result["ok"] is False

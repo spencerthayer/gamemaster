@@ -130,3 +130,77 @@ data-only artifacts and never execute. Ingested documents never execute.
   today) satisfies the full contract; `resolve()` needs no dice.
 - **Rules-light games**: schemas default to `{}` and validation defaults to
   accepting, so a plugin may carry almost no structured state.
+
+## Installation and discovery (Phase 7)
+
+### Manifest format
+
+Each plugin directory contains a `plugin.yaml`:
+
+```yaml
+id: gurps4e
+name: GURPS 4e
+api_version: tabletop/v1
+version: 0.1.0
+entrypoint: gurps4e:Gurps4ePlugin
+description: Optional free text
+```
+
+Allowed keys: `id`, `name`, `api_version`, `entrypoint`, `version`,
+`description`. Unknown keys are rejected (typos must fail loudly, not
+silence). `entrypoint` is strictly `module.path:ClassName`. The manifest is
+installation metadata only; capabilities always come from the loaded
+plugin's `capabilities()` method, never from YAML.
+
+### Directory layout
+
+```text
+/tabletop/plugins/example-system/     # one directory per plugin
+├── plugin.yaml
+└── example_system/
+    ├── __init__.py
+    └── plugin.py
+```
+
+Built-in systems (`systems/freeform`, `systems/dnd5e`) use the same layout
+with the plugin directory itself as the Python package. Built-ins and
+external plugins go through exactly the same discovery, validation, and
+loading pipeline; nothing special-cases a built-in.
+
+### Plugin roots and precedence
+
+1. Roots supplied explicitly to the runtime
+2. `TABLETOP_PLUGIN_PATH` environment variable, `os.pathsep`-separated
+3. Built-in `<repo>/systems`
+
+Explicit and environment-configured roots that do not exist fail startup:
+a typo in a plugin mount must not silently disable a game system. The
+built-in root is appended automatically and only when present.
+
+### Discovery, loading, and the trust model
+
+`discover_plugins()` inspects only immediate child directories of
+configured roots and never executes plugin code. A directory without
+`plugin.yaml` is ignored; a malformed manifest fails closed. `load_plugin()`
+is the only point where plugin Python runs: API-version compatibility is
+checked before import, the loaded object must be a `GameSystemPlugin`
+instance, its identity must agree with its manifest (`id`, `name`,
+`api_version`, and `version` when present), and `initialize()` runs before
+registration. Duplicate system ids fail closed; there is no implicit
+precedence between roots.
+
+Discovery roots are the only executable trust boundaries. Content packs,
+source documents, campaign data, and uploads are never scanned and never
+execute. Game-system plugins are trusted code; content packs are data.
+
+### Lifecycle and limitations
+
+Plugins load once at runtime startup; adding or removing one requires a
+restart (no hot reload). `shutdown_all()` attempts every plugin's
+`shutdown()` even when some fail, and reports failures rather than
+swallowing them. Plugin top-level module names must be unique within one
+process (Python module cache). Third-party plugin Python dependencies must
+already exist in the runtime environment; dependency installation is not
+solved until the deployment phase. Installation itself is an operator
+action (mounting or copying a trusted plugin directory); there is no
+install/uninstall/marketplace mechanism.
