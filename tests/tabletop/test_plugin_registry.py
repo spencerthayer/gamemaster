@@ -57,6 +57,8 @@ def test_list_is_sorted_by_id_not_insertion_order():
 def test_duplicate_ids_fail_closed():
     registry = PluginRegistry()
     registry.register(StubPlugin("alpha"))
+    with pytest.raises(DuplicatePluginError, match="already registered"):
+        registry.register(StubPlugin("alpha"))
     assert registry.contains("alpha")
 
 

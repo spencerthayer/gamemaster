@@ -5,6 +5,7 @@ execute plugin Python. Import happens only inside load_plugin.
 """
 
 import sys
+from pathlib import Path
 
 import pytest
 
