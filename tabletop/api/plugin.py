@@ -36,6 +36,15 @@ def is_compatible_api_version(api_version: str) -> bool:
     return api_version == TABLETOP_PLUGIN_API_VERSION
 
 
+def is_valid_system_id(system_id: str) -> bool:
+    """Return True for machine-readable lowercase slug system ids.
+
+    Single source of truth shared by ``GameSystemInfo`` and plugin manifest
+    validation.
+    """
+    return bool(re.match(_ID_PATTERN, system_id))
+
+
 @dataclass(frozen=True)
 class GameSystemInfo:
     """Immutable identity metadata for a game-system plugin.

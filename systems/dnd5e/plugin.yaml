@@ -1,0 +1,6 @@
+id: dnd5e
+name: D&D 5e Reference Plugin
+api_version: tabletop/v1
+version: 0.1.0
+entrypoint: dnd5e:Dnd5ePlugin
+description: Structural stub conforming to the plugin API; mechanics arrive in Phase 27

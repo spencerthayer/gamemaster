@@ -32,7 +32,7 @@ class FreeformPlugin(GameSystemPlugin):
             id=_SYSTEM_ID,
             name="Freeform Reference System",
             api_version=TABLETOP_PLUGIN_API_VERSION,
-            version=None,
+            version="0.1.0",
             description=(
                 "Platform-agnostic freeform play: generic actions and opposed "
                 "checks without classes, HP, AC, or initiative. Reference "

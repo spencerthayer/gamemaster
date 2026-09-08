@@ -33,7 +33,7 @@ class Dnd5ePlugin(GameSystemPlugin):
             id=_SYSTEM_ID,
             name="D&D 5e Reference Plugin",
             api_version=TABLETOP_PLUGIN_API_VERSION,
-            version=None,
+            version="0.1.0",
             description=(
                 "Structural stub conforming to the plugin API. Mechanics "
                 "(ability checks, saving throws, attack rolls, combat) are "
