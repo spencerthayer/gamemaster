@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from tabletop.api.events import GameEvent
+from tabletop.api.resolution import ResolutionContext, ResolutionStatus
 from tabletop.api.visibility import Viewpoint, parse_scope
 from tabletop.api.workspace import Workspace
 from tabletop.campaign.event_store import (
@@ -30,8 +31,11 @@ from tabletop.campaign.store import CampaignStore
 from tabletop.documents.content_pack import load_content_pack
 from tabletop.documents.ingest import IngestContext
 from tabletop.documents.markdown import MarkdownIngestor
-from tabletop.orchestration.adjudication import AdjudicationResult
-from tabletop.orchestration.turn import parse_game_action, play_turn
+from tabletop.orchestration.adjudication import (
+    AdjudicationRequest,
+    AdjudicationResult,
+)
+from tabletop.orchestration.turn import parse_game_action
 from tabletop.retrieval.lexical import LexicalRetriever
 from tabletop.retrieval.models import RetrievalFilters, RetrievalNamespace
 from tabletop.runtime import TabletopRuntime
@@ -209,8 +213,18 @@ def test_freeform_example_campaign_runs_end_to_end(tmp_path: Path) -> None:
         pack_directory / "rules.md",
         ingest_context,
     )
+    gm_document_id = ingestor.ingest(
+        pack_directory / "gm-notes.md",
+        IngestContext(
+            connection=connection,
+            content_pack_id=pack.id,
+            system_id=pack.system_id,
+            visibility="GM",
+        ),
+    )
     _index_document(connection, setting_document_id, RetrievalNamespace.SETTING)
     _index_document(connection, rules_document_id, RetrievalNamespace.SYSTEM)
+    _index_document(connection, gm_document_id, RetrievalNamespace.SETTING)
 
     runtime = TabletopRuntime(
         _REPO_ROOT,
@@ -239,22 +253,26 @@ def test_freeform_example_campaign_runs_end_to_end(tmp_path: Path) -> None:
     )
     assert opposed["data"]["resolution"]["outcome"]["opposed_result"] == "actor"
 
-    unresolved_turn = play_turn(
-        runtime._registry,
-        connection,
-        parse_game_action(
-            json.loads(_action("check", parameters={"expression": "1d20"}))
-        ),
-        campaign_id=_CAMPAIGN_ID,
-        system_id="freeform",
-        scene_id=_SCENE_ID,
+    unresolved = runtime.resolve_action(
+        _action("check", parameters={"expression": "1d20"})
     )
-    assert unresolved_turn.resolution.status.value == "unresolved"
-    assert unresolved_turn.event is None
-    assert unresolved_turn.adjudication is not None
+    assert unresolved["data"]["resolution"]["status"] == "unresolved"
+    assert unresolved["data"]["event"] is None
+    adjudication = unresolved["data"]["adjudication"]
+    context = unresolved["data"]["context"]
     ruling = ruling_from_adjudication(
         AdjudicationResult(
-            request=unresolved_turn.adjudication,
+            request=AdjudicationRequest(
+                status=ResolutionStatus(adjudication["status"]),
+                action=parse_game_action(unresolved["data"]["action"]),
+                context=ResolutionContext(
+                    campaign_id=context["campaign_id"],
+                    system_id=context["system_id"],
+                    scene_id=context["scene_id"],
+                    state=context["state"],
+                ),
+                detail=adjudication["detail"],
+            ),
             decision="The rusted gate opens after Mara sacrifices one point of resolve.",
         ),
         ruling_id="ruling-rusted-gate",
@@ -352,13 +370,39 @@ def test_freeform_example_campaign_runs_end_to_end(tmp_path: Path) -> None:
     assert RulingStore(restarted_connection).get("ruling-rusted-gate") is not None
     assert restarted_connection.execute(
         "SELECT COUNT(*) FROM documents"
-    ).fetchone()[0] == 2
+    ).fetchone()[0] == 3
 
     player_facts = restarted_store.get_facts(_CAMPAIGN_ID, viewpoint=_PLAYER)
     assert {fact.fact_id for fact in player_facts} == {"fact-lantern-maker"}
     assert "floodgate" not in json.dumps(
         [fact.value for fact in player_facts]
     ).lower()
+    player_setting_results = LexicalRetriever(restarted_connection).search(
+        "archivist opened floodgate",
+        RetrievalFilters(
+            namespace=RetrievalNamespace.SETTING,
+            content_pack_id=pack.id,
+            system_id="freeform",
+            visibility="PUBLIC",
+        ),
+        limit=5,
+    )
+    assert "intends to blame Mara" not in " ".join(
+        result.text for result in player_setting_results
+    )
+    gm_setting_results = LexicalRetriever(restarted_connection).search(
+        "archivist opened floodgate",
+        RetrievalFilters(
+            namespace=RetrievalNamespace.SETTING,
+            content_pack_id=pack.id,
+            system_id="freeform",
+            visibility="GM",
+        ),
+        limit=5,
+    )
+    assert "intends to blame Mara" in " ".join(
+        result.text for result in gm_setting_results
+    )
     player_relationships = query_edges(
         restarted_connection,
         owner_scope="campaign",
