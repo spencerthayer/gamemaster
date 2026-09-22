@@ -7,8 +7,14 @@ derived views; they never write campaign truth.
 from __future__ import annotations
 
 import copy
+import os
+import tempfile
 from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, assert_never
+
+import yaml
 
 from tabletop.api.resolution import StateChange, StateOperation
 from tabletop.campaign.event_store import EventType, PersistedEvent
@@ -24,12 +30,18 @@ class ProjectedFact:
     canon_state: CanonState | None = None
     knowledge_state: KnowledgeState | None = None
     source_ownership: str | None = None
+    subject_id: str | None = None
+    predicate: str | None = None
+    value: str | None = None
+    visibility: str = "GM"
 
 
 @dataclass(frozen=True)
 class CampaignProjection:
     """Derived campaign snapshot folded from an event sequence."""
 
+    campaign_id: str | None = field(default=None, compare=False)
+    sequence: int | None = field(default=None, compare=False)
     entities: Mapping[str, Any] = field(default_factory=dict)
     facts: Mapping[str, ProjectedFact] = field(default_factory=dict)
     scenes: Mapping[str, Any] = field(default_factory=dict)
@@ -45,8 +57,14 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
     scenes: dict[str, Any] = {}
     open_threads: list[Any] = []
     campaign_system: Any = {}
+    campaign_id: str | None = None
+    sequence: int | None = None
 
     for event in events:
+        if campaign_id is not None and event.campaign_id != campaign_id:
+            raise ValueError("campaign projection cannot mix campaign ids")
+        campaign_id = event.campaign_id
+        sequence = event.sequence
         try:
             event_type = EventType(event.event_type)
         except ValueError as exc:
@@ -86,9 +104,19 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     facts.pop(str(fact_id), None)
             case EventType.CANON_CONTRADICTION_DETECTED:
                 pass
+            case EventType.FACT_PROPOSED:
+                raw_fact_id = event.payload.get("fact_id")
+                if isinstance(raw_fact_id, str) and raw_fact_id:
+                    facts[raw_fact_id] = _update_fact(
+                        facts.get(raw_fact_id),
+                        raw_fact_id,
+                        subject_id=_optional_string(event.payload, "subject_id"),
+                        predicate=_optional_string(event.payload, "predicate"),
+                        value=_optional_string(event.payload, "value"),
+                        visibility=_optional_string(event.payload, "visibility"),
+                    )
             case (
-                EventType.FACT_PROPOSED
-                | EventType.RULING_RECORDED
+                EventType.RULING_RECORDED
                 | EventType.SCENE_OPENED
                 | EventType.SCENE_CLOSED
                 | EventType.SESSION_STARTED
@@ -99,6 +127,8 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                 assert_never(event_type)
 
     return CampaignProjection(
+        campaign_id=campaign_id,
+        sequence=sequence,
         entities={key: copy.deepcopy(value) for key, value in entities.items()},
         facts=dict(facts),
         scenes={key: copy.deepcopy(value) for key, value in scenes.items()},
@@ -121,6 +151,10 @@ def _update_fact(
     canon_state: CanonState | None = None,
     knowledge_state: KnowledgeState | None = None,
     source_ownership: str | None = None,
+    subject_id: str | None = None,
+    predicate: str | None = None,
+    value: str | None = None,
+    visibility: str | None = None,
 ) -> ProjectedFact:
     base = existing or ProjectedFact(fact_id=fact_id)
     return ProjectedFact(
@@ -132,7 +166,153 @@ def _update_fact(
         source_ownership=(
             base.source_ownership if source_ownership is None else source_ownership
         ),
+        subject_id=base.subject_id if subject_id is None else subject_id,
+        predicate=base.predicate if predicate is None else predicate,
+        value=base.value if value is None else value,
+        visibility=base.visibility if visibility is None else visibility,
     )
+
+
+def _optional_string(payload: Mapping[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    return value if isinstance(value, str) else None
+
+
+def write_projection(
+    projection: CampaignProjection, directory: str | os.PathLike[str]
+) -> None:
+    """Write a deterministic, non-authoritative campaign directory view."""
+
+    if not projection.campaign_id:
+        raise ValueError("campaign projection requires a campaign id")
+    if projection.sequence is None:
+        raise ValueError("campaign projection requires a source sequence")
+
+    root = Path(directory).resolve()
+    files = _projection_files(projection)
+    destinations = {
+        relative_path: _safe_destination(root, relative_path)
+        for relative_path in files
+    }
+    root.mkdir(parents=True, exist_ok=True)
+    for relative_path, data in files.items():
+        destination = destinations[relative_path]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_yaml(
+            destination,
+            data,
+            campaign_id=projection.campaign_id,
+            sequence=projection.sequence,
+        )
+
+
+def _projection_files(
+    projection: CampaignProjection,
+) -> dict[Path, Mapping[str, Any]]:
+    world_facts: list[dict[str, Any]] = []
+    gm_facts: list[dict[str, Any]] = []
+    for fact_id in sorted(projection.facts):
+        fact = projection.facts[fact_id]
+        serialized = _serialize_fact(fact)
+        if (
+            fact.knowledge_state is KnowledgeState.KNOWN
+            and fact.visibility.upper() != "GM"
+        ):
+            world_facts.append(serialized)
+        else:
+            gm_facts.append(serialized)
+
+    return {
+        Path("campaign.yaml"): {
+            "campaign_id": projection.campaign_id,
+            "source_sequence": projection.sequence,
+        },
+        Path("state/campaign.yaml"): {
+            "system": _to_yaml_data(projection.campaign_system)
+        },
+        Path("state/entities.yaml"): {
+            "entities": _to_yaml_data(projection.entities)
+        },
+        Path("state/scenes.yaml"): {"scenes": _to_yaml_data(projection.scenes)},
+        Path("world/facts.yaml"): {"facts": world_facts},
+        Path("rulings/rulings.yaml"): {"rulings": []},
+        Path("sessions/sessions.yaml"): {"sessions": []},
+        Path("gm/facts.yaml"): {"facts": gm_facts},
+        Path("gm/threads.yaml"): {
+            "open_threads": _to_yaml_data(projection.open_threads)
+        },
+    }
+
+
+def _serialize_fact(fact: ProjectedFact) -> dict[str, Any]:
+    return {
+        "canon_state": _to_yaml_data(fact.canon_state),
+        "fact_id": fact.fact_id,
+        "knowledge_state": _to_yaml_data(fact.knowledge_state),
+        "predicate": fact.predicate,
+        "source_ownership": fact.source_ownership,
+        "subject_id": fact.subject_id,
+        "value": fact.value,
+        "visibility": fact.visibility,
+    }
+
+
+def _to_yaml_data(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {key: _to_yaml_data(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_yaml_data(item) for item in value]
+    return copy.deepcopy(value)
+
+
+def _safe_destination(root: Path, relative_path: Path) -> Path:
+    if relative_path.is_absolute():
+        raise ValueError("projection path resolves outside projection directory")
+    destination = (root / relative_path).resolve(strict=False)
+    try:
+        destination.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            "projection path resolves outside projection directory"
+        ) from exc
+    return destination
+
+
+def _atomic_write_yaml(
+    destination: Path,
+    data: Mapping[str, Any],
+    *,
+    campaign_id: str,
+    sequence: int,
+) -> None:
+    header = (
+        f"# GENERATED ARTIFACT: campaign {campaign_id}, "
+        f"source sequence {sequence}. Do not edit.\n"
+    )
+    body = yaml.safe_dump(data, sort_keys=True, allow_unicode=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(header)
+            temporary.write(body)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _apply_action_resolved(
