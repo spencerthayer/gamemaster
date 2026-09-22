@@ -29,7 +29,7 @@ def test_builtin_systems_load_through_generic_pipeline():
         "opposed-resolution",
         "resource-tracking",
     ]
-    assert set(systems) == {"freeform", "dnd5e"}
+    assert set(systems) == {"freeform", "dnd5e", "gurps"}
     assert systems["freeform"]["name"] == "Freeform Reference System"
     assert systems["freeform"]["version"] == "0.1.0"
     assert systems["freeform"]["api_version"] == "tabletop/v1"
@@ -76,7 +76,7 @@ def test_builtin_and_external_roots_coexist(tmp_path, make_plugin):
     make_plugin(tmp_path, "external-one")
     runtime = TabletopRuntime(_REPO_ROOT, plugin_roots=[tmp_path], workspace=Workspace.CAMPAIGN)
     ids = {record["id"] for record in runtime.systems()}
-    assert ids == {"freeform", "dnd5e", "external-one"}
+    assert ids == {"freeform", "dnd5e", "gurps", "external-one"}
 
 
 def test_duplicate_ids_fail_closed(tmp_path, make_plugin):
@@ -137,7 +137,7 @@ def test_env_plugin_path_empty_falls_back_to_builtin():
         environ={PLUGIN_PATH_ENV_VAR: "", WORKSPACE_ENV_VAR: "campaign"},
     )
     ids = {record["id"] for record in runtime.systems()}
-    assert ids == {"freeform", "dnd5e"}
+    assert ids == {"freeform", "dnd5e", "gurps"}
 
 
 def test_env_plugin_path_nonexistent_fails_startup(tmp_path):
@@ -153,6 +153,6 @@ def test_bootstrap_status_reports_registry_metadata():
     runtime = TabletopRuntime(_REPO_ROOT, workspace=Workspace.CAMPAIGN)
     payload = runtime.bootstrap_status()
     systems = payload["data"]["systems"]
-    assert [record["id"] for record in systems] == ["dnd5e", "freeform"]
+    assert [record["id"] for record in systems] == ["dnd5e", "freeform", "gurps"]
     assert all("capabilities" in record for record in systems)
     assert "plugin_roots" in payload["data"]
