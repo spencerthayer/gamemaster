@@ -34,6 +34,12 @@ class ProjectedFact:
     predicate: str | None = None
     value: str | None = None
     visibility: str = "GM"
+    fact_scope: str | None = None
+    campaign_id: str | None = None
+    valid_from: str | None = None
+    valid_until: str | None = None
+    source_document_id: str | None = None
+    source_chunk_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -143,14 +149,17 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
             case EventType.FACT_PROPOSED:
                 raw_fact_id = event.payload.get("fact_id")
                 if isinstance(raw_fact_id, str) and raw_fact_id:
-                    facts[raw_fact_id] = _update_fact(
-                        facts.get(raw_fact_id),
-                        raw_fact_id,
-                        subject_id=_optional_string(event.payload, "subject_id"),
-                        predicate=_optional_string(event.payload, "predicate"),
-                        value=_optional_string(event.payload, "value"),
-                        visibility=_optional_string(event.payload, "visibility"),
-                    )
+                    if event.event_schema_version >= 1:
+                        facts[raw_fact_id] = _fact_from_generation_one(event, raw_fact_id)
+                    else:
+                        facts[raw_fact_id] = _update_fact(
+                            facts.get(raw_fact_id),
+                            raw_fact_id,
+                            subject_id=_optional_string(event.payload, "subject_id"),
+                            predicate=_optional_string(event.payload, "predicate"),
+                            value=_optional_string(event.payload, "value"),
+                            visibility=_optional_string(event.payload, "visibility"),
+                        )
             case EventType.QUEST_MUTATED:
                 campaign_system = _apply_quest_mutated(event, campaign_system)
             case EventType.RULING_RECORDED:
@@ -336,6 +345,34 @@ def _update_fact(
         predicate=base.predicate if predicate is None else predicate,
         value=base.value if value is None else value,
         visibility=base.visibility if visibility is None else visibility,
+        fact_scope=base.fact_scope,
+        campaign_id=base.campaign_id,
+        valid_from=base.valid_from,
+        valid_until=base.valid_until,
+        source_document_id=base.source_document_id,
+        source_chunk_id=base.source_chunk_id,
+    )
+
+
+def _fact_from_generation_one(event: PersistedEvent, fact_id: str) -> ProjectedFact:
+    payload = event.payload
+    if payload.get("campaign_id") != event.campaign_id:
+        raise ValueError("fact payload campaign_id does not match the event")
+    return ProjectedFact(
+        fact_id=fact_id,
+        subject_id=_optional_string(payload, "subject_id"),
+        predicate=_optional_string(payload, "predicate"),
+        value=_optional_string(payload, "value"),
+        visibility=_optional_string(payload, "visibility") or "GM",
+        fact_scope=_optional_string(payload, "fact_scope"),
+        campaign_id=_optional_string(payload, "campaign_id"),
+        valid_from=_optional_string(payload, "valid_from"),
+        valid_until=_optional_string(payload, "valid_until"),
+        source_document_id=_optional_string(payload, "source_document_id"),
+        source_chunk_id=_optional_string(payload, "source_chunk_id"),
+        source_ownership=_optional_string(payload, "source_ownership"),
+        canon_state=CanonState.PROPOSED,
+        knowledge_state=KnowledgeState.UNREVEALED,
     )
 
 

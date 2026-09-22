@@ -15,14 +15,24 @@ import pytest
 
 from tabletop.api.resolution import StateOperation
 from tabletop.api.workspace import Workspace
-from tabletop.campaign.event_store import EventStore, EventType, PersistedEvent
 from tabletop.campaign.models import CanonState, KnowledgeState
 from tabletop.campaign.projections import project_campaign
 from tabletop.campaign.rulings import Ruling, RulingStore
+from tabletop.documents.extraction import ProposedFact
+from tabletop.documents.importer import _insert_fact
+from tabletop.campaign.event_store import (
+    EventStore,
+    EventType,
+    PersistedEvent,
+    detach_fact,
+    promote_fact,
+    reveal_fact,
+)
+from tabletop.campaign.setting_events import SettingEventType
 from tabletop.campaign.store import CampaignStore
 from tabletop.api.rules import RuleReference
 from tabletop.runtime import TabletopRuntime
-from tabletop.storage.sqlite import connect, migrate
+from tabletop.storage.sqlite import connect, migrate, transaction
 
 REPLAY_REQUIRED = frozenset(
     {
@@ -63,28 +73,30 @@ ORPHAN_RAISES = frozenset(
     }
 )
 
-# Setting writers gain events in task 06. This set must become empty then.
-DEFERRED_WRITERS = frozenset(
-    {
-        "edit_setting",
-        "upsert_world_entity",
-        "record_world_history",
-    }
-)
+DEFERRED_WRITERS: frozenset[str] = frozenset()
 
 WRITERS = (
     ("mutate_quest", True, "quest.mutated", "campaign_system"),
     ("record_ruling", True, "ruling.recorded", "rulings"),
     ("RulingStore.promote", True, "ruling.promoted", "rulings"),
     ("end_session", True, "session.ended", "sessions"),
-    ("edit_setting", True, None, "setting"),
-    ("upsert_world_entity", True, None, "setting_entity"),
-    ("record_world_history", True, None, "setting_fact"),
+    ("edit_setting", True, "setting.edited", "setting"),
+    ("upsert_world_entity", True, "world_entity.upserted", "setting_entity"),
+    ("record_world_history", True, "world_fact.recorded", "setting_fact"),
     ("promote_fact", True, "fact.promoted", "facts"),
     ("reveal_fact", True, "fact.revealed", "facts"),
     ("detach_fact", True, "fact.detached", "facts"),
     ("apply_resolved_action", True, "action.resolved", "campaign_system"),
 )
+
+
+SETTING_REPLAY_REQUIRED = frozenset(SettingEventType)
+SETTING_AUDIT_ONLY: frozenset[SettingEventType] = frozenset()
+
+
+def test_setting_event_types_are_classified_exactly_once() -> None:
+    assert SETTING_REPLAY_REQUIRED | SETTING_AUDIT_ONLY == set(SettingEventType)
+    assert not (SETTING_REPLAY_REQUIRED & SETTING_AUDIT_ONLY)
 
 
 def test_event_types_are_classified_exactly_once() -> None:
@@ -345,6 +357,59 @@ def test_ruling_replay_matches_sqlite(tmp_path: Path) -> None:
     assert "ruling-1" in projection.rulings
     assert projection.rulings["ruling-2"].supersedes == "ruling-1"
     assert projection.rulings["ruling-2"].decision == "Only at night."
+    connection.close()
+
+
+def test_new_campaign_fact_replay_matches_sqlite(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "facts.db")
+    migrate(connection)
+    CampaignStore(connection).create_campaign("campaign-1", "Owned", "freeform")
+    with transaction(connection):
+        stored = _insert_fact(
+            connection,
+            proposed=ProposedFact(
+                fact_id="fact-1",
+                fact_scope="campaign",
+                setting_id=None,
+                campaign_id="campaign-1",
+                subject_id="hero",
+                predicate="has-title",
+                value="Warden",
+                visibility="GM",
+                valid_from="2026-09-22T00:00:00Z",
+                valid_until=None,
+                source_document_id="doc-1",
+                source_chunk_id="chunk-1",
+            ),
+            import_job_id="job-1",
+            extraction_method="test",
+            created_at="2026-09-22T00:00:00Z",
+        )
+    promoted = promote_fact(connection, stored)
+    revealed = reveal_fact(connection, promoted)
+    detach_fact(connection, revealed)
+    projected = project_campaign(EventStore(connection).read("campaign-1")).facts["fact-1"]
+    row = connection.execute(
+        "SELECT fact_scope, campaign_id, subject_id, predicate, value, canon_state, "
+        "knowledge_state, visibility, valid_from, valid_until, source_document_id, "
+        "source_chunk_id, source_ownership FROM facts WHERE fact_id = ?",
+        ("fact-1",),
+    ).fetchone()
+    assert projected.fact_scope == row["fact_scope"]
+    assert projected.campaign_id == row["campaign_id"]
+    assert projected.subject_id == row["subject_id"]
+    assert projected.predicate == row["predicate"]
+    assert projected.value == row["value"]
+    assert projected.canon_state is CanonState.CONFIRMED
+    assert projected.canon_state.value == row["canon_state"]
+    assert projected.knowledge_state is KnowledgeState.KNOWN
+    assert projected.knowledge_state.value == row["knowledge_state"]
+    assert projected.visibility == row["visibility"]
+    assert projected.valid_from == row["valid_from"]
+    assert projected.valid_until == row["valid_until"]
+    assert projected.source_document_id == row["source_document_id"]
+    assert projected.source_chunk_id == row["source_chunk_id"]
+    assert projected.source_ownership == row["source_ownership"]
     connection.close()
 
 
