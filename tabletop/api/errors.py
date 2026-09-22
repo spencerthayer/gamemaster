@@ -108,3 +108,9 @@ class StorageError(GameSystemError):
     """SQLite storage or schema migration failed."""
 
     code = "storage_error"
+
+
+class FactInvariantError(GameSystemError):
+    """A fact combines canon and knowledge states that cannot coexist."""
+
+    code = "fact_invariant_error"
