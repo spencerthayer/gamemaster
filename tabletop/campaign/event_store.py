@@ -15,10 +15,16 @@ from typing import Any, Mapping, Sequence, assert_never
 
 from tabletop.api.actions import GameAction
 from tabletop.api.events import GameEvent
-from tabletop.api.resolution import ResolutionStatus, RollResult, StateChange
+from tabletop.api.resolution import (
+    Resolution,
+    ResolutionStatus,
+    RollResult,
+    StateChange,
+)
 from tabletop.api.rules import RuleReference
 from tabletop.campaign.invariants import detach, promote, reveal
 from tabletop.campaign.models import Fact
+from tabletop.campaign.store import CampaignStore
 from tabletop.storage.sqlite import transaction
 
 
@@ -294,6 +300,46 @@ def record_contradiction(
                 payload=payload,
             ),
         )
+
+
+def apply_resolved_action(
+    conn: sqlite3.Connection,
+    campaign_id: str,
+    action: GameAction,
+    resolution: Resolution,
+    *,
+    scene_id: str | None = None,
+) -> PersistedEvent:
+    """Append ``action.resolved`` and apply its ``state_changes`` in one transaction."""
+
+    payload = action_resolved_payload(
+        action=action,
+        status=resolution.status,
+        outcome=resolution.outcome,
+        rolls=resolution.rolls,
+        state_changes=resolution.state_changes,
+        rule_references=resolution.rule_references,
+    )
+    event_store = EventStore(conn)
+    campaign_store = CampaignStore(conn)
+    with transaction(conn):
+        persisted = event_store.append_in_transaction(
+            conn,
+            campaign_id,
+            GameEvent(
+                event_type=EventType.ACTION_RESOLVED.value,
+                payload=payload,
+                actor=action.actor,
+                target=action.targets[0] if action.targets else None,
+            ),
+            scene_id=scene_id,
+        )
+        campaign_store.apply_state_changes_in_transaction(
+            campaign_id,
+            resolution.state_changes,
+            scene_id=scene_id,
+        )
+    return persisted
 
 
 def _event_from_row(row: sqlite3.Row) -> PersistedEvent:

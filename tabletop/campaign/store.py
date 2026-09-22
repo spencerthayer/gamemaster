@@ -202,23 +202,36 @@ class CampaignStore:
         *,
         scene_id: str | None = None,
     ) -> None:
+        with transaction(self.conn):
+            self.apply_state_changes_in_transaction(
+                campaign_id, changes, scene_id=scene_id
+            )
+
+    def apply_state_changes_in_transaction(
+        self,
+        campaign_id: str,
+        changes: Iterable[StateChange],
+        *,
+        scene_id: str | None = None,
+    ) -> None:
+        """Apply state changes using a transaction already owned by the caller."""
+
         planned = tuple(
             _validate_change_path(campaign_id, change, scene_id) for change in changes
         )
         staged: dict[tuple[str, str], Any] = {}
 
-        with transaction(self.conn):
-            for change, target, relative_path in planned:
-                if target not in staged:
-                    staged[target] = self._load_state_target(
-                        campaign_id, target, scene_id
-                    )
-                staged[target] = _apply_json_change(
-                    staged[target], relative_path, change
+        for change, target, relative_path in planned:
+            if target not in staged:
+                staged[target] = self._load_state_target(
+                    campaign_id, target, scene_id
                 )
+            staged[target] = _apply_json_change(
+                staged[target], relative_path, change
+            )
 
-            for target, state in staged.items():
-                self._write_state_target(campaign_id, target, scene_id, state)
+        for target, state in staged.items():
+            self._write_state_target(campaign_id, target, scene_id, state)
 
     def _load_state_target(
         self,
