@@ -3,9 +3,6 @@
 The single canonical location for the plugin API version string. Game-system
 plugins implement :class:`GameSystemPlugin` and depend only on this package;
 they never import Omega, MeTTa, or any runtime implementation module.
-
-Action and resolution models are owned by Phase 8; this module references
-them by forward annotation only and does not define them.
 """
 
 from __future__ import annotations
@@ -15,11 +12,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from tabletop.api.actions import GameAction
 from tabletop.api.capabilities import Capability
 from tabletop.api.errors import (
     InvalidPluginConfigurationError,
     UnsupportedCapabilityError,
 )
+from tabletop.api.resolution import Resolution, ResolutionContext
 
 TABLETOP_PLUGIN_API_VERSION = "tabletop/v1"
 
@@ -128,14 +127,15 @@ class GameSystemPlugin(ABC):
         """Capabilities this plugin currently implements."""
 
     @abstractmethod
-    def resolve(self, action: "GameAction", context: "ResolutionContext") -> "Resolution":
+    def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         """Resolve one action deterministically.
 
-        ``GameAction``, ``ResolutionContext``, and ``Resolution`` are owned
-        by Phase 8; referenced here by forward annotation so the contract
-        shape is stable without freezing a temporary model. When a plugin
-        cannot decide deterministically it must yield to GM adjudication
-        rather than fabricate an outcome (final mechanism: Phase 9).
+        Plugins read ``ResolutionContext.state`` and return a ``Resolution``
+        that describes outcome, optional rolls, desired state changes, and
+        proposed events. They do not mutate authoritative campaign
+        persistence through the context. When a plugin cannot decide
+        deterministically it must set ``requires_ruling`` rather than
+        fabricate an outcome (policy enforcement: Phase 9).
         """
 
     def supports(self, capability: Capability) -> bool:

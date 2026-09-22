@@ -22,6 +22,7 @@ RUNTIME_MODULES = [
     "tabletop.api",
     "tabletop.api.plugin",
     "tabletop.api.capabilities",
+    "tabletop.api._contract",
     "tabletop.runtime",
     "tabletop.api.actions",
     "tabletop.api.resolution",

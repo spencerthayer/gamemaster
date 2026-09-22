@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from tabletop.api.actions import GameAction
 from tabletop.api.capabilities import Capability
 from tabletop.api.errors import GameSystemError, StateValidationError
 from tabletop.api.plugin import (
@@ -19,6 +20,7 @@ from tabletop.api.plugin import (
     GameSystemPlugin,
     ValidationResult,
 )
+from tabletop.api.resolution import Resolution, ResolutionContext
 
 _SYSTEM_ID = "freeform"
 
@@ -45,7 +47,7 @@ class FreeformPlugin(GameSystemPlugin):
         """No mechanics implemented yet; nothing is advertised."""
         return frozenset()
 
-    def resolve(self, action: "GameAction", context: "ResolutionContext") -> "Resolution":
+    def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         raise GameSystemError(
             "freeform resolve() is implemented in Phase 26; no mechanics exist yet"
         )
