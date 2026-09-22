@@ -21,6 +21,7 @@ from tabletop.api.errors import DiceExpressionError
 from tabletop.api.workspace import Workspace, parse_workspace, skill_registration_entries
 from tabletop.campaign.rulings import Ruling, RulingStore
 from tabletop.dice.roller import roll as roll_dice
+from tabletop.orchestration.session import SessionLifecycle
 from tabletop.plugins.discovery import discover_plugins, load_plugin
 from tabletop.plugins.registry import PluginRegistry
 
@@ -300,7 +301,36 @@ class TabletopRuntime:
         return self._ok("record-ruling", stored.to_dict())
 
     def end_session(self) -> dict[str, Any]:
-        return self._unavailable("end-session", phase=29)
+        if self._connection is None:
+            return self._storage_required("end-session")
+        campaign_id = self.active_campaign
+        if not campaign_id:
+            return self._error(
+                "end-session",
+                "campaign_not_configured",
+                "end-session requires an active campaign.",
+            )
+        projection_directory = next(
+            (
+                root / campaign_id
+                for root in self.campaign_roots
+                if (root / campaign_id).is_dir()
+            ),
+            self.campaign_roots[0] / campaign_id,
+        )
+        try:
+            session = SessionLifecycle(
+                self._connection,
+                projection_directory,
+            ).end_session(campaign_id)
+        except (LookupError, OSError, sqlite3.Error, ValueError) as exc:
+            return self._error(
+                "end-session",
+                "session_not_ended",
+                str(exc),
+                data={"campaign_id": campaign_id},
+            )
+        return self._ok("end-session", {"session": session.to_dict()})
 
     # -- Setting workspace surface (task 10 store + task 12 history) ---------
 
@@ -559,7 +589,9 @@ class TabletopRuntime:
             )
         row = self._connection.execute(
             "SELECT session_id, campaign_id, started_at, ended_at, participants, "
-            "summary FROM sessions WHERE session_id = ?",
+            "transcript_reference, event_start_sequence, event_end_sequence, "
+            "summary, important_facts, open_threads "
+            "FROM sessions WHERE session_id = ?",
             (key,),
         ).fetchone()
         if row is None:
@@ -571,6 +603,12 @@ class TabletopRuntime:
             )
         result = dict(row)
         result["participants"] = json.loads(result["participants"])
+        result["event_range"] = {
+            "start": result.pop("event_start_sequence"),
+            "end": result.pop("event_end_sequence"),
+        }
+        result["important_facts"] = json.loads(result["important_facts"])
+        result["open_threads"] = json.loads(result["open_threads"])
         return self._ok("read-session", {"session": result})
 
     def get_party_state(self) -> dict[str, Any]:
