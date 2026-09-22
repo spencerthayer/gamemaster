@@ -34,7 +34,7 @@ ARG PETTA_REF=v1.0.4
 ARG FAISS_REPO=https://github.com/facebookresearch/faiss.git
 ARG FAISS_REF=v1.8.0
 ARG CHROMADB_REPO=https://github.com/patham9/petta_lib_chromadb.git
-ARG CHROMADB_REF=master
+ARG CHROMADB_REF=218484875d5d1bfb217a9a03d3983dc1ed9d406c
 
 # Embedding model to pre-download at build time.
 ARG EMBEDDING_MODEL=intfloat/e5-large-v2
@@ -50,7 +50,10 @@ RUN cmake -B build -DFAISS_ENABLE_GPU=OFF -DFAISS_ENABLE_PYTHON=OFF -DBUILD_SHAR
 WORKDIR /PeTTa
 RUN sh build.sh
 RUN mkdir -p /PeTTa/repos \
- && git clone --depth 1 --branch "${CHROMADB_REF}" "${CHROMADB_REPO}" /PeTTa/repos/petta_lib_chromadb
+ && git init /PeTTa/repos/petta_lib_chromadb \
+ && git -C /PeTTa/repos/petta_lib_chromadb remote add origin "${CHROMADB_REPO}" \
+ && git -C /PeTTa/repos/petta_lib_chromadb fetch --depth 1 origin "${CHROMADB_REF}" \
+ && git -C /PeTTa/repos/petta_lib_chromadb checkout --detach FETCH_HEAD
 
 COPY ./requirements.txt /tmp/requirements.txt
 RUN python3 -m pip install --no-cache-dir --break-system-packages \

@@ -15,6 +15,7 @@
              (log INFO "tabletop-plugin-workspace" $workspace)
              (register-workspace-skills $workspace)))
          (add-prompt-extension tabletop-runtime-policy $prompt)
+         (log INFO "tabletop-prompt-extension" "tabletop-runtime-policy")
          ()))))
 
 ;; Workspace skill surfaces are fixed at startup from TABLETOP_WORKSPACE.

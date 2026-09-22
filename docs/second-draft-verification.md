@@ -19,11 +19,26 @@ The commands below are the evidence. A skipped Docker test is not a pass.
    `tests/tabletop/test_fact_lifecycle_skills.py` pass.
 6. **Writes stay in the active campaign or owned setting: MET** if the
    boundary and lifecycle tests pass.
-7. **Omega container startup: NOT MET.** `tests/integration/test_docker_opt_in.py`
-   skips unless `GAMEMASTER_RUN_DOCKER=1`. This session did not boot the image.
-8. **Production image build: NOT MET.** Same skip. `docker compose config` is
-   not a build.
-9. **Restart persistence, FTS5, and pypdf inside the container: NOT MET.**
+7. **Omega container startup: NOT MET for plugin registration.**
+   `GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration/test_omega_startup.py`
+   built the image, passed nginx, and reached the agent loop with provider
+   `Test` and channel `test`. The MeTTa loader then logged
+   `Cannot import tabletop plugin from /PeTTa/repos/Omega/plugins/tabletop/tabletop`.
+   The same failure hit the workflow and openclaw MeTTa plugins.
+   `loadOmegaPlugin` did not run, so `tabletop-plugin` and
+   `tabletop-prompt-extension` were absent. Python plugins under `channels/`
+   and `providers/` did load.
+8. **Production image build: MET.** `docker compose build` produced
+   `gamemaster:latest`. `SWIPL_IMAGE` remained `docker.io/library/swipl:10.0.2`.
+   The index digest observed on 2026-09-22 was
+   `sha256:9d44cac3f4235e297db87217e59aa81cdf9847970bd27ddb447072d5466ea8ae`.
+   The linux/amd64 manifest digest was
+   `sha256:ca286371b720b38dceb7a9ca74f5ce40db24355f7c827ad96a663d0ceb1ffa57`.
+   `petta_lib_chromadb` is pinned to `218484875d5d1bfb217a9a03d3983dc1ed9d406c`.
+9. **FTS5, pypdf, and a uid 65534 SQLite file inside the image: MET.**
+   `tests/integration/test_docker_image.py` passed. The state directory is
+   prepared with `chown 65534:65534` before the runtime user writes, matching
+   `entrypoint.sh`. A second container on the same volume read the inserted row.
 10. **Visibility matrix: MET** if `tests/tabletop/test_visibility_matrix.py` passes.
     Fact expiry is not filtered. Relationship expiry is.
 11. **Full suite: MET.** `python3.11 -m pytest tests/ -q` reported
