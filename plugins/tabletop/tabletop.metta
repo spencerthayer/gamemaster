@@ -1,19 +1,25 @@
 !(import! &self (library Omega ./plugins/tabletop/omega_tabletop_adapter.py))
 
 (= (loadOmegaPlugin)
-   (progn
-     (let $status (py-call (omega_tabletop_adapter.initialize_response))
-       (log INFO "tabletop-plugin" $status))
-     ;; claim_skill_registration is the one-shot gate: first call returns the
-     ;; bare workspace token (setting|campaign); later calls return
-     ;; already-registered so register-workspace-skills adds nothing.
-     (let $workspace (py-call (omega_tabletop_adapter.claim_skill_registration))
-       (progn
-         (log INFO "tabletop-plugin-workspace" $workspace)
-         (register-workspace-skills $workspace)))
-     (add-prompt-extension tabletop-runtime-policy
-       "TABLETOP_RUNTIME: Use tabletop skills for authoritative campaign state and mechanics. If a tabletop skill returns ok=false or capability_unavailable, treat that operation as unavailable and do not invent a mechanical result or campaign fact. Game-system plugins own deterministic mechanics; the Tabletop Runtime owns campaign continuity. Narration may describe returned outcomes but must not silently replace them.")
-     ()))
+   (let $prompt-path
+     (joinPath ((projectRootDirectory) "plugins" "tabletop" "prompt.md"))
+     (if (not (exists-file $prompt-path))
+       (Error (_loadOmegaPlugin) "Tabletop prompt policy file is missing")
+       (let $prompt (read-file $prompt-path)
+         (if (== $prompt "")
+           (Error (_loadOmegaPlugin) "Tabletop prompt policy file is empty")
+           (progn
+             (let $status (py-call (omega_tabletop_adapter.initialize_response))
+               (log INFO "tabletop-plugin" $status))
+             ;; claim_skill_registration is the one-shot gate: first call returns the
+             ;; bare workspace token (setting|campaign); later calls return
+             ;; already-registered so register-workspace-skills adds nothing.
+             (let $workspace (py-call (omega_tabletop_adapter.claim_skill_registration))
+               (progn
+                 (log INFO "tabletop-plugin-workspace" $workspace)
+                 (register-workspace-skills $workspace)))
+             (add-prompt-extension tabletop-runtime-policy $prompt)
+             ())))))
 
 ;; Workspace skill surfaces are fixed at startup from TABLETOP_WORKSPACE.
 ;; Forbidden operations are absent from add-skill, not merely discouraged.
