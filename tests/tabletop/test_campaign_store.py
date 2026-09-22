@@ -9,6 +9,7 @@ import pytest
 
 from tabletop.api.errors import FactInvariantError, InvalidResolutionError
 from tabletop.api.resolution import StateChange, StateOperation
+from tabletop.api.visibility import Viewpoint, parse_scope
 from tabletop.campaign.models import (
     CanonState,
     Fact,
@@ -17,6 +18,8 @@ from tabletop.campaign.models import (
 )
 from tabletop.campaign.store import CampaignStore
 from tabletop.storage.sqlite import connect, migrate
+
+GM_VIEWPOINT = Viewpoint(scope=parse_scope("GM"))
 
 
 @pytest.fixture
@@ -114,7 +117,7 @@ def test_adds_and_fetches_facts_after_invariant_check(store: CampaignStore) -> N
 
     store.add_fact(fact)
 
-    assert store.get_facts("campaign-1") == [fact]
+    assert store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT) == [fact]
 
     invalid = _fact(
         fact_id="invalid",
@@ -123,7 +126,7 @@ def test_adds_and_fetches_facts_after_invariant_check(store: CampaignStore) -> N
     )
     with pytest.raises(FactInvariantError):
         store.add_fact(invalid)
-    assert store.get_facts("campaign-1") == [fact]
+    assert store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT) == [fact]
 
 
 def test_applies_campaign_set_with_literal_dotted_key(store: CampaignStore) -> None:

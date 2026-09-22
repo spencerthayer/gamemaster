@@ -10,6 +10,7 @@ import pytest
 from tabletop.api.actions import GameAction
 from tabletop.api.entities import EntityRef
 from tabletop.api.resolution import Resolution, StateChange, StateOperation
+from tabletop.api.visibility import Viewpoint, parse_scope
 from tabletop.campaign.event_store import (
     EventStore,
     EventType,
@@ -24,6 +25,8 @@ from tabletop.campaign.projections import CampaignProjection, project_campaign
 from tabletop.campaign.store import CampaignStore
 from tabletop.documents.provenance import purge_facts_for_document
 from tabletop.storage.sqlite import connect, migrate
+
+GM_VIEWPOINT = Viewpoint(scope=parse_scope("GM"))
 
 
 @pytest.fixture
@@ -400,7 +403,10 @@ def test_public_mutations_append_matching_events(conn) -> None:
     assert store.get_entity("campaign-1", "hero")["system_state"] == {
         "resources": {"hp": 8}
     }
-    assert {fact.fact_id for fact in store.get_facts("campaign-1")} == {
+    assert {
+        fact.fact_id
+        for fact in store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT)
+    } == {
         "lifecycle-fact"
     }
 

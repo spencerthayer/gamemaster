@@ -16,6 +16,7 @@ from tabletop.api.resolution import (
     StateOperation,
 )
 from tabletop.api.rules import RuleReference
+from tabletop.api.visibility import Viewpoint, parse_scope
 from tabletop.campaign.event_store import (
     EventStore,
     EventType,
@@ -29,6 +30,8 @@ from tabletop.campaign.event_store import (
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.store import CampaignStore
 from tabletop.storage.sqlite import connect, migrate
+
+GM_VIEWPOINT = Viewpoint(scope=parse_scope("GM"))
 
 
 @pytest.fixture
@@ -81,7 +84,10 @@ def test_promote_appends_only_fact_promoted(conn) -> None:
 
     assert promoted.canon_state is CanonState.CONFIRMED
     assert promoted.knowledge_state is KnowledgeState.UNREVEALED
-    assert store.get_facts("campaign-1")[0].canon_state is CanonState.CONFIRMED
+    assert (
+        store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT)[0].canon_state
+        is CanonState.CONFIRMED
+    )
     assert _event_types(conn) == [EventType.FACT_PROMOTED.value]
     assert EventType.FACT_REVEALED.value not in _event_types(conn)
 
@@ -95,7 +101,10 @@ def test_reveal_appends_only_fact_revealed(conn) -> None:
 
     assert revealed.knowledge_state is KnowledgeState.KNOWN
     assert revealed.canon_state is CanonState.CONFIRMED
-    assert store.get_facts("campaign-1")[0].knowledge_state is KnowledgeState.KNOWN
+    assert (
+        store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT)[0].knowledge_state
+        is KnowledgeState.KNOWN
+    )
     assert _event_types(conn) == [EventType.FACT_REVEALED.value]
     assert EventType.FACT_PROMOTED.value not in _event_types(conn)
 
@@ -112,7 +121,7 @@ def test_detach_changes_only_source_ownership(conn) -> None:
 
     detached = detach_fact(conn, fact)
 
-    stored = store.get_facts("campaign-1")[0]
+    stored = store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT)[0]
     assert detached.source_ownership == "detached"
     assert stored.source_ownership == "detached"
     assert stored.canon_state is CanonState.CONFIRMED
@@ -133,7 +142,7 @@ def test_promote_imported_fact_preserves_provenance(conn) -> None:
 
     promoted = promote_fact(conn, fact)
 
-    stored = store.get_facts("campaign-1")[0]
+    stored = store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT)[0]
     assert promoted.source_document_id == "doc-1"
     assert promoted.import_job_id == "job-1"
     assert stored.source_document_id == "doc-1"
@@ -150,7 +159,7 @@ def test_reveal_proposed_fact_raises_and_appends_no_event(conn) -> None:
     with pytest.raises(FactInvariantError):
         reveal_fact(conn, fact)
 
-    assert store.get_facts("campaign-1") == [fact]
+    assert store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT) == [fact]
     assert EventStore(conn).read("campaign-1") == []
 
 
@@ -189,14 +198,16 @@ def test_missing_fact_raises_and_leaves_event_log_unchanged(
         helper(conn, fact)
 
     assert EventStore(conn).read("campaign-1") == []
-    assert CampaignStore(conn).get_facts("campaign-1") == []
+    assert CampaignStore(conn).get_facts(
+        "campaign-1", viewpoint=GM_VIEWPOINT
+    ) == []
 
 
 def test_contradiction_detected_never_changes_facts(conn) -> None:
     store = CampaignStore(conn)
     fact = _fact(canon_state=CanonState.CONFIRMED)
     store.add_fact(fact)
-    before = store.get_facts("campaign-1")
+    before = store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT)
 
     record_contradiction(
         conn,
@@ -204,7 +215,7 @@ def test_contradiction_detected_never_changes_facts(conn) -> None:
         {"subject_id": "entity-1", "reason": "conflicting claim"},
     )
 
-    assert store.get_facts("campaign-1") == before
+    assert store.get_facts("campaign-1", viewpoint=GM_VIEWPOINT) == before
     events = EventStore(conn).read("campaign-1")
     assert len(events) == 1
     assert events[0].event_type == EventType.CANON_CONTRADICTION_DETECTED.value

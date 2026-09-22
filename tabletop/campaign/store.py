@@ -15,9 +15,11 @@ from typing import Any, Iterable, Mapping, assert_never
 
 from tabletop.api.errors import InvalidResolutionError
 from tabletop.api.resolution import StateChange
+from tabletop.api.visibility import Viewpoint
 from tabletop.campaign.invariants import check_fact_invariants
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.state_paths import apply_json_change, route_state_change_path
+from tabletop.campaign.visibility import visible_facts_clause
 from tabletop.storage.sqlite import transaction
 
 
@@ -163,14 +165,18 @@ class CampaignStore:
                 ),
             )
 
-    def get_facts(self, campaign_id: str) -> list[Fact]:
+    def get_facts(
+        self, campaign_id: str, *, viewpoint: Viewpoint
+    ) -> list[Fact]:
+        visibility_clause, visibility_params = visible_facts_clause(viewpoint)
         rows = self.conn.execute(
             "SELECT fact_id, fact_scope, setting_id, campaign_id, subject_id, "
             "predicate, value, canon_state, knowledge_state, visibility, valid_from, "
             "valid_until, source_document_id, source_chunk_id, import_job_id, "
             "extraction_method, source_ownership, created_at "
-            "FROM facts WHERE campaign_id = ? ORDER BY created_at, fact_id",
-            (campaign_id,),
+            f"FROM facts WHERE campaign_id = ? AND ({visibility_clause}) "
+            "ORDER BY created_at, fact_id",
+            (campaign_id, *visibility_params),
         ).fetchall()
         return [_fact_from_row(row) for row in rows]
 
