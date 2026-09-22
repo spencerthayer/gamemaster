@@ -239,17 +239,20 @@ fact
 
 The current schema anchors that trace as follows. A fact records
 `source_document_id`, `source_chunk_id`, `import_job_id`, and
-`extraction_method`. Its ingest job records `document_hash`, `parser_version`,
-and `slice_strategy_version`. Slices are durable rows identified within a job
-by `job_id` and `slice_index`.
+`extraction_method`. The `import_job_id` value conventionally matches an ingest
+job's `job_id`, but it is unconstrained text rather than a foreign key, so the
+database does not enforce that association. When the referenced job exists, it
+records `document_hash`, `parser_version`, and `slice_strategy_version`. Slices
+are durable rows identified within a job by `job_id` and `slice_index`.
 
 The current migrations do not add an extraction table, a document table, or a
-foreign key that maps a fact's chunk reference to a slice index. Therefore the
-schema already preserves the fact, source, extraction method, and exact job
-identity, while the complete enforced relational traversal from extraction to
-slice remains work for the document-ingestion schema. This limitation must not
-be hidden by treating the source reference as a database join that does not
-exist.
+foreign key from a fact's import job reference to an ingest job. They also do
+not add a foreign key that maps a fact's chunk reference to a slice index.
+Therefore the schema preserves the fact, source, extraction method, and a
+conventional exact-job reference, while the complete enforced relational
+traversal from extraction to slice remains work for the document-ingestion
+schema. These limitations must not be hidden by treating either reference as a
+database join that does not exist.
 
 ## Promotion and detachment
 
