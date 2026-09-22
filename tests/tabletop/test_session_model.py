@@ -93,6 +93,14 @@ def _rows(connection: sqlite3.Connection, sql: str) -> list[dict[str, object]]:
     return [dict(row) for row in connection.execute(sql).fetchall()]
 
 
+def _stop_before(target: EndSessionStep):
+    def observer(step: EndSessionStep) -> None:
+        if step is target:
+            raise RuntimeError(f"stop before {target.value}")
+
+    return observer
+
+
 def test_session_record_contains_complete_lifecycle_data(
     session_database: tuple[sqlite3.Connection, Path],
 ) -> None:
@@ -157,6 +165,95 @@ def test_closing_checklist_has_explicit_order_and_runs_each_step(
     assert calls == list(END_SESSION_CHECKLIST)
 
 
+def test_close_event_range_step_persists_actual_bounds(
+    session_database: tuple[sqlite3.Connection, Path],
+) -> None:
+    connection, projection_directory = session_database
+    lifecycle = SessionLifecycle(
+        connection,
+        projection_directory,
+        step_observer=_stop_before(EndSessionStep.WRITE_SUMMARY),
+    )
+
+    with pytest.raises(RuntimeError, match="stop before write_summary"):
+        lifecycle.end_session(
+            "campaign-1",
+            ended_at="2026-09-22T03:00:00+00:00",
+        )
+
+    row = connection.execute(
+        "SELECT ended_at, event_start_sequence, event_end_sequence, checklist_step "
+        "FROM sessions WHERE session_id = 'session-1'"
+    ).fetchone()
+    assert dict(row) == {
+        "ended_at": "2026-09-22T03:00:00+00:00",
+        "event_start_sequence": 2,
+        "event_end_sequence": 3,
+        "checklist_step": 1,
+    }
+
+
+def test_write_summary_step_persists_summary(
+    session_database: tuple[sqlite3.Connection, Path],
+) -> None:
+    connection, projection_directory = session_database
+    lifecycle = SessionLifecycle(
+        connection,
+        projection_directory,
+        step_observer=_stop_before(EndSessionStep.REGENERATE_PROJECTIONS),
+    )
+
+    with pytest.raises(RuntimeError, match="stop before regenerate_projections"):
+        lifecycle.end_session(
+            "campaign-1",
+            summary_provider=lambda _: "Focused summary",
+        )
+
+    row = connection.execute(
+        "SELECT summary, checklist_step FROM sessions "
+        "WHERE session_id = 'session-1'"
+    ).fetchone()
+    assert dict(row) == {"summary": "Focused summary", "checklist_step": 2}
+
+
+def test_regenerate_projections_step_writes_projection(
+    session_database: tuple[sqlite3.Connection, Path],
+) -> None:
+    connection, projection_directory = session_database
+    lifecycle = SessionLifecycle(
+        connection,
+        projection_directory,
+        step_observer=_stop_before(EndSessionStep.UPDATE_RETRIEVAL),
+    )
+
+    with pytest.raises(RuntimeError, match="stop before update_retrieval"):
+        lifecycle.end_session("campaign-1")
+
+    assert (projection_directory / "campaign.yaml").is_file()
+    checklist_step = connection.execute(
+        "SELECT checklist_step FROM sessions WHERE session_id = 'session-1'"
+    ).fetchone()[0]
+    assert checklist_step == 3
+
+
+def test_update_retrieval_step_indexes_session(
+    session_database: tuple[sqlite3.Connection, Path],
+) -> None:
+    connection, projection_directory = session_database
+
+    SessionLifecycle(connection, projection_directory).end_session("campaign-1")
+
+    row = connection.execute(
+        "SELECT document_id FROM fts_campaign "
+        "WHERE chunk_id = 'session:session-1'"
+    ).fetchone()
+    checklist_step = connection.execute(
+        "SELECT checklist_step FROM sessions WHERE session_id = 'session-1'"
+    ).fetchone()[0]
+    assert row["document_id"] == "session-1"
+    assert checklist_step == len(END_SESSION_CHECKLIST)
+
+
 def test_projection_regeneration_and_retrieval_update_complete(
     session_database: tuple[sqlite3.Connection, Path],
 ) -> None:
@@ -175,6 +272,85 @@ def test_projection_regeneration_and_retrieval_update_complete(
     assert row["document_id"] == "session-1"
     assert "Event range: 2 through 3" in row["text"]
     assert "The gate was sealed." in row["text"]
+
+
+@pytest.mark.parametrize(
+    ("failed_step", "error_message"),
+    [
+        (EndSessionStep.REGENERATE_PROJECTIONS, "projection failed"),
+        (EndSessionStep.UPDATE_RETRIEVAL, "retrieval failed"),
+    ],
+)
+def test_retry_resumes_after_projection_or_retrieval_failure(
+    session_database: tuple[sqlite3.Connection, Path],
+    failed_step: EndSessionStep,
+    error_message: str,
+) -> None:
+    connection, projection_directory = session_database
+    projection_calls = 0
+    retrieval_calls = 0
+
+    def projection_writer(*_: object) -> None:
+        nonlocal projection_calls
+        projection_calls += 1
+        if failed_step is EndSessionStep.REGENERATE_PROJECTIONS:
+            raise OSError("projection failed")
+
+    def retrieval_updater(*_: object) -> None:
+        nonlocal retrieval_calls
+        retrieval_calls += 1
+        if failed_step is EndSessionStep.UPDATE_RETRIEVAL:
+            raise OSError("retrieval failed")
+
+    lifecycle = SessionLifecycle(
+        connection,
+        projection_directory,
+        projection_writer=projection_writer,
+        retrieval_updater=retrieval_updater,
+    )
+    before = {
+        "agendas": _rows(
+            connection,
+            "SELECT entity_id, system_state FROM entities WHERE entity_type = 'npc'",
+        ),
+        "rulings": _rows(connection, "SELECT * FROM rulings"),
+        "events": _rows(connection, "SELECT * FROM events ORDER BY sequence"),
+    }
+
+    with pytest.raises(OSError, match=error_message):
+        lifecycle.end_session(
+            "campaign-1",
+            summary_provider=lambda _: "Durable summary",
+            ended_at="2026-09-22T03:00:00+00:00",
+        )
+
+    retry = SessionLifecycle(
+        connection,
+        projection_directory,
+        projection_writer=lambda *_: None,
+        retrieval_updater=lambda *_: None,
+    ).end_session(
+        "campaign-1",
+        summary_provider=lambda _: "Must not replace the durable summary",
+        ended_at="2026-09-22T04:00:00+00:00",
+    )
+
+    assert retry.ended_at == "2026-09-22T03:00:00+00:00"
+    assert retry.summary == "Durable summary"
+    assert retry.event_range.start == 2
+    assert retry.event_range.end == 3
+    assert projection_calls == 1
+    assert retrieval_calls == (
+        0 if failed_step is EndSessionStep.REGENERATE_PROJECTIONS else 1
+    )
+    assert {
+        "agendas": _rows(
+            connection,
+            "SELECT entity_id, system_state FROM entities WHERE entity_type = 'npc'",
+        ),
+        "rulings": _rows(connection, "SELECT * FROM rulings"),
+        "events": _rows(connection, "SELECT * FROM events ORDER BY sequence"),
+    } == before
 
 
 def test_end_session_preserves_agendas_clocks_rulings_and_events(

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Mapping, assert_never
 
 from tabletop.campaign.event_store import EventStore
 from tabletop.campaign.projections import (
@@ -112,64 +112,114 @@ class SessionLifecycle:
     ) -> Session:
         """Run every closing step in the declared order."""
 
-        session = self._open_session(campaign_id)
-        closed_at = ended_at or datetime.now(timezone.utc).isoformat()
-
-        self._observe(EndSessionStep.CLOSE_EVENT_RANGE)
-        event_range = self._close_event_range(session.session_id, closed_at)
-        session = _replace_session(
-            session,
-            ended_at=closed_at,
-            event_range=event_range,
+        session, completed_steps = self._pending_session(campaign_id)
+        closed_at = (
+            session.ended_at
+            or ended_at
+            or datetime.now(timezone.utc).isoformat()
         )
 
-        self._observe(EndSessionStep.WRITE_SUMMARY)
-        summary = self._summary_or_none(summary_provider, session)
-        self._write_summary(session.session_id, summary)
-        session = _replace_session(session, summary=summary)
-
-        self._observe(EndSessionStep.REGENERATE_PROJECTIONS)
-        events = EventStore(self._connection).read(campaign_id)
-        projection = (
-            project_campaign(events)
-            if events
-            else CampaignProjection(campaign_id=campaign_id, sequence=0)
-        )
-        self._projection_writer(projection, self._projection_directory)
-
-        self._observe(EndSessionStep.UPDATE_RETRIEVAL)
-        self._retrieval_updater(self._connection, session)
-        self._connection.commit()
+        for step_number, step in enumerate(END_SESSION_CHECKLIST, start=1):
+            if step_number <= completed_steps:
+                continue
+            self._observe(step)
+            session = self._run_step(
+                step,
+                session,
+                closed_at=closed_at,
+                summary_provider=summary_provider,
+            )
+            self._mark_step_complete(session, step_number)
         return session
 
-    def _open_session(self, campaign_id: str) -> Session:
+    def _pending_session(self, campaign_id: str) -> tuple[Session, int]:
         row = self._connection.execute(
             "SELECT session_id, campaign_id, started_at, ended_at, participants, "
             "transcript_reference, event_start_sequence, event_end_sequence, "
-            "summary, important_facts, open_threads FROM sessions "
-            "WHERE campaign_id = ? AND ended_at IS NULL "
+            "summary, important_facts, open_threads, checklist_step FROM sessions "
+            "WHERE campaign_id = ? "
+            "AND (ended_at IS NULL OR checklist_step < ?) "
             "ORDER BY started_at DESC, session_id DESC LIMIT 1",
-            (campaign_id,),
+            (campaign_id, len(END_SESSION_CHECKLIST)),
         ).fetchone()
         if row is None:
-            raise LookupError(f"no open session for campaign: {campaign_id}")
-        return _session_from_row(row)
+            raise LookupError(f"no open or incomplete session for campaign: {campaign_id}")
+        return _session_from_row(row), int(row["checklist_step"])
 
-    def _close_event_range(self, session_id: str, ended_at: str) -> EventRange:
+    def _run_step(
+        self,
+        step: EndSessionStep,
+        session: Session,
+        *,
+        closed_at: str,
+        summary_provider: SummaryProvider | None,
+    ) -> Session:
+        match step:
+            case EndSessionStep.CLOSE_EVENT_RANGE:
+                event_range = self._close_event_range(session.session_id)
+                return replace(
+                    session,
+                    ended_at=closed_at,
+                    event_range=event_range,
+                )
+            case EndSessionStep.WRITE_SUMMARY:
+                summary = self._summary_or_none(summary_provider, session)
+                self._write_summary(session.session_id, summary)
+                return replace(session, summary=summary)
+            case EndSessionStep.REGENERATE_PROJECTIONS:
+                events = EventStore(self._connection).read(session.campaign_id)
+                projection = (
+                    project_campaign(events)
+                    if events
+                    else CampaignProjection(
+                        campaign_id=session.campaign_id,
+                        sequence=0,
+                    )
+                )
+                self._projection_writer(projection, self._projection_directory)
+                return session
+            case EndSessionStep.UPDATE_RETRIEVAL:
+                self._retrieval_updater(self._connection, session)
+                self._connection.commit()
+                return session
+            case _:
+                assert_never(step)
+
+    def _close_event_range(self, session_id: str) -> EventRange:
         row = self._connection.execute(
             "SELECT MIN(sequence), MAX(sequence) FROM events WHERE session_id = ?",
             (session_id,),
         ).fetchone()
-        event_range = EventRange(start=row[0], end=row[1])
+        return EventRange(start=row[0], end=row[1])
+
+    def _mark_step_complete(self, session: Session, step_number: int) -> None:
+        step = END_SESSION_CHECKLIST[step_number - 1]
         with transaction(self._connection):
-            cursor = self._connection.execute(
-                "UPDATE sessions SET ended_at = ?, event_start_sequence = ?, "
-                "event_end_sequence = ? WHERE session_id = ? AND ended_at IS NULL",
-                (ended_at, event_range.start, event_range.end, session_id),
-            )
+            if step is EndSessionStep.CLOSE_EVENT_RANGE:
+                cursor = self._connection.execute(
+                    "UPDATE sessions SET ended_at = COALESCE(ended_at, ?), "
+                    "event_start_sequence = ?, event_end_sequence = ?, "
+                    "checklist_step = ? WHERE session_id = ? AND checklist_step < ?",
+                    (
+                        session.ended_at,
+                        session.event_range.start,
+                        session.event_range.end,
+                        step_number,
+                        session.session_id,
+                        step_number,
+                    ),
+                )
+            else:
+                cursor = self._connection.execute(
+                    "UPDATE sessions SET checklist_step = ? "
+                    "WHERE session_id = ? AND checklist_step < ?",
+                    (step_number, session.session_id, step_number),
+                )
             if cursor.rowcount != 1:
-                raise LookupError(f"open session not found: {session_id}")
-        return event_range
+                raise LookupError(
+                    "session checklist step was not recorded: "
+                    f"{session.session_id}"
+                )
 
     def _write_summary(self, session_id: str, summary: str | None) -> None:
         with transaction(self._connection):
@@ -218,27 +268,6 @@ def _session_from_row(row: Mapping[str, object]) -> Session:
         summary=None if row["summary"] is None else str(row["summary"]),
         important_facts=tuple(_decode_list(row["important_facts"])),
         open_threads=tuple(_decode_list(row["open_threads"])),
-    )
-
-
-def _replace_session(
-    session: Session,
-    *,
-    ended_at: str | None = None,
-    event_range: EventRange | None = None,
-    summary: str | None = None,
-) -> Session:
-    return Session(
-        session_id=session.session_id,
-        campaign_id=session.campaign_id,
-        started_at=session.started_at,
-        ended_at=session.ended_at if ended_at is None else ended_at,
-        participants=session.participants,
-        transcript_reference=session.transcript_reference,
-        event_range=session.event_range if event_range is None else event_range,
-        summary=summary,
-        important_facts=session.important_facts,
-        open_threads=session.open_threads,
     )
 
 
