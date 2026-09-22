@@ -1380,7 +1380,7 @@ END;
 
 `ON DELETE RESTRICT`, not `CASCADE`. An immutable event history and automatic campaign cascade deletion cannot coexist: a cascade would try to delete events, the trigger would abort it, and every campaign delete would fail in a way no caller could fix. SQLite also has no clean session-level way to disable a trigger temporarily, so a purge path that turns the trigger off is a trap rather than an escape hatch.
 
-The rule instead: **campaign deletion is unsupported, campaign archival is supported.** Add a `status` or `archived_at` column when archival is actually needed. Task 14 purges documents by provenance ownership and never touches campaign rows.
+The rule instead: **campaign deletion is unsupported; archival is the intended lifecycle.** Migration 0004 adds no `status` or `archived_at` column, so archival is not implemented yet either: today a campaign simply stays. Add the column in the migration that first needs it, and until then do not describe archival as available. Task 14 purges facts by provenance ownership and never touches campaign rows.
 
 **Step 3: Implement the store**
 
@@ -1478,7 +1478,12 @@ Build a fixture with five facts against one document id: imported and proposed, 
 
 **Step 2: Implement**
 
-`purge_facts_for_document(conn, document_id)` selects `fact_id` where `source_document_id = ?` and `source_ownership = 'attached'`, deletes those rows, and appends `provenance.purged` through `append_in_transaction`, all in one caller-owned transaction. Return the removed ids so callers can report what happened rather than claiming a silent success.
+Two forms, the same split `EventStore` uses in task 12, so a composing caller never triggers a nested `BEGIN`:
+
+- `purge_facts_for_document_in_transaction(conn, document_id)` assumes the caller owns the transaction. It selects `fact_id` where `source_document_id = ?` and `source_ownership = 'attached'`, deletes those rows, and appends `provenance.purged` through `append_in_transaction`. This is the primitive task 28 composes.
+- `purge_facts_for_document(conn, document_id)` is the standalone public form: one `transaction(conn)` wrapped around the primitive.
+
+Both return the removed ids so callers can report what happened rather than claiming a silent success. Test both: the primitive inside a caller-owned transaction, and the wrapper standalone.
 
 Add `provenance.purged` to the task 13 `EventType` enum. `document.purged` arrives with the document purge service in task 28.
 
@@ -1948,9 +1953,9 @@ Assert the importer writes facts at `canon_state='proposed'` and `knowledge_stat
 The document tables exist from task 24 and the fact-level rule exists from task 14, so the full purge can finally be assembled here:
 
 ```
-purge_document(conn, document_id)
+purge_document(conn, document_id)          # opens the one transaction
     |
-    +-- purge_facts_for_document(...)   # task 14, attached rows only
+    +-- purge_facts_for_document_in_transaction(...)   # task 14 primitive
     +-- delete document_chunks rows
     +-- delete documents row
     +-- append document.purged naming the removed fact ids
@@ -1958,7 +1963,9 @@ purge_document(conn, document_id)
     single transaction
 ```
 
-Assert a detached fact survives the whole service; that chunks and the document row are gone; that a second document's rows are untouched; and that `document.purged` carries the same ids `purge_facts_for_document` returned.
+`purge_document` owns the transaction and calls the **in-transaction** primitive, never the standalone `purge_facts_for_document`, which would open a second `BEGIN` inside the first. That is the nesting failure task 12 already solved for events; the same discipline applies to every composed write.
+
+Assert a detached fact survives the whole service; that chunks and the document row are gone; that a second document's rows are untouched; that `document.purged` carries the same ids the primitive returned; and that the whole service is one transaction, so a failure after the fact deletion leaves the document row in place too.
 
 **Step 4: Run to green, open the phase PR, stop for approval**
 
