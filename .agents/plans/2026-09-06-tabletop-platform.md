@@ -398,6 +398,19 @@ states are explicit outcomes the orchestrator must handle. `UNSUPPORTED` and
 `UNRESOLVED` route to adjudication with rule references and context; neither
 licenses the LLM to produce mechanical numbers.
 
+The three non-resolved states may all reach the same adjudication interface, but
+they are different problems and must not be presented to the GM identically:
+
+```
+RULING_REQUIRED  enough information exists; the rules intentionally require
+                 human judgment
+                 "The rule permits GM judgment between these interpretations."
+UNRESOLVED       the mechanic exists; required facts, rules, or data are missing
+                 "Target difficulty is missing."
+UNSUPPORTED      this plugin does not implement the mechanic
+                 "This system plugin does not implement vehicle chases."
+```
+
 This taxonomy is what Phase 25 prompt policy and Phase 30 orchestration enforce.
 
 ### Phase 10: Dice Engine
@@ -456,8 +469,8 @@ Amended 2026-09-21:
 - Canon promotion and player reveal are distinct event types. Promoting a fact
   emits no reveal, and revealing emits no promotion.
 - Removal of imported records is provenance-aware: deleting a document removes
-  the records derived from it and leaves hand-authored or independently promoted
-  material intact.
+  the records still provenance-owned by it and leaves hand-authored or explicitly
+  detached material intact. Promotion alone does not detach (see Phase 11).
 - Contradiction findings are advisory events. They record a candidate conflict
   and never rewrite canon on their own.
 
@@ -844,7 +857,8 @@ tests cover major boundaries; Docker/Portainer documented; roadmap present.
 
 Added 2026-09-21: proposed facts require explicit promotion before becoming canon;
 promotion and reveal are separately auditable; deleting an ingested document
-removes exactly its derived records; an interrupted ingest resumes from a slice
+removes exactly the records still provenance-owned by that document while
+explicitly detached records survive; an interrupted ingest resumes from a slice
 boundary; a compacted context entry can be refetched from its recorded tool call.
 
 ### Phase 40: Final Agent Report
