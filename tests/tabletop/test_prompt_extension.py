@@ -9,7 +9,6 @@ METTA_PATH = REPO_ROOT / "plugins" / "tabletop" / "tabletop.metta"
 PROMPT_PATH = REPO_ROOT / "plugins" / "tabletop" / "prompt.md"
 ADAPTER_PATH = REPO_ROOT / "plugins" / "tabletop" / "omega_tabletop_adapter.py"
 PROMPT_CHARACTER_BUDGET = 4_000
-PROMPT_HANDLE = "tabletop-runtime-policy"
 
 
 def _load_adapter():
@@ -20,14 +19,15 @@ def _load_adapter():
     return adapter
 
 
-def test_prompt_extension_loads_reviewable_policy_with_stable_handle() -> None:
+def test_prompt_policy_is_not_registered_as_a_static_extension() -> None:
     metta = METTA_PATH.read_text(encoding="utf-8")
+    adapter = ADAPTER_PATH.read_text(encoding="utf-8")
 
-    assert '(joinPath ((projectRootDirectory) "plugins" "tabletop" "prompt.md"))' in metta
-    assert (
-        "(py-call (omega_tabletop_adapter.load_prompt_policy $prompt-path))" in metta
-    )
-    assert f"(add-prompt-extension {PROMPT_HANDLE} $prompt)" in metta
+    assert "add-prompt-extension" not in metta
+    assert "tabletop-runtime-policy" not in metta
+    assert "(py-call (omega_tabletop_adapter.allocated_context_text))" in metta
+    assert "load_prompt_policy" in adapter
+    assert '"plugins" / "tabletop" / "prompt.md"' in adapter
 
 
 def test_startup_prompt_loader_rejects_missing_and_whitespace_only_files(
@@ -76,15 +76,18 @@ def test_prompt_policy_names_all_non_resolved_statuses() -> None:
         assert status in policy
 
 
-def test_allocated_context_is_a_second_extension_after_policy() -> None:
+def test_allocated_context_is_one_py_call() -> None:
     metta = METTA_PATH.read_text(encoding="utf-8")
+    adapter = ADAPTER_PATH.read_text(encoding="utf-8")
     policy = PROMPT_PATH.read_text(encoding="utf-8")
-    policy_at = metta.index("(add-prompt-extension tabletop-runtime-policy $prompt)")
-    context_at = metta.index("(= (prompt-extension tabletop-allocated-context)")
-    assert policy_at < context_at
-    assert "(py-call (omega_tabletop_adapter.allocated_context_text))" in metta
-    assert "(py-call (omega_tabletop_adapter.record_allocated_context_receipt))" in metta
-    assert "record_prompt_context_receipt" not in metta.split("allocated_context_text")[0]
+    extension = metta.split("(= (prompt-extension tabletop-allocated-context)", 1)[1]
+    extension = extension.split("\n\n", 1)[0]
+
+    assert extension.count("py-call") == 1
+    assert "(py-call (omega_tabletop_adapter.allocated_context_text))" in extension
+    assert "record_allocated_context_receipt" not in metta
+    assert "record_prompt_context_receipt" not in metta
+    assert "_connection" not in adapter
     assert "Tabletop Runtime is authoritative" in policy
     assert "HUMAN-MSG" not in policy
     for path in (REPO_ROOT / "tabletop").rglob("*.py"):
@@ -93,11 +96,12 @@ def test_allocated_context_is_a_second_extension_after_policy() -> None:
         assert "import metta" not in text
 
 
-def test_snapshot_text_is_separate_from_the_receipt(
+def test_allocated_context_builds_one_snapshot_and_one_receipt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tabletop.campaign.store import CampaignStore
     from tabletop.orchestration.prompt_context import PROMPT_CONTEXT_HEADER
+    from tabletop.runtime import TabletopRuntime
     from tabletop.storage.sqlite import connect, migrate
 
     database = tmp_path / "prompt.sqlite3"
@@ -111,30 +115,40 @@ def test_snapshot_text_is_separate_from_the_receipt(
     adapter = _load_adapter()
     adapter.reset_runtime_for_tests()
     adapter.reset_skill_registration_for_tests()
+    calls = {"snapshot": 0}
+    original = TabletopRuntime.prompt_context_snapshot
+
+    def _counting(self):
+        calls["snapshot"] += 1
+        return original(self)
+
+    monkeypatch.setattr(TabletopRuntime, "prompt_context_snapshot", _counting)
     text = adapter.allocated_context_text()
+    assert calls["snapshot"] == 1
+    assert text.count("Tabletop Runtime is authoritative") == 1
     assert text.index("Tabletop Runtime is authoritative") < text.index(PROMPT_CONTEXT_HEADER)
     assert "HUMAN-MSG" not in text
     counted = connect(database)
     assert counted.execute(
         "SELECT COUNT(*) FROM prompt_context_receipts"
-    ).fetchone()[0] == 0
-    assert adapter.record_allocated_context_receipt() == "ok"
+    ).fetchone()[0] == 1
+    again = adapter.allocated_context_text()
+    assert again == text
+    assert calls["snapshot"] == 2
     assert counted.execute(
         "SELECT COUNT(*) FROM prompt_context_receipts"
     ).fetchone()[0] == 1
-    assert adapter.record_allocated_context_receipt() == "ok"
-    assert counted.execute(
-        "SELECT COUNT(*) FROM prompt_context_receipts"
-    ).fetchone()[0] == 1
-    counted.close()
 
     def _boom(*_args: object, **_kwargs: object) -> bool:
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(
-        "tabletop.orchestration.prompt_receipt.record_prompt_context_receipt",
+        "tabletop.runtime.record_prompt_context_receipt",
         _boom,
     )
     unchanged = adapter.allocated_context_text()
     assert unchanged == text
-    assert adapter.record_allocated_context_receipt() == "failed"
+    assert counted.execute(
+        "SELECT COUNT(*) FROM prompt_context_receipts"
+    ).fetchone()[0] == 1
+    counted.close()

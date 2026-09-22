@@ -126,7 +126,8 @@ def test_metta_plugin_registers_workspace_skills_and_prompt_extension():
     for skill in _SKILLS:
         assert f"(add-skill {skill}" in text
         assert f"(= ({skill}" in text
-    assert "(add-prompt-extension tabletop-runtime-policy" in text
+    assert "(prompt-extension tabletop-allocated-context)" in text
+    assert "add-prompt-extension" not in text
 
 
 def test_plugin_config_uses_metta_loader():

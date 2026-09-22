@@ -305,35 +305,20 @@ def loadOmegaPlugin():
 
 
 def allocated_context_text() -> str:
-    """Return the GM snapshot text. This function writes nothing."""
+    """Return policy text, then one GM snapshot. Receipt storage is included.
+
+    The receipt is stored from that same snapshot. A receipt failure does
+    not replace the returned text.
+    """
 
     try:
         runtime = initialize()
         policy = load_prompt_policy(_REPO_ROOT / "plugins" / "tabletop" / "prompt.md")
-        snapshot = runtime.prompt_context_snapshot().text
+        snapshot = runtime.prompt_context_snapshot_with_receipt()
         return f"{policy}\n\n{snapshot}"
     except Exception as exc:
         logger.warning("tabletop context snapshot failed: %s", type(exc).__name__)
         return _CONTEXT_UNAVAILABLE
-
-
-def record_allocated_context_receipt() -> str:
-    """Store the current snapshot after the text has been produced."""
-
-    try:
-        runtime = initialize()
-        connection = getattr(runtime, "_connection", None)
-        if connection is None:
-            return "failed"
-        snapshot = runtime.prompt_context_snapshot()
-        # Imported after initialize(), which puts the repo root on sys.path.
-        from tabletop.orchestration.prompt_receipt import record_prompt_context_receipt
-
-        stored = record_prompt_context_receipt(connection, snapshot)
-    except Exception as exc:
-        logger.warning("tabletop context receipt failed: %s", type(exc).__name__)
-        return "failed"
-    return "ok" if stored else "failed"
 
 
 def _invoke(method_name: str, *args: Any) -> str:

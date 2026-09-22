@@ -4,17 +4,16 @@ Recorded on branch `allocated-context-render` after the Omega container
 observed a fresh `CHARS_SENT` payload. A skipped Docker test is not a pass.
 `src/loop.metta` was not edited.
 
-`getPromptExtensions` emits the dynamic rule before the ground policy atom.
-`allocated_context_text` therefore returns the policy file and then the
-snapshot, so the first occurrence in the payload is still policy text, then
-allocated context. The static `tabletop-runtime-policy` extension remains.
+The policy file is no longer a static prompt extension. `allocated_context_text`
+returns that policy once, then the snapshot, from a single snapshot build.
 
 ## Checks
 
 1. **`build_context` has a production caller, and that caller is the tabletop
    prompt extension: MET.** `plugins/tabletop/omega_tabletop_adapter.py`
-   `allocated_context_text` calls `TabletopRuntime.prompt_context_snapshot`,
-   which calls `build_prompt_context_snapshot`.
+   `allocated_context_text` calls
+   `TabletopRuntime.prompt_context_snapshot_with_receipt`, which builds
+   `prompt_context_snapshot` once and stores the receipt for that snapshot.
 2. **Dynamic context is recomputed for every Omega context build: MET.**
    `GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration/test_omega_prompt_context.py -q`
    passed in 51.84s. A fact imported after plugin load appeared in a later

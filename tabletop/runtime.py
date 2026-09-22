@@ -11,6 +11,7 @@ discovery stays shallow until Phase 11 introduces the authoritative store.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -45,6 +46,7 @@ from tabletop.orchestration.prompt_context import (
     PromptContextSnapshot,
     build_prompt_context_snapshot,
 )
+from tabletop.orchestration.prompt_receipt import record_prompt_context_receipt
 from tabletop.orchestration.session import SessionLifecycle
 from tabletop.orchestration.turn import parse_game_action, play_turn
 from tabletop.plugins.discovery import discover_plugins, load_plugin
@@ -53,6 +55,8 @@ from tabletop.retrieval.lexical import LexicalRetriever, load_visible_chunk
 from tabletop.retrieval.models import RetrievalFilters, RetrievalNamespace
 from tabletop.storage.sqlite import connect as connect_database
 from tabletop.storage.sqlite import migrate, transaction
+
+logger = logging.getLogger(__name__)
 
 PLUGIN_PATH_ENV_VAR = "TABLETOP_PLUGIN_PATH"
 CAMPAIGN_PATHS_ENV_VAR = "TABLETOP_CAMPAIGN_PATHS"
@@ -122,6 +126,24 @@ class TabletopRuntime:
             campaign_id=self.active_campaign,
             setting_id=self._owned_setting_id(),
         )
+
+    def prompt_context_snapshot_with_receipt(self) -> str:
+        """Build one snapshot, store its receipt, and return the snapshot text.
+
+        Receipt storage uses this runtime's connection. A receipt failure
+        does not change the returned text.
+        """
+
+        snapshot = self.prompt_context_snapshot()
+        if self._connection is not None:
+            try:
+                record_prompt_context_receipt(self._connection, snapshot)
+            except Exception as exc:
+                logger.warning(
+                    "tabletop context receipt failed: %s",
+                    type(exc).__name__,
+                )
+        return snapshot.text
 
     def skill_registration_payload(self) -> dict[str, Any]:
         """Return the Omega skill registration list for this workspace only."""
