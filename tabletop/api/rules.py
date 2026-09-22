@@ -1,8 +1,8 @@
 """Rule references.
 
-``RuleReference`` is a transport type for citing a mechanical source. Phase
-22 owns retrieval, persistence, and precedence. This module only carries
-the fields that later retrieval will populate.
+``RuleReference`` is a transport type for citing a mechanical source.
+Retrieval, persistence, precedence, and source-version resolution live in
+``tabletop.retrieval``. This module only carries citation fields.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ class RuleReference:
     """Citation of a rule source used during resolution.
 
     This is not a retrieval result. Lookup, RAG, campaign rulings, and
-    document verification belong to Phase 22.
+    document verification belong to the retrieval layer.
     """
 
     source_id: str
