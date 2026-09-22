@@ -232,7 +232,8 @@ Status: COMPLETE
 Done: `tabletop/api/plugin.py` (`TABLETOP_PLUGIN_API_VERSION = "tabletop/v1"`,
 `GameSystemInfo`, `GameSystemPlugin` ABC with `supports()`/
 `require_capability()`/lifecycle/schema hooks/`validate_state()` returning
-`ValidationResult`, forward-annotated `resolve()` for Phase 8),
+`ValidationResult`, concrete `resolve(action: GameAction, context:
+ResolutionContext) -> Resolution` wired in Phase 8),
 `tabletop/api/capabilities.py` (13-member string-backed `Capability` enum),
 `tabletop/api/errors.py` (5-class hierarchy),
 `docs/plugin-api.md` incl. architecture falsification notes. `freeform` and
@@ -264,13 +265,51 @@ uploaded docs.
 
 ### Phase 8: Universal Action and Resolution Models
 Status: COMPLETE
-Done: `EntityRef`, `GameAction`, `ResolutionContext`, `Resolution`,
-`StateChange`, `RollResult`, `RuleReference` (transport), and `GameEvent`
-(proposed-event transport). Frozen dataclasses with defensive mapping
-copies. `GameSystemPlugin.resolve()` now uses the concrete types. Docs:
-`docs/action-resolution.md` plus `docs/plugin-api.md` resolution section.
-No mechanics, no dice engine, no persistence. `outcome` remains
-plugin-owned (no required success boolean).
+Merged as PR #6 (`60ae427`) on `main`. Commits: `efd46aa` (models),
+`159ad02` (path/JSON/operation contract), `9f50c9c` (padded-string
+rejection and str-enum JSON).
+
+Done:
+- `tabletop/api/entities.py`: frozen `EntityRef(id, entity_type=None)`.
+  Opaque non-empty unpadded id. No UUID. Hashable. `to_dict()`.
+- `tabletop/api/actions.py`: frozen `GameAction(actor, action_type,
+  targets=(), parameters={})`. Arbitrary plugin-owned parameters. Zero,
+  one, or many targets. Structural validation only.
+- `tabletop/api/resolution.py`: `ResolutionContext` (campaign_id,
+  system_id, optional scene_id, opaque `state`; data, not a service
+  locator), `StateOperation` (`SET`/`DELETE`), `StateChange` (operation,
+  `path: tuple[str | int, ...]`, optional value; DELETE forbids a
+  value; no `previous_value`), `RollResult` (expression, finite total,
+  opaque details), `Resolution` (plugin-owned `outcome`, optional rolls,
+  state_changes, rule_references, events, ruling pair, mechanical
+  `explanation`).
+- `tabletop/api/rules.py`: transport `RuleReference` (Phase 22 fields;
+  no retrieval).
+- `tabletop/api/events.py`: proposed-event `GameEvent` (no sequence,
+  campaign/session ids, timestamp, or store offset).
+- `tabletop/api/_contract.py`: JSON-shape freeze (`None`/`str`/`bool`/
+  `int`/finite `float`/string-keyed mappings/sequences),
+  `MappingProxyType` defensive copies, `to_jsonable` (Enum before str).
+- `InvalidActionError` and `InvalidResolutionError` in
+  `tabletop/api/errors.py`.
+- `GameSystemPlugin.resolve()` uses the concrete types. Freeform and
+  dnd5e stubs keep empty capabilities and still raise `GameSystemError`.
+- Docs: `docs/action-resolution.md`, `docs/plugin-api.md` resolution
+  section.
+- Tests: `tests/tabletop/test_action_resolution.py` plus skeleton import
+  of `_contract`. Local suite at merge: 157 tabletop / 223 `tests/`
+  (Python 3.11). CI: autotests pass, common pass.
+
+Contract notes for later phases:
+- Core does not require `success`/`failure`/`damage`/`margin` on
+  `Resolution`. Dice are optional. Plugins describe `StateChange` values;
+  they do not mutate campaign persistence through `ResolutionContext`.
+- Phase 11 applies `SET`/`DELETE` along tuple paths (dots inside a
+  component are literal keys). Prior state comes from the store, not
+  the plugin.
+- Phase 9 owns ruling policy enforcement. Phase 10 owns dice
+  parse/roll. Phase 12 owns persisted event rows.
+
 TODO: `GameAction`, `ResolutionContext`, `Resolution` dataclasses (per prompt).
 Core runtime asks plugin to resolve actions; core must not know meaning of AC,
 saving throw, hit location, spell slot, mana, refresh, sanity.
@@ -350,8 +389,10 @@ mechanics namespaces. Original source reference returnable.
 
 ### Phase 22: Rule References
 Status: PENDING
-TODO: `RuleReference` dataclass (source_id, title, section, page, document_path,
-chunk_id). Deterministic resolutions return rule refs where available.
+TODO: retrieval, persistence integration, and precedence around the
+Phase 8 `RuleReference` transport type (`source_id`, `title`, `section`,
+`page`, `document_path`, `chunk_id`). Deterministic resolutions return
+rule refs where available.
 
 ### Phase 23: Campaign Rulings
 Status: PENDING
@@ -484,6 +525,27 @@ No placeholders presented as implemented.
 - [ ] Phase 22-28: Rule refs, rulings, skills, prompt ext, freeform, dnd5e
 - [ ] Phase 29-36: Session model, context, security, docker, tests, demos, README
 - [ ] Phase 37-40: Decisions, git hygiene, first draft verification, final report
+
+## Current code on `main` (after Phase 8)
+
+HEAD after PR #6: `60ae427`.
+
+Implemented:
+- `tabletop/api/plugin.py`, `capabilities.py`, `errors.py`
+- `tabletop/api/{entities,actions,resolution,events,rules,_contract}.py`
+- `tabletop/plugins/{discovery,manifest,registry}.py`
+- `tabletop/runtime.py`, `plugins/tabletop/`, `systems/freeform/`, `systems/dnd5e/`
+- Docs: `docs/architecture.md`, `docs/plugin-api.md`, `docs/action-resolution.md`,
+  `docs/research/`
+
+Still placeholders: `tabletop/api/visibility.py`, `campaign/`, `dice/`,
+`storage/sqlite.py`, `documents/`, `retrieval/`, `orchestration/`.
+
+Owed docs: `campaign-model.md`, `retrieval.md`, `security.md`,
+`gurps-validation.md`, `roadmap.md`, `docs/decisions/` ADRs 0001-0008.
+
+Local verification at Phase 8 merge (Python 3.11): 157 tabletop tests, 223
+in `tests/`. CI on that HEAD: autotests pass, common pass.
 
 ## Verification commands
 
