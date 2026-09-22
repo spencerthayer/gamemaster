@@ -193,6 +193,24 @@ class CampaignStore:
         ).fetchall()
         return resolve_fact_overlay([_fact_from_row(row) for row in rows])
 
+    def get_setting_facts(self, setting_id: str, *, viewpoint: Viewpoint) -> list[Fact]:
+        """Return setting-scoped facts visible to ``viewpoint``."""
+
+        if not isinstance(viewpoint, Viewpoint):
+            raise TypeError("get_setting_facts requires an explicit Viewpoint")
+        visibility_clause, visibility_params = visible_facts_clause(viewpoint)
+        rows = self.conn.execute(
+            "SELECT fact_id, fact_scope, setting_id, campaign_id, subject_id, "
+            "predicate, value, canon_state, knowledge_state, visibility, valid_from, "
+            "valid_until, source_document_id, source_chunk_id, import_job_id, "
+            "extraction_method, source_ownership, created_at "
+            "FROM facts WHERE fact_scope = 'setting' AND setting_id = ? "
+            f"AND ({visibility_clause}) "
+            "ORDER BY created_at, fact_id",
+            (setting_id, *visibility_params),
+        ).fetchall()
+        return [_fact_from_row(row) for row in rows]
+
     def apply_state_changes(
         self,
         campaign_id: str,

@@ -15,7 +15,9 @@ points mean.
 Game-system plugins are pure Python. They import `tabletop.api` only. They
 never import Omega, MeTTa, channels, providers, or any runtime
 implementation module. The Omega-facing adapter is the only Omega-aware
-code, and it lives outside the runtime and the plugins.
+code, and it lives outside the runtime and the plugins. Prompt context is
+assembled there from `build_context`. A game-system plugin does not render
+the model prompt.
 
 ## API version
 

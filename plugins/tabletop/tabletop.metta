@@ -1,22 +1,24 @@
 !(import! &self (library Omega ./plugins/tabletop/omega_tabletop_adapter.py))
 
 (= (loadOmegaPlugin)
-   (let $prompt-path
-     (joinPath ((projectRootDirectory) "plugins" "tabletop" "prompt.md"))
-     (let $prompt (py-call (omega_tabletop_adapter.load_prompt_policy $prompt-path))
+   (progn
+     (let $status (py-call (omega_tabletop_adapter.initialize_response))
+       (log INFO "tabletop-plugin" $status))
+     ;; claim_skill_registration is the one-shot gate: first call returns the
+     ;; bare workspace token (setting|campaign); later calls return
+     ;; already-registered so register-workspace-skills adds nothing.
+     (let $workspace (py-call (omega_tabletop_adapter.claim_skill_registration))
        (progn
-         (let $status (py-call (omega_tabletop_adapter.initialize_response))
-           (log INFO "tabletop-plugin" $status))
-         ;; claim_skill_registration is the one-shot gate: first call returns the
-         ;; bare workspace token (setting|campaign); later calls return
-         ;; already-registered so register-workspace-skills adds nothing.
-         (let $workspace (py-call (omega_tabletop_adapter.claim_skill_registration))
-           (progn
-             (log INFO "tabletop-plugin-workspace" $workspace)
-             (register-workspace-skills $workspace)))
-         (add-prompt-extension tabletop-runtime-policy $prompt)
-         (log INFO "tabletop-prompt-extension" "tabletop-runtime-policy")
-         ()))))
+         (log INFO "tabletop-plugin-workspace" $workspace)
+         (register-workspace-skills $workspace)))
+     (log INFO "tabletop-prompt-extension" "tabletop-allocated-context")
+     ()))
+
+;; Reevaluated on each getPromptExtensions call. One py-call returns the
+;; policy text and then the snapshot, and stores the receipt for that
+;; snapshot. A receipt failure cannot replace the text.
+(= (prompt-extension tabletop-allocated-context)
+   (py-call (omega_tabletop_adapter.allocated_context_text)))
 
 ;; Workspace skill surfaces are fixed at startup from TABLETOP_WORKSPACE.
 ;; Forbidden operations are absent from add-skill, not merely discouraged.

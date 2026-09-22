@@ -117,20 +117,39 @@ class FileSystemPolicy:
         self._read_write = [Path(f'{p}') for p in rw]
 
     def apply(self):
-        rod = list(filter(lambda p: p.is_dir(), self._read_only))
-        rof = list(filter(lambda p: not p.is_dir(), self._read_only))
-        rwd = list(filter(lambda p: p.is_dir(), self._read_write))
-        rwf = list(filter(lambda p: not p.is_dir(), self._read_write))
+        read_only = self._existing_paths(self._read_only)
+        read_write = self._existing_paths(self._read_write)
+        # Character devices such as /dev/null are not regular files.
+        # Keep every existing non-directory on the file rule.
+        rod = [path for path in read_only if path.is_dir()]
+        rof = [path for path in read_only if not path.is_dir()]
+        rwd = [path for path in read_write if path.is_dir()]
+        rwf = [path for path in read_write if not path.is_dir()]
 
         strict = self._compatibility == LandLockCompatibility.HARD_REQUIREMENT
-        Landlock(strict=strict) \
-            .allow_all_scope() \
-            .allow_all_network() \
-            .add_path_rule('/', access=AccessFs.EXECUTE) \
-            .add_path_rule(*rwd, access=FileSystemPolicy.READ_WRITE_DIR_ACCESS) \
-            .add_path_rule(*rwf, access=FileSystemPolicy.READ_WRITE_FILE_ACCESS) \
-            .add_path_rule(*rod, access=FileSystemPolicy.READ_ONLY_DIR_ACCESS) \
-            .add_path_rule(*rof, access=FileSystemPolicy.READ_ONLY_FILE_ACCESS) \
-            .apply()
+        ruleset = (
+            Landlock(strict=strict)
+            .allow_all_scope()
+            .allow_all_network()
+            .add_path_rule("/", access=AccessFs.EXECUTE)
+        )
+        for paths, access in (
+            (rwd, FileSystemPolicy.READ_WRITE_DIR_ACCESS),
+            (rwf, FileSystemPolicy.READ_WRITE_FILE_ACCESS),
+            (rod, FileSystemPolicy.READ_ONLY_DIR_ACCESS),
+            (rof, FileSystemPolicy.READ_ONLY_FILE_ACCESS),
+        ):
+            if paths:
+                ruleset = ruleset.add_path_rule(*paths, access=access)
+        ruleset.apply()
 
         logger.info("Policy applied")
+
+    def _existing_paths(self, paths):
+        existing = []
+        for path in paths:
+            if path.exists():
+                existing.append(path)
+            else:
+                logger.warning("Skipping missing policy path: %s", path)
+        return existing

@@ -53,9 +53,15 @@ jobs:
       no_build_cache: ${{ inputs.no_build_cache }}
     secrets: inherit
 
+  # Autotests already build, load, and test the production image. This job
+  # only republishes it. Skip the job unless an image is actually published,
+  # so pull requests and main do not provision a runner and rebuild it.
   common:
     needs: autotests
-    if: always() && (needs.autotests.result == 'success' || needs.autotests.result == 'skipped')
+    if: >-
+      always() &&
+      inputs.publish_docker &&
+      (needs.autotests.result == 'success' || needs.autotests.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

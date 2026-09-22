@@ -126,7 +126,8 @@ def test_metta_plugin_registers_workspace_skills_and_prompt_extension():
     for skill in _SKILLS:
         assert f"(add-skill {skill}" in text
         assert f"(= ({skill}" in text
-    assert "(add-prompt-extension tabletop-runtime-policy" in text
+    assert "(prompt-extension tabletop-allocated-context)" in text
+    assert "add-prompt-extension" not in text
 
 
 def test_plugin_config_uses_metta_loader():
@@ -168,6 +169,19 @@ def test_entrypoint_makes_existing_tabletop_state_writable_before_privilege_drop
 
     assert mkdir in entrypoint
     assert chown in entrypoint
+    assert entrypoint.index(mkdir) < entrypoint.index(chown) < first_privilege_drop
+
+
+def test_entrypoint_creates_tabletop_data_before_privilege_drop():
+    entrypoint = _ENTRYPOINT_PATH.read_text()
+    mkdir = 'mkdir -p -- "$TABLETOP_DATA_DIRECTORY"'
+    chown = 'chown 65534:65534 -- "$TABLETOP_DATA_DIRECTORY"'
+    first_privilege_drop = min(
+        entrypoint.index("su www-data"),
+        entrypoint.index("su nobody"),
+    )
+
+    assert "TABLETOP_DATA_DIRECTORY=/PeTTa/repos/Omega/tabletop/data" in entrypoint
     assert entrypoint.index(mkdir) < entrypoint.index(chown) < first_privilege_drop
 
 
