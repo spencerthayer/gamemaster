@@ -357,7 +357,7 @@ def _retrieved_ruling(ruling: Ruling) -> RetrievedChunk:
             section=ruling.scope,
             page=None,
             source_path="",
-            refetch_tool=None,
+            refetch_tool="get-ruling",
         ),
     )
 

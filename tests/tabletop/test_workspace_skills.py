@@ -156,6 +156,8 @@ def test_campaign_inherits_setting_read_and_adds_session_party_thread_campaign()
         "edit-setting",
         "upsert-world-entity",
         "record-world-history",
+        "promote-world-fact",
+        "reveal-world-fact",
     }
 
 

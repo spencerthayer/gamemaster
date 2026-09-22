@@ -210,6 +210,14 @@ def record_ruling(ruling: Any) -> str:
     return _invoke("record_ruling", _text(ruling))
 
 
+def promote_ruling(ruling_id: Any) -> str:
+    return _invoke("promote_ruling", _text(ruling_id))
+
+
+def get_ruling(ruling_id: Any) -> str:
+    return _invoke("get_ruling", _text(ruling_id))
+
+
 def start_session(session: Any) -> str:
     return _invoke("start_session", _text(session))
 
@@ -244,6 +252,22 @@ def record_world_history(entry: Any) -> str:
 
 def get_chunk(chunk_id: Any) -> str:
     return _invoke("get_chunk", _text(chunk_id))
+
+
+def promote_world_fact(fact_id: Any) -> str:
+    return _invoke("promote_world_fact", _text(fact_id))
+
+
+def reveal_world_fact(fact_id: Any) -> str:
+    return _invoke("reveal_world_fact", _text(fact_id))
+
+
+def promote_fact(fact_id: Any) -> str:
+    return _invoke("promote_fact", _text(fact_id))
+
+
+def reveal_fact(fact_id: Any) -> str:
+    return _invoke("reveal_fact", _text(fact_id))
 
 
 def read_session(session_id: Any) -> str:

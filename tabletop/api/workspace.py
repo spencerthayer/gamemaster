@@ -79,6 +79,18 @@ _SETTING_SKILLS: tuple[SkillSpec, ...] = (
         parameters=("chunk_id_in_quotes",),
         runtime_method="get_chunk",
     ),
+    SkillSpec(
+        name="promote-world-fact",
+        description="Confirm one proposed setting fact in the owned setting",
+        parameters=("fact_id_in_quotes",),
+        runtime_method="promote_world_fact",
+    ),
+    SkillSpec(
+        name="reveal-world-fact",
+        description="Reveal one setting fact in the owned setting",
+        parameters=("fact_id_in_quotes",),
+        runtime_method="reveal_world_fact",
+    ),
 )
 
 # Campaign inherits setting *read* access only; setting mutation stays setting-only.
@@ -209,6 +221,30 @@ _CAMPAIGN_ONLY_SKILLS: tuple[SkillSpec, ...] = (
         description="Record a durable campaign ruling through the authoritative runtime",
         parameters=("ruling_in_quotes",),
         runtime_method="record_ruling",
+    ),
+    SkillSpec(
+        name="promote-ruling",
+        description="Confirm one proposed ruling in the active campaign",
+        parameters=("ruling_id_in_quotes",),
+        runtime_method="promote_ruling",
+    ),
+    SkillSpec(
+        name="get-ruling",
+        description="Return one ruling in the active campaign by stable identifier",
+        parameters=("ruling_id_in_quotes",),
+        runtime_method="get_ruling",
+    ),
+    SkillSpec(
+        name="promote-fact",
+        description="Confirm one proposed campaign fact in the active campaign",
+        parameters=("fact_id_in_quotes",),
+        runtime_method="promote_fact",
+    ),
+    SkillSpec(
+        name="reveal-fact",
+        description="Reveal one confirmed campaign fact in the active campaign",
+        parameters=("fact_id_in_quotes",),
+        runtime_method="reveal_fact_skill",
     ),
 )
 

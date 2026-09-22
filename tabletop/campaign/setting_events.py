@@ -21,6 +21,8 @@ class SettingEventType(str, Enum):
     SETTING_EDITED = "setting.edited"
     WORLD_ENTITY_UPSERTED = "world_entity.upserted"
     WORLD_FACT_RECORDED = "world_fact.recorded"
+    WORLD_FACT_PROMOTED = "world_fact.promoted"
+    WORLD_FACT_REVEALED = "world_fact.revealed"
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,16 @@ def project_setting(events: list[PersistedSettingEvent] | tuple[PersistedSetting
             case SettingEventType.WORLD_FACT_RECORDED:
                 fact_id = str(event.payload["fact_id"])
                 facts[fact_id] = dict(event.payload)
+            case SettingEventType.WORLD_FACT_PROMOTED:
+                fact_id = str(event.payload["fact_id"])
+                current = dict(facts.get(fact_id, {"fact_id": fact_id}))
+                current["canon_state"] = "confirmed"
+                facts[fact_id] = current
+            case SettingEventType.WORLD_FACT_REVEALED:
+                fact_id = str(event.payload["fact_id"])
+                current = dict(facts.get(fact_id, {"fact_id": fact_id}))
+                current["knowledge_state"] = "known"
+                facts[fact_id] = current
             case _:
                 assert_never(event_type)
     return SettingProjection(settings=settings, entities=entities, facts=facts)
