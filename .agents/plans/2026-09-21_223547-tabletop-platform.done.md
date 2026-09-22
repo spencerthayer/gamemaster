@@ -1,6 +1,6 @@
 ---
 name: Gamemaster tabletop platform first draft
-overview: 'First draft landed on main at 5a81322 (PR #8). Tasks 02 through 55 are complete. The baseline snapshot below is main at dad8228, when the package was still stubs plus the Phase 5 adapter.'
+overview: 'First draft landed on main at 5a81322 (PR #8). Tasks 02 through 55 are complete. The baseline snapshot below is main at 551b21f8faef77c19fc30b5bdb476b8e999244d1, when the package was still stubs plus the Phase 5 adapter.'
 todos:
   - id: task-01-land-phase-9
     content: Verify the committed Phase 9 boundary and open its pull request
@@ -413,9 +413,9 @@ Known gaps recorded with the draft, not treated as unfinished tasks in this plan
 - Seven old Autotests README PDFs remain in git history. They are gone from the tree. `*.pdf` is ignored. History was not rewritten.
 - Campaign deletion is unsupported. Archival is documented in ADR 0010 and is not implemented.
 
-## Repository state at `dad8228`
+## Repository state at `551b21f8faef77c19fc30b5bdb476b8e999244d1`
 
-`dad8228b403c27718cebe92db1e4e50f6d284fe8` is on `main`. It is the 2026-09-07 commit `fix: adapter rename, runtime bootstrap, boundary and loader tests`, parent `092bfa1`. It is an ancestor of `5a81322`. This is the tree the first-draft tasks were built on top of, after the Phase 5 adapter existed and before Phases 6 through 9 and tasks 02 through 55.
+`551b21f8faef77c19fc30b5bdb476b8e999244d1` is on `main`. It is the 2026-09-07 commit `fix: adapter rename, runtime bootstrap, boundary and loader tests`, parent `092bfa1`. It is an ancestor of `5a81322`. This is the tree the first-draft tasks were built on top of, after the Phase 5 adapter existed and before Phases 6 through 9 and tasks 02 through 55.
 
 What that commit contains:
 
