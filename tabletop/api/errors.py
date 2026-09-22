@@ -114,3 +114,9 @@ class FactInvariantError(GameSystemError):
     """A fact combines canon and knowledge states that cannot coexist."""
 
     code = "fact_invariant_error"
+
+
+class VisibilityScopeError(GameSystemError):
+    """A visibility scope string or value is malformed."""
+
+    code = "visibility_scope_error"
