@@ -242,10 +242,6 @@ def _sequence(event_type: EventType) -> tuple[tuple[PersistedEvent, ...], tuple[
     raise AssertionError(f"no sequence for {event_type}")
 
 
-@pytest.mark.xfail(
-    reason="quest, ruling, and session replay land in tasks 03-05",
-    strict=True,
-)
 def test_replay_required_events_change_projection() -> None:
     """Each replay-required event changes the projection versus its prefix."""
 
@@ -259,10 +255,6 @@ def test_replay_required_events_change_projection() -> None:
     assert failures == [], f"replay did not change projection for {failures}"
 
 
-@pytest.mark.xfail(
-    reason="orphan ruling and session events raise once those arms replay",
-    strict=True,
-)
 def test_orphan_dependent_events_follow_the_declared_policy() -> None:
     for event_type in ORPHAN_RAISES:
         orphan = event(event_type, {"ruling_id": "missing", "session_id": "missing"})
@@ -353,6 +345,57 @@ def test_ruling_replay_matches_sqlite(tmp_path: Path) -> None:
     assert "ruling-1" in projection.rulings
     assert projection.rulings["ruling-2"].supersedes == "ruling-1"
     assert projection.rulings["ruling-2"].decision == "Only at night."
+    connection.close()
+
+
+def test_start_session_replays_and_rejects_a_second_open_session(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "sessions.db")
+    migrate(connection)
+    CampaignStore(connection).create_campaign("campaign-1", "Owned", "freeform")
+    runtime = TabletopRuntime(
+        tmp_path,
+        campaign_roots=[tmp_path / "campaigns"],
+        plugin_roots=[],
+        connection=connection,
+        workspace=Workspace.CAMPAIGN,
+        active_campaign="campaign-1",
+    )
+    opened = runtime.start_session(
+        json.dumps({"session_id": "s1", "started_at": "2026-09-22T00:00:00Z"})
+    )
+    assert opened["ok"] is True
+    events = EventStore(connection).read("campaign-1")
+    assert [event.event_type for event in events] == [EventType.SESSION_STARTED.value]
+    assert events[0].payload["session_id"] == "s1"
+    assert events[0].payload["started_at"] == "2026-09-22T00:00:00Z"
+    duplicate = runtime.start_session(json.dumps({"session_id": "s2"}))
+    assert duplicate["ok"] is False
+    assert len(EventStore(connection).read("campaign-1")) == 1
+    missing = TabletopRuntime(
+        tmp_path,
+        campaign_roots=[tmp_path / "campaigns"],
+        plugin_roots=[],
+        connection=connection,
+        workspace=Workspace.CAMPAIGN,
+        active_campaign=None,
+    ).start_session(json.dumps({"session_id": "s3"}))
+    assert missing["ok"] is False
+    ended = runtime.end_session()
+    assert ended["ok"] is True
+    projection = project_campaign(EventStore(connection).read("campaign-1"))
+    assert projection.sessions["s1"].started_at == "2026-09-22T00:00:00Z"
+    assert projection.sessions["s1"].ended_at is not None
+    with pytest.raises(Exception):
+        connection.execute(
+            "INSERT INTO sessions (session_id, campaign_id, started_at) "
+            "VALUES (?, ?, ?)",
+            ("open-a", "campaign-1", "2026-09-22T02:00:00Z"),
+        )
+        connection.execute(
+            "INSERT INTO sessions (session_id, campaign_id, started_at) "
+            "VALUES (?, ?, ?)",
+            ("open-b", "campaign-1", "2026-09-22T02:00:01Z"),
+        )
     connection.close()
 
 

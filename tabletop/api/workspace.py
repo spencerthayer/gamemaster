@@ -95,6 +95,12 @@ _CAMPAIGN_ONLY_SKILLS: tuple[SkillSpec, ...] = (
         runtime_method="read_session",
     ),
     SkillSpec(
+        name="start-session",
+        description="Open one campaign session through the authoritative runtime",
+        parameters=("session_in_quotes",),
+        runtime_method="start_session",
+    ),
+    SkillSpec(
         name="end-session",
         description="Close the active tabletop session through the authoritative runtime",
         parameters=(),

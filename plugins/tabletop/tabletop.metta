@@ -64,6 +64,9 @@
      (add-skill read-session
        "Read one campaign session record by session identifier"
        (session_id_in_quotes))
+     (add-skill start-session
+       "Open one campaign session through the authoritative runtime"
+       (session_in_quotes))
      (add-skill end-session
        "Close the active tabletop session through the authoritative runtime"
        ())
@@ -131,6 +134,9 @@
 
 (= (read-session $session-id)
    (py-call (omega_tabletop_adapter.read_session $session-id)))
+
+(= (start-session $session)
+   (py-call (omega_tabletop_adapter.start_session $session)))
 
 (= (end-session)
    (py-call (omega_tabletop_adapter.end_session)))

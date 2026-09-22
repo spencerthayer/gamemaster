@@ -210,6 +210,10 @@ def record_ruling(ruling: Any) -> str:
     return _invoke("record_ruling", _text(ruling))
 
 
+def start_session(session: Any) -> str:
+    return _invoke("start_session", _text(session))
+
+
 def end_session() -> str:
     return _invoke("end_session")
 

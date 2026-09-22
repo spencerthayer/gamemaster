@@ -634,6 +634,83 @@ class TabletopRuntime:
             return self._error("record-ruling", "ruling_not_recorded", str(exc))
         return self._ok("record-ruling", stored.to_dict())
 
+    def start_session(self, session: str) -> dict[str, Any]:
+        """Open one session for the active campaign and append ``session.started``."""
+
+        if self._connection is None:
+            return self._storage_required("start-session")
+        campaign_id = self.active_campaign
+        if not campaign_id:
+            return self._error(
+                "start-session",
+                "campaign_not_configured",
+                "start-session requires an active campaign.",
+            )
+        try:
+            payload = json.loads(session) if session.strip() else {}
+        except json.JSONDecodeError as exc:
+            return self._error("start-session", "invalid_session", str(exc))
+        if not isinstance(payload, dict):
+            return self._error(
+                "start-session",
+                "invalid_session",
+                "start-session expects a JSON object.",
+            )
+        session_id = str(payload.get("session_id", "")).strip()
+        if not session_id:
+            return self._error(
+                "start-session",
+                "invalid_session",
+                "start-session requires session_id.",
+            )
+        if CampaignStore(self._connection).get_campaign(campaign_id) is None:
+            return self._error(
+                "start-session",
+                "campaign_not_found",
+                "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        started_at = str(
+            payload.get("started_at") or datetime.now(timezone.utc).isoformat()
+        )
+        try:
+            with transaction(self._connection):
+                self._connection.execute(
+                    "INSERT INTO sessions "
+                    "(session_id, campaign_id, started_at, participants, "
+                    "important_facts, open_threads, checklist_step) "
+                    "VALUES (?, ?, ?, '[]', '[]', '[]', 0)",
+                    (session_id, campaign_id, started_at),
+                )
+                EventStore(self._connection).append_in_transaction(
+                    self._connection,
+                    campaign_id,
+                    GameEvent(
+                        event_type=EventType.SESSION_STARTED.value,
+                        payload={
+                            "session_id": session_id,
+                            "started_at": started_at,
+                        },
+                    ),
+                    session_id=session_id,
+                    occurred_at=started_at,
+                )
+        except sqlite3.IntegrityError as exc:
+            return self._error(
+                "start-session",
+                "session_not_started",
+                str(exc),
+                data={"campaign_id": campaign_id, "session_id": session_id},
+            )
+        return self._ok(
+            "start-session",
+            {
+                "session_id": session_id,
+                "campaign_id": campaign_id,
+                "started_at": started_at,
+            },
+        )
+
     def end_session(self) -> dict[str, Any]:
         if self._connection is None:
             return self._storage_required("end-session")

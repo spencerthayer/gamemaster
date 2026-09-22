@@ -170,7 +170,10 @@ def test_freeform_example_campaign_runs_end_to_end(tmp_path: Path) -> None:
     events = EventStore(connection)
     events.append(
         _CAMPAIGN_ID,
-        GameEvent(event_type=EventType.SESSION_STARTED.value),
+        GameEvent(
+            event_type=EventType.SESSION_STARTED.value,
+            payload={"session_id": _SESSION_ID, "started_at": _STARTED_AT},
+        ),
         session_id=_SESSION_ID,
         occurred_at=_STARTED_AT,
     )

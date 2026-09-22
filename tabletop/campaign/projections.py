@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, assert_never
@@ -53,6 +53,15 @@ class ProjectedRuling:
 
 
 @dataclass(frozen=True)
+class ProjectedSession:
+    """Session identity and bounds reconstructible from session events."""
+
+    session_id: str
+    started_at: str | None = None
+    ended_at: str | None = None
+
+
+@dataclass(frozen=True)
 class CampaignProjection:
     """Derived campaign snapshot folded from an event sequence."""
 
@@ -64,6 +73,7 @@ class CampaignProjection:
     open_threads: tuple[Any, ...] = ()
     campaign_system: Mapping[str, Any] = field(default_factory=dict)
     rulings: Mapping[str, ProjectedRuling] = field(default_factory=dict)
+    sessions: Mapping[str, ProjectedSession] = field(default_factory=dict)
 
 
 def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
@@ -75,6 +85,7 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
     open_threads: list[Any] = []
     campaign_system: Any = {}
     rulings: dict[str, ProjectedRuling] = {}
+    sessions: dict[str, ProjectedSession] = {}
     campaign_id: str | None = None
     sequence: int | None = None
 
@@ -148,12 +159,13 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     rulings[projected.ruling_id] = projected
             case EventType.RULING_PROMOTED:
                 rulings = _promote_projected_ruling(event, rulings)
-            case (
-                EventType.SCENE_OPENED
-                | EventType.SCENE_CLOSED
-                | EventType.SESSION_STARTED
-                | EventType.SESSION_ENDED
-            ):
+            case EventType.SESSION_STARTED:
+                started = _session_from_started(event)
+                if started is not None:
+                    sessions[started.session_id] = started
+            case EventType.SESSION_ENDED:
+                sessions = _end_projected_session(event, sessions)
+            case EventType.SCENE_OPENED | EventType.SCENE_CLOSED:
                 pass
             case _:
                 assert_never(event_type)
@@ -172,7 +184,44 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
         open_threads=tuple(open_threads),
         campaign_system=copy.deepcopy(campaign_system),
         rulings=dict(rulings),
+        sessions=dict(sessions),
     )
+
+
+def _session_from_started(event: PersistedEvent) -> ProjectedSession | None:
+    session_id = event.payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        if event.event_schema_version == 0:
+            return None
+        raise ValueError("session.started requires a non-empty session_id")
+    started_at = event.payload.get("started_at")
+    if event.event_schema_version >= 1 and not isinstance(started_at, str):
+        raise ValueError("session.started requires started_at")
+    return ProjectedSession(
+        session_id=session_id,
+        started_at=started_at if isinstance(started_at, str) else None,
+    )
+
+
+def _end_projected_session(
+    event: PersistedEvent,
+    sessions: dict[str, ProjectedSession],
+) -> dict[str, ProjectedSession]:
+    session_id = event.payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        if event.event_schema_version == 0:
+            return sessions
+        raise ValueError("session.ended requires a non-empty session_id")
+    existing = sessions.get(session_id)
+    if existing is None:
+        raise ValueError(f"session.ended has no started session: {session_id}")
+    ended_at = event.payload.get("ended_at")
+    sessions[session_id] = ProjectedSession(
+        session_id=existing.session_id,
+        started_at=existing.started_at,
+        ended_at=ended_at if isinstance(ended_at, str) else event.occurred_at,
+    )
+    return sessions
 
 
 def _ruling_from_event(event: PersistedEvent) -> ProjectedRuling | None:
@@ -358,7 +407,12 @@ def _projection_files(
                 for _ruling_id, ruling in sorted(projection.rulings.items())
             ]
         },
-        Path("sessions/sessions.yaml"): {"sessions": []},
+        Path("sessions/sessions.yaml"): {
+            "sessions": [
+                _to_yaml_data(session)
+                for _session_id, session in sorted(projection.sessions.items())
+            ]
+        },
         Path("gm/facts.yaml"): {"facts": gm_facts},
         Path("gm/threads.yaml"): {
             "open_threads": _to_yaml_data(projection.open_threads)
@@ -380,6 +434,8 @@ def _serialize_fact(fact: ProjectedFact) -> dict[str, Any]:
 
 
 def _to_yaml_data(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return _to_yaml_data(asdict(value))
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, Mapping):
