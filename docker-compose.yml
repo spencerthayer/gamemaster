@@ -1,0 +1,46 @@
+services:
+  omega:
+    build:
+      context: ${OMEGA_BUILD_CONTEXT}
+    image: ${OMEGA_IMAGE}
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ASI_API_KEY: ${ASI_API_KEY}
+      IMPORT_KB_ON_START: ${IMPORT_KB_ON_START}
+      OMEGA_AUTH_SECRET: ${OMEGA_AUTH_SECRET}
+      TABLETOP_CAMPAIGN: ${TABLETOP_CAMPAIGN}
+      TABLETOP_CAMPAIGN_PATHS: ${TABLETOP_CONTAINER_CAMPAIGNS_PATH}
+      TABLETOP_PLUGIN_PATH: ${TABLETOP_CONTAINER_PLUGIN_PATH}
+      TABLETOP_WORKSPACE: ${TABLETOP_WORKSPACE}
+    command:
+      - commchannel=${OMEGA_COMMCHANNEL}
+      - provider=${OMEGA_PROVIDER}
+      - embeddingprovider=${OMEGA_EMBEDDING_PROVIDER}
+      - securityPolicyPath=${OMEGA_SECURITY_POLICY_PATH}
+    volumes:
+      - type: volume
+        source: omega-memory
+        target: ${OMEGA_MEMORY_PATH}
+      - type: volume
+        source: tabletop-state
+        target: ${TABLETOP_STATE_PATH}
+      - type: bind
+        source: ${TABLETOP_PLUGIN_HOST_PATH}
+        target: ${TABLETOP_CONTAINER_PLUGIN_PATH}
+        read_only: true
+      - type: bind
+        source: ${TABLETOP_LIBRARY_HOST_PATH}
+        target: ${TABLETOP_CONTAINER_LIBRARY_PATH}
+        read_only: true
+      - type: bind
+        source: ${TABLETOP_CAMPAIGNS_HOST_PATH}
+        target: ${TABLETOP_CONTAINER_CAMPAIGNS_PATH}
+
+volumes:
+  omega-memory:
+    name: ${OMEGA_MEMORY_VOLUME}
+  tabletop-state:
+    name: ${TABLETOP_STATE_VOLUME}

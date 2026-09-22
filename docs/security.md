@@ -76,17 +76,21 @@ analysis of the Markdown and PDF ingestion modules and the importer rejects
 `eval`/`exec`/`compile`, and rejects SQL built with f-strings, `%`
 interpolation, concatenation, or `str.format` in those modules.
 
-## Read-only raw mounts
+## Compose deployment
 
-Raw document roots are immutable by API convention: `DocumentLibrary` exposes
-lookup only and has no raw mutation method. Under Docker or Portainer
-deployment, mount raw library and plugin directories read-only so the host
-filesystem, not only application code, enforces that boundary. That mount
-policy is a deployment requirement delivered with the compose stack (task 46).
+`docker-compose.yml` defines one Omega service with the tabletop plugin. Copy
+the documented defaults from `.env.example` into the Portainer stack
+environment and replace the example secret and provider credentials before
+deployment. The stack builds the repository Dockerfile, persists Omega memory
+and tabletop SQLite state in named volumes, and uses environment variables for
+every bind-mount source and container path.
 
-## No docker socket mount
+The compose file sets `read_only: true` on the plugin and library bind mounts.
+This is a compose mount flag; it is not a claim that the underlying host
+directories or operating system are otherwise read-only. The campaigns bind
+mount is read-write so session projections and other operator-approved
+campaign artifacts can be updated.
 
-The deployment must not mount the Docker socket into the Gamemaster container.
-Socket absence is a deployment requirement for the compose stack (task 46).
-This repository does not yet ship that compose file; do not assume it exists
-until task 46 adds it.
+The service does not mount `/var/run/docker.sock`. Do not add that mount:
+access to the Docker socket would give the process control over the Docker
+daemon and defeat the container boundary.
