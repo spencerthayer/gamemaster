@@ -98,13 +98,24 @@ knowing what a path means.
 
 | Field | Meaning |
 |---|---|
-| `operation` | Generic verb such as `set`. |
-| `path` | Opaque location such as `entities.cultist-1.system.hp`. |
-| `value` | New value, if any. |
-| `previous_value` | Optional prior value for later event derivation. |
+| `operation` | `StateOperation.SET` or `StateOperation.DELETE`. |
+| `path` | Tuple of components (`str` or non-negative `int`). |
+| `value` | New value for `SET`. Must be omitted/`None` for `DELETE`. |
 
+`path` is not a dotted string. Entity ids and keys may contain dots, so
+`("entities", "cultist.1", "system.hp")` is one unambiguous location.
 The runtime must not contain branches such as "if this path ends in
-`.hp`". Hit points, fatigue, and similar meanings live inside plugins.
+`hp`". Hit points, fatigue, and similar meanings live inside plugins.
+
+The plugin does not supply a previous value. The store owns prior state
+and can record it when applying the mutation in later phases.
+
+Opaque mappings on these transport objects (`parameters`, `outcome`,
+`state`, `details`, `payload`, and `StateChange.value`) accept only
+JSON-safe values: `None`, `str`, `bool`, `int`, finite `float`, nested
+string-keyed mappings, and sequences of those values. Sets, datetimes,
+file handles, NaN, infinities, and arbitrary objects are rejected at
+construction.
 
 ## RollResult
 
@@ -181,7 +192,9 @@ mechanical step a player or plugin still owns.
 
 Public models use frozen dataclasses. Mappings are deep-copied on
 construction and wrapped in `MappingProxyType`, so later mutation of the
-caller's dict does not rewrite the constructed object.
+caller's dict does not rewrite the constructed object. Nested values are
+checked recursively against the JSON-safe domain described under
+StateChange.
 
 `to_dict()` returns JSON-compatible primitives: nested `EntityRef` values
 become objects, tuples become lists, mappings become dicts, `None` stays

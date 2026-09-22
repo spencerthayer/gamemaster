@@ -23,6 +23,7 @@ from tabletop.api.resolution import (
     ResolutionContext,
     RollResult,
     StateChange,
+    StateOperation,
 )
 from tabletop.api.rules import RuleReference
 
@@ -202,18 +203,73 @@ def test_roll_result_is_a_transport_contract_not_a_roller():
 
 def test_state_change_describes_desired_mutation_without_applying_it():
     change = StateChange(
-        operation="set",
-        path="entities.cultist-1.system.hp",
+        operation=StateOperation.SET,
+        path=("entities", "cultist-1", "system", "hp"),
         value=7,
-        previous_value=12,
     )
-    assert change.operation == "set"
-    assert change.path == "entities.cultist-1.system.hp"
+    assert change.operation is StateOperation.SET
+    assert change.path == ("entities", "cultist-1", "system", "hp")
     assert change.value == 7
+    names = {field.name for field in fields(StateChange)}
+    assert names == {"operation", "path", "value"}
+    assert "previous_value" not in names
+
+
+def test_state_change_path_keeps_dotted_keys_as_single_components():
+    change = StateChange(
+        operation=StateOperation.SET,
+        path=("entities", "cultist.1", "system.hp"),
+        value=7,
+    )
+    assert change.path == ("entities", "cultist.1", "system.hp")
+    assert "." in change.path[1]
+    assert change.to_dict()["path"] == ["entities", "cultist.1", "system.hp"]
+    json.dumps(change.to_dict())
+    indexed = StateChange(
+        operation=StateOperation.SET,
+        path=("inventory", 0, "qty"),
+        value=1,
+    )
+    assert indexed.path == ("inventory", 0, "qty")
     with pytest.raises(InvalidResolutionError):
-        StateChange(operation="", path="x")
+        StateChange(
+            operation=StateOperation.SET,
+            path="entities.cultist.1.system.hp",  # type: ignore[arg-type]
+        )
     with pytest.raises(InvalidResolutionError):
-        StateChange(operation="set", path="")
+        StateChange(operation=StateOperation.SET, path=())
+
+
+def test_state_change_rejects_unknown_operations_and_delete_values():
+    with pytest.raises(InvalidResolutionError):
+        StateChange(
+            operation="summon-capybara-and-increment-moon",  # type: ignore[arg-type]
+            path=("whatever",),
+        )
+    deleted = StateChange(operation=StateOperation.DELETE, path=("flags", "door"))
+    assert deleted.operation is StateOperation.DELETE
+    assert deleted.value is None
+    with pytest.raises(InvalidResolutionError):
+        StateChange(
+            operation=StateOperation.DELETE,
+            path=("flags", "door"),
+            value=True,
+        )
+
+
+def test_opaque_mappings_reject_non_json_values_at_construction():
+    with pytest.raises(InvalidActionError):
+        GameAction(actor=_actor(), action_type="wave", parameters={"bad": {1, 2}})
+    with pytest.raises(InvalidResolutionError):
+        Resolution(outcome={"bad": object()})
+    with pytest.raises(InvalidResolutionError):
+        ResolutionContext(campaign_id="c1", system_id="s1", state={"bad": object()})
+    with pytest.raises(InvalidResolutionError):
+        RollResult(expression="1d6", total=3, details={"bad": float("nan")})
+    with pytest.raises(InvalidResolutionError):
+        RollResult(expression="1d6", total=float("inf"))
+    with pytest.raises(InvalidResolutionError):
+        RollResult(expression="1d6", total=3, details={"bad": float("-inf")})
 
 
 def test_rule_reference_is_transport_only():
@@ -290,13 +346,15 @@ def test_resolution_accepts_multiple_rolls_changes_refs_and_events():
             RollResult(expression="1d6", total=4),
             RollResult(expression="1d6", total=2.5),
         ),
-        state_changes=(StateChange(operation="set", path="flags.door", value="open"),),
+        state_changes=(
+            StateChange(operation=StateOperation.SET, path=("flags", "door"), value="open"),
+        ),
         rule_references=(RuleReference(source_id="freeform-guide", title="Doors"),),
         events=(GameEvent(event_type="door_opened"),),
         explanation="Roll total 14 meets target 12.",
     )
     assert len(resolution.rolls) == 2
-    assert resolution.state_changes[0].path == "flags.door"
+    assert resolution.state_changes[0].path == ("flags", "door")
     assert resolution.rule_references[0].source_id == "freeform-guide"
     assert resolution.events[0].event_type == "door_opened"
     assert resolution.explanation == "Roll total 14 meets target 12."
@@ -330,10 +388,9 @@ def test_complete_resolution_serializes_to_json_primitives():
         rolls=(RollResult(expression="3d6", total=9, details={"dice": [2, 3, 4]}),),
         state_changes=(
             StateChange(
-                operation="set",
-                path="entities.cultist-1.system.fp",
+                operation=StateOperation.SET,
+                path=("entities", "cultist-1", "system", "fp"),
                 value=5,
-                previous_value=8,
             ),
         ),
         rule_references=(
@@ -353,7 +410,8 @@ def test_complete_resolution_serializes_to_json_primitives():
     encoded = json.dumps(payload)
     restored = json.loads(encoded)
     assert restored["rolls"][0]["total"] == 9
-    assert restored["state_changes"][0]["path"] == "entities.cultist-1.system.fp"
+    assert restored["state_changes"][0]["path"] == ["entities", "cultist-1", "system", "fp"]
+    assert restored["state_changes"][0]["operation"] == "set"
     assert restored["rule_references"][0]["page"] == 374
     assert restored["events"][0]["actor"]["id"] == "mara"
     assert restored["outcome"]["response_type"] == "defense"
@@ -418,10 +476,9 @@ def test_dnd_shaped_payload_fits_without_core_combat_fields():
         outcome={"success": True, "attack_total": 18, "damage": 7},
         state_changes=(
             StateChange(
-                operation="set",
-                path="entities.cultist-1.system.hp",
+                operation=StateOperation.SET,
+                path=("entities", "cultist-1", "system", "hp"),
                 value=7,
-                previous_value=12,
             ),
         ),
         events=(GameEvent(event_type="resource_changed", payload={"path": "hp"}),),

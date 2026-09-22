@@ -11,11 +11,14 @@ not require success, failure, damage, or margin keys.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from enum import Enum
+from typing import Any, Mapping, assert_never
 
 from tabletop.api._contract import (
     freeze_mapping,
+    freeze_state_path,
     freeze_tuple,
     freeze_value,
     optional_non_empty_str,
@@ -25,6 +28,13 @@ from tabletop.api._contract import (
 from tabletop.api.errors import InvalidResolutionError
 from tabletop.api.events import GameEvent
 from tabletop.api.rules import RuleReference
+
+
+class StateOperation(str, Enum):
+    """Generic mutations the runtime can apply without game semantics."""
+
+    SET = "set"
+    DELETE = "delete"
 
 
 @dataclass(frozen=True)
@@ -71,34 +81,59 @@ class StateChange:
     or fatigue. A later phase applies the operation. This is not a
     ``GameEvent``: events record that something happened; state changes
     request a mutation.
+
+    ``path`` is a tuple of components, not a dotted string, so keys and
+    entity ids that contain dots stay unambiguous. ``previous_value`` is
+    not part of this contract: the store, not the plugin, owns prior
+    state when a mutation is applied.
     """
 
-    operation: str
-    path: str
+    operation: StateOperation
+    path: tuple[str | int, ...]
     value: Any = None
-    previous_value: Any = None
 
     def __post_init__(self) -> None:
-        require_non_empty_str(self.operation, "operation", InvalidResolutionError)
-        require_non_empty_str(self.path, "path", InvalidResolutionError)
+        object.__setattr__(
+            self, "operation", _coerce_state_operation(self.operation)
+        )
+        object.__setattr__(
+            self, "path", freeze_state_path(self.path, InvalidResolutionError)
+        )
         object.__setattr__(
             self,
             "value",
             freeze_value(self.value, "value", InvalidResolutionError),
         )
-        object.__setattr__(
-            self,
-            "previous_value",
-            freeze_value(self.previous_value, "previous_value", InvalidResolutionError),
-        )
+        match self.operation:
+            case StateOperation.SET:
+                pass
+            case StateOperation.DELETE:
+                if self.value is not None:
+                    raise InvalidResolutionError(
+                        "DELETE state changes must not include a value"
+                    )
+            case _:
+                assert_never(self.operation)
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "operation": self.operation,
-            "path": self.path,
+            "operation": self.operation.value,
+            "path": list(self.path),
             "value": to_jsonable(self.value),
-            "previous_value": to_jsonable(self.previous_value),
         }
+
+
+def _coerce_state_operation(value: StateOperation | str) -> StateOperation:
+    if isinstance(value, StateOperation):
+        return value
+    if isinstance(value, str):
+        try:
+            return StateOperation(value)
+        except ValueError:
+            pass
+    raise InvalidResolutionError(
+        f"operation must be one of {[op.value for op in StateOperation]}, got {value!r}"
+    )
 
 
 @dataclass(frozen=True)
@@ -121,6 +156,10 @@ class RollResult:
         if isinstance(self.total, bool) or not isinstance(self.total, (int, float)):
             raise InvalidResolutionError(
                 f"total must be an int or float, got {type(self.total).__name__}"
+            )
+        if isinstance(self.total, float) and not math.isfinite(self.total):
+            raise InvalidResolutionError(
+                f"total must be a finite JSON number, got {self.total!r}"
             )
         object.__setattr__(
             self,

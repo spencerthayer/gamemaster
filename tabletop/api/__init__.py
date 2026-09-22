@@ -16,6 +16,7 @@ from tabletop.api.resolution import (
     ResolutionContext,
     RollResult,
     StateChange,
+    StateOperation,
 )
 from tabletop.api.rules import RuleReference
 
@@ -32,6 +33,7 @@ __all__ = [
     "RollResult",
     "RuleReference",
     "StateChange",
+    "StateOperation",
     "ValidationIssue",
     "ValidationResult",
 ]
