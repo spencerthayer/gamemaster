@@ -1,7 +1,9 @@
 # Second-draft verification
 
-Recorded from branch `event-history-completeness` while implementing
+The checks below were recorded during development of
 `.agents/plans/2026-09-22_091051-post-first-draft-hardening.plan.md`.
+The work ultimately landed on `main` at
+`fd07a3d7fab908c246e6f62fd888ee4139605237`.
 
 The commands below are the evidence. A skipped Docker test is not a pass.
 

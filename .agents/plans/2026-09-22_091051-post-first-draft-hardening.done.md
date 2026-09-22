@@ -136,6 +136,10 @@ isProject: true
 
 # Gamemaster post-first-draft hardening
 
+Status: COMPLETED.
+Completed on `main` at `fd07a3d7fab908c246e6f62fd888ee4139605237`.
+Final evidence: `docs/second-draft-verification.md`.
+
 **Goal:** Make the existing first draft reconstructable, refetchable, lifecycle-complete, and actually bootable before adding broader game-system support or a UI.
 
 **Architecture:** Keep the twenty inherited invariants below. SQLite remains current state. The event log remains history. Replay must reproduce the campaign system state those events represent. Retrieval stays lookup. New model tools append or read. They do not gain a field that silently confirms canon. Omega stays the process host. `tabletop/` stays free of Omega and MeTTa imports. One review boundary is one branch cut from merged `main`.

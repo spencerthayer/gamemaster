@@ -6,7 +6,7 @@ progress, and plugin-owned JSON state described below. Vector recall and
 narrative text are not authoritative campaign state.
 
 This document describes the schema applied by `tabletop/storage/migrations/`,
-from `0001_core.sql` through `0014_setting_events.sql`. SQLite is the
+from `0001_core.sql` through `0015_turn_receipts.sql`. SQLite is the
 authoritative current state. Campaign history is the append-only `events`
 table. Setting history is the append-only `setting_events` table. Replay
 rebuilds projections from those logs. Retrieval and vector rows are lookup,
