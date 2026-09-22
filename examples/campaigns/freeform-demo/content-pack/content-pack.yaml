@@ -1,0 +1,7 @@
+id: lantern-below
+name: The Lantern Below
+pack_type: campaign-seed
+system_id: freeform
+version: 1.0.0
+gm_only:
+  - gm-notes.md

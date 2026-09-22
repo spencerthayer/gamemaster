@@ -1,0 +1,9 @@
+id: freeform-demo
+name: The Lantern Below
+system_id: freeform
+content_pack: content-pack
+opening_scene: flooded-archive
+initial_state:
+  clocks:
+    flood:
+      remaining: 4
