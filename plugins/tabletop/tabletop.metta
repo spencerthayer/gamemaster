@@ -20,6 +20,8 @@
 
 ;; Reevaluated on each getPromptExtensions call. The value is the snapshot
 ;; text. The receipt call is separate and cannot replace that text.
+;; collapse emits this rule before the ground policy atom. The Python
+;; result therefore starts with the policy text, then the snapshot.
 (= (prompt-extension tabletop-allocated-context)
    (let $text (py-call (omega_tabletop_adapter.allocated_context_text))
      (progn

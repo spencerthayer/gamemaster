@@ -309,7 +309,9 @@ def allocated_context_text() -> str:
 
     try:
         runtime = initialize()
-        return runtime.prompt_context_snapshot().text
+        policy = load_prompt_policy(_REPO_ROOT / "plugins" / "tabletop" / "prompt.md")
+        snapshot = runtime.prompt_context_snapshot().text
+        return f"{policy}\n\n{snapshot}"
     except Exception as exc:
         logger.warning("tabletop context snapshot failed: %s", type(exc).__name__)
         return _CONTEXT_UNAVAILABLE

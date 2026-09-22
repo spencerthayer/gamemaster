@@ -112,7 +112,7 @@ def test_snapshot_text_is_separate_from_the_receipt(
     adapter.reset_runtime_for_tests()
     adapter.reset_skill_registration_for_tests()
     text = adapter.allocated_context_text()
-    assert PROMPT_CONTEXT_HEADER in text
+    assert text.index("Tabletop Runtime is authoritative") < text.index(PROMPT_CONTEXT_HEADER)
     assert "HUMAN-MSG" not in text
     counted = connect(database)
     assert counted.execute(
