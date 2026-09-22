@@ -8,17 +8,27 @@ from tabletop.api.errors import FactInvariantError
 from tabletop.campaign.models import CanonState, Fact, KnowledgeState
 
 
-def check_fact_invariants(fact: Fact) -> None:
-    """Reject the one canon and knowledge combination with no valid meaning."""
+def check_canon_knowledge_invariants(
+    canon_state: CanonState,
+    knowledge_state: KnowledgeState,
+    *,
+    record_type: str = "fact",
+) -> None:
+    """Reject canon and player-knowledge combinations with no valid meaning."""
     if (
-        fact.canon_state is CanonState.PROPOSED
-        and fact.knowledge_state is KnowledgeState.KNOWN
+        canon_state is CanonState.PROPOSED
+        and knowledge_state is KnowledgeState.KNOWN
     ):
         raise FactInvariantError(
-            "invalid fact state: "
-            f"canon_state={fact.canon_state.value!r} cannot be combined with "
-            f"knowledge_state={fact.knowledge_state.value!r}"
+            f"invalid {record_type} state: "
+            f"canon_state={canon_state.value!r} cannot be combined with "
+            f"knowledge_state={knowledge_state.value!r}"
         )
+
+
+def check_fact_invariants(fact: Fact) -> None:
+    """Reject the one canon and knowledge combination with no valid meaning."""
+    check_canon_knowledge_invariants(fact.canon_state, fact.knowledge_state)
 
 
 def promote(fact: Fact) -> Fact:

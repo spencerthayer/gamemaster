@@ -11,10 +11,12 @@ discovery stays shallow until Phase 11 introduces the authoritative store.
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from tabletop.api.errors import DiceExpressionError
+from tabletop.campaign.rulings import Ruling, RulingStore
 from tabletop.dice.roller import roll as roll_dice
 from tabletop.plugins.discovery import discover_plugins, load_plugin
 from tabletop.plugins.registry import PluginRegistry
@@ -39,6 +41,7 @@ class TabletopRuntime:
         campaign_roots: Iterable[Path | str] | None = None,
         plugin_roots: Iterable[Path | str] | None = None,
         active_campaign: str | None = None,
+        connection: sqlite3.Connection | None = None,
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
         self.campaign_roots = self._normalize_roots(
@@ -57,6 +60,7 @@ class TabletopRuntime:
         # root explicitly, and from_environment plus __init__ can both add it.
         self.plugin_roots = tuple(dict.fromkeys(self._normalize_roots(roots)))
         self.active_campaign = active_campaign
+        self._connection = connection
         self._campaigns: tuple[str, ...] = ()
         self._registry = PluginRegistry()
         self.refresh_discovery()
@@ -245,8 +249,25 @@ class TabletopRuntime:
             "get-relationships", phase=15, input_data={"entity_id": entity_id}
         )
 
-    def record_ruling(self, ruling: str) -> dict[str, Any]:
-        return self._unavailable("record-ruling", phase=23, input_data={"ruling": ruling})
+    def record_ruling(self, ruling: Ruling) -> dict[str, Any]:
+        """Persist a complete ruling through the canon lifecycle."""
+        if not isinstance(ruling, Ruling):
+            return self._error(
+                "record-ruling",
+                "invalid_ruling",
+                "record-ruling requires a complete Ruling record.",
+            )
+        if self._connection is None:
+            return self._error(
+                "record-ruling",
+                "storage_not_configured",
+                "record-ruling requires a configured campaign database connection.",
+            )
+        try:
+            stored = RulingStore(self._connection).record(ruling)
+        except (LookupError, sqlite3.IntegrityError, ValueError) as exc:
+            return self._error("record-ruling", "ruling_not_recorded", str(exc))
+        return self._ok("record-ruling", stored.to_dict())
 
     def end_session(self) -> dict[str, Any]:
         return self._unavailable("end-session", phase=29)
