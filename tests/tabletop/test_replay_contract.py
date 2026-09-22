@@ -16,8 +16,11 @@ import pytest
 from tabletop.api.resolution import StateOperation
 from tabletop.api.workspace import Workspace
 from tabletop.campaign.event_store import EventStore, EventType, PersistedEvent
+from tabletop.campaign.models import CanonState, KnowledgeState
 from tabletop.campaign.projections import project_campaign
+from tabletop.campaign.rulings import Ruling, RulingStore
 from tabletop.campaign.store import CampaignStore
+from tabletop.api.rules import RuleReference
 from tabletop.runtime import TabletopRuntime
 from tabletop.storage.sqlite import connect, migrate
 
@@ -298,6 +301,58 @@ def test_quest_replay_matches_sqlite(tmp_path: Path) -> None:
     assert projection.open_threads == tuple(
         projection.campaign_system.get("open_threads", ())
     )
+    connection.close()
+
+
+def test_ruling_replay_matches_sqlite(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "rulings.db")
+    migrate(connection)
+    CampaignStore(connection).create_campaign("campaign-1", "Owned", "freeform")
+    store = RulingStore(connection)
+    first = Ruling(
+        ruling_id="ruling-1",
+        campaign_id="campaign-1",
+        system_id="freeform",
+        question="May the lantern be carried?",
+        decision="Yes.",
+        scope="lantern",
+        source_references=(RuleReference(source_id="core"),),
+        session_id=None,
+        created_at="2026-09-22T00:00:00Z",
+        canon_state=CanonState.PROPOSED,
+        knowledge_state=KnowledgeState.UNREVEALED,
+    )
+    store.record(first)
+    store.promote("ruling-1")
+    second = Ruling(
+        ruling_id="ruling-2",
+        campaign_id="campaign-1",
+        system_id="freeform",
+        question="May the lantern be carried?",
+        decision="Only at night.",
+        scope="lantern",
+        source_references=(RuleReference(source_id="core"),),
+        session_id=None,
+        created_at="2026-09-22T01:00:00Z",
+        supersedes="ruling-1",
+        canon_state=CanonState.PROPOSED,
+        knowledge_state=KnowledgeState.UNREVEALED,
+    )
+    store.record(second)
+    projection = project_campaign(EventStore(connection).read("campaign-1"))
+    promoted = projection.rulings["ruling-1"]
+    assert promoted.canon_state == "confirmed"
+    assert promoted.knowledge_state == "unrevealed"
+    assert promoted.question == first.question
+    assert promoted.decision == first.decision
+    assert promoted.scope == first.scope
+    assert promoted.supersedes is None
+    assert promoted.source_references == tuple(
+        reference.to_dict() for reference in first.source_references
+    )
+    assert "ruling-1" in projection.rulings
+    assert projection.rulings["ruling-2"].supersedes == "ruling-1"
+    assert projection.rulings["ruling-2"].decision == "Only at night."
     connection.close()
 
 

@@ -37,6 +37,22 @@ class ProjectedFact:
 
 
 @dataclass(frozen=True)
+class ProjectedRuling:
+    """Ruling fields reconstructible from ruling lifecycle events."""
+
+    ruling_id: str
+    canon_state: str | None = None
+    knowledge_state: str | None = None
+    question: str | None = None
+    decision: str | None = None
+    scope: str | None = None
+    supersedes: str | None = None
+    source_references: tuple[Any, ...] = ()
+    campaign_id: str | None = None
+    system_id: str | None = None
+
+
+@dataclass(frozen=True)
 class CampaignProjection:
     """Derived campaign snapshot folded from an event sequence."""
 
@@ -47,6 +63,7 @@ class CampaignProjection:
     scenes: Mapping[str, Any] = field(default_factory=dict)
     open_threads: tuple[Any, ...] = ()
     campaign_system: Mapping[str, Any] = field(default_factory=dict)
+    rulings: Mapping[str, ProjectedRuling] = field(default_factory=dict)
 
 
 def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
@@ -57,6 +74,7 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
     scenes: dict[str, Any] = {}
     open_threads: list[Any] = []
     campaign_system: Any = {}
+    rulings: dict[str, ProjectedRuling] = {}
     campaign_id: str | None = None
     sequence: int | None = None
 
@@ -124,10 +142,14 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     )
             case EventType.QUEST_MUTATED:
                 campaign_system = _apply_quest_mutated(event, campaign_system)
+            case EventType.RULING_RECORDED:
+                projected = _ruling_from_event(event)
+                if projected is not None:
+                    rulings[projected.ruling_id] = projected
+            case EventType.RULING_PROMOTED:
+                rulings = _promote_projected_ruling(event, rulings)
             case (
-                EventType.RULING_RECORDED
-                | EventType.RULING_PROMOTED
-                | EventType.SCENE_OPENED
+                EventType.SCENE_OPENED
                 | EventType.SCENE_CLOSED
                 | EventType.SESSION_STARTED
                 | EventType.SESSION_ENDED
@@ -149,7 +171,64 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
         scenes={key: copy.deepcopy(value) for key, value in scenes.items()},
         open_threads=tuple(open_threads),
         campaign_system=copy.deepcopy(campaign_system),
+        rulings=dict(rulings),
     )
+
+
+def _ruling_from_event(event: PersistedEvent) -> ProjectedRuling | None:
+    payload = event.payload
+    ruling_id = payload.get("ruling_id")
+    if event.event_schema_version == 0:
+        if not isinstance(ruling_id, str) or not ruling_id:
+            return None
+        return ProjectedRuling(
+            ruling_id=ruling_id,
+            canon_state=_optional_string(payload, "canon_state"),
+        )
+    if not isinstance(ruling_id, str) or not ruling_id:
+        raise ValueError("ruling.recorded requires a non-empty ruling_id")
+    if payload.get("campaign_id") != event.campaign_id:
+        raise ValueError("ruling payload campaign_id does not match the event")
+    references = payload.get("source_references", ())
+    if not isinstance(references, list):
+        raise ValueError("ruling source_references must be a list")
+    return ProjectedRuling(
+        ruling_id=ruling_id,
+        canon_state=_optional_string(payload, "canon_state"),
+        knowledge_state=_optional_string(payload, "knowledge_state"),
+        question=_optional_string(payload, "question"),
+        decision=_optional_string(payload, "decision"),
+        scope=_optional_string(payload, "scope"),
+        supersedes=payload.get("supersedes") if payload.get("supersedes") is None or isinstance(payload.get("supersedes"), str) else None,
+        source_references=tuple(references),
+        campaign_id=_optional_string(payload, "campaign_id"),
+        system_id=_optional_string(payload, "system_id"),
+    )
+
+
+def _promote_projected_ruling(
+    event: PersistedEvent,
+    rulings: dict[str, ProjectedRuling],
+) -> dict[str, ProjectedRuling]:
+    ruling_id = event.payload.get("ruling_id")
+    if not isinstance(ruling_id, str) or not ruling_id:
+        raise ValueError("ruling.promoted requires a non-empty ruling_id")
+    existing = rulings.get(ruling_id)
+    if existing is None:
+        raise ValueError(f"ruling.promoted has no recorded ruling: {ruling_id}")
+    rulings[ruling_id] = ProjectedRuling(
+        ruling_id=existing.ruling_id,
+        canon_state=CanonState.CONFIRMED.value,
+        knowledge_state=existing.knowledge_state,
+        question=existing.question,
+        decision=existing.decision,
+        scope=existing.scope,
+        supersedes=existing.supersedes,
+        source_references=existing.source_references,
+        campaign_id=existing.campaign_id,
+        system_id=existing.system_id,
+    )
+    return rulings
 
 
 def _apply_quest_mutated(event: PersistedEvent, campaign_system: Any) -> Any:
@@ -273,7 +352,12 @@ def _projection_files(
         },
         Path("state/scenes.yaml"): {"scenes": _to_yaml_data(projection.scenes)},
         Path("world/facts.yaml"): {"facts": world_facts},
-        Path("rulings/rulings.yaml"): {"rulings": []},
+        Path("rulings/rulings.yaml"): {
+            "rulings": [
+                _to_yaml_data(ruling)
+                for _ruling_id, ruling in sorted(projection.rulings.items())
+            ]
+        },
         Path("sessions/sessions.yaml"): {"sessions": []},
         Path("gm/facts.yaml"): {"facts": gm_facts},
         Path("gm/threads.yaml"): {
