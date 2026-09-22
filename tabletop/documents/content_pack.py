@@ -47,6 +47,11 @@ def _validated_gm_only(raw: object, pack_root: Path, manifest_path: Path) -> tup
             raise ContentPackError(
                 f"manifest {manifest_path} field 'gm_only' must contain non-empty strings"
             )
+        if Path(value).is_absolute():
+            raise ContentPackError(
+                f"manifest {manifest_path} gm_only path {value!r} must be relative, "
+                "not absolute"
+            )
         try:
             (pack_root / value).resolve().relative_to(pack_root)
         except (OSError, RuntimeError, ValueError) as exc:

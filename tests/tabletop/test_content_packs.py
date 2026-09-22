@@ -132,7 +132,7 @@ def test_gm_only_lexical_escape_is_rejected(tmp_path, gm_only):
     module = _content_pack_api()
     _write_manifest(tmp_path, _valid_manifest(gm_only=f"gm_only:\n  - {gm_only}\n"))
 
-    with pytest.raises(module.ContentPackError, match="outside pack directory"):
+    with pytest.raises(module.ContentPackError, match="outside pack directory|absolute"):
         module.load_content_pack(tmp_path)
 
 
