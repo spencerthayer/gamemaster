@@ -169,12 +169,9 @@ def ruling_from_mapping(payload: Mapping[str, Any]) -> Ruling:
             if payload.get("supersedes") is None
             else str(payload.get("supersedes")).strip() or None
         ),
-        canon_state=CanonState(
-            str(payload.get("canon_state") or CanonState.PROPOSED.value)
-        ),
-        knowledge_state=KnowledgeState(
-            str(payload.get("knowledge_state") or KnowledgeState.UNREVEALED.value)
-        ),
+        # Model-controlled writes cannot create confirmed or known rulings.
+        canon_state=CanonState.PROPOSED,
+        knowledge_state=KnowledgeState.UNREVEALED,
         originating_action=(
             None
             if payload.get("originating_action") is None

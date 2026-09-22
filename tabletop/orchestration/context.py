@@ -445,8 +445,8 @@ def _entry_from_record(
     if isinstance(record, Fact):
         subject = f"{record.subject_id} " if record.subject_id else ""
         content = f"{subject}{record.predicate}: {record.value}"
-        refetch_tool = None
-        refetch_args = {}
+        refetch_tool = "get-fact"
+        refetch_args = {"fact_id": record.fact_id}
     elif isinstance(record, RetrievedChunk):
         content = record.text
         refetch_tool = record.source.refetch_tool

@@ -65,6 +65,7 @@ _CAMPAIGN_EXTRA = frozenset(
         "resolve-action",
         "roll",
         "get-entity",
+        "get-fact",
         "get-relationships",
         "record-ruling",
     }

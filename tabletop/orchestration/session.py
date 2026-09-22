@@ -130,7 +130,7 @@ class SessionLifecycle:
                 closed_at=closed_at,
                 summary_provider=summary_provider,
             )
-            self._mark_step_complete(session, step_number)
+            session = self._mark_step_complete(session, step_number)
         return session
 
     def _pending_session(self, campaign_id: str) -> tuple[Session, int]:
@@ -157,12 +157,7 @@ class SessionLifecycle:
     ) -> Session:
         match step:
             case EndSessionStep.CLOSE_EVENT_RANGE:
-                event_range = self._close_event_range(session.session_id)
-                return replace(
-                    session,
-                    ended_at=closed_at,
-                    event_range=event_range,
-                )
+                return replace(session, ended_at=closed_at)
             case EndSessionStep.WRITE_SUMMARY:
                 summary = self._summary_or_none(summary_provider, session)
                 self._write_summary(session.session_id, summary)
@@ -193,24 +188,11 @@ class SessionLifecycle:
         ).fetchone()
         return EventRange(start=row[0], end=row[1])
 
-    def _mark_step_complete(self, session: Session, step_number: int) -> None:
+    def _mark_step_complete(self, session: Session, step_number: int) -> Session:
         step = END_SESSION_CHECKLIST[step_number - 1]
         with transaction(self._connection):
             if step is EndSessionStep.CLOSE_EVENT_RANGE:
-                cursor = self._connection.execute(
-                    "UPDATE sessions SET ended_at = COALESCE(ended_at, ?), "
-                    "event_start_sequence = ?, event_end_sequence = ?, "
-                    "checklist_step = ? WHERE session_id = ? AND checklist_step < ?",
-                    (
-                        session.ended_at,
-                        session.event_range.start,
-                        session.event_range.end,
-                        step_number,
-                        session.session_id,
-                        step_number,
-                    ),
-                )
-                if cursor.rowcount == 1 and session.ended_at is not None:
+                if session.ended_at is not None:
                     EventStore(self._connection).append_in_transaction(
                         self._connection,
                         session.campaign_id,
@@ -221,17 +203,37 @@ class SessionLifecycle:
                         session_id=session.session_id,
                         occurred_at=session.ended_at,
                     )
-            else:
+                event_range = self._close_event_range(session.session_id)
                 cursor = self._connection.execute(
-                    "UPDATE sessions SET checklist_step = ? "
-                    "WHERE session_id = ? AND checklist_step < ?",
-                    (step_number, session.session_id, step_number),
+                    "UPDATE sessions SET ended_at = COALESCE(ended_at, ?), "
+                    "event_start_sequence = ?, event_end_sequence = ?, "
+                    "checklist_step = ? WHERE session_id = ? AND checklist_step < ?",
+                    (
+                        session.ended_at,
+                        event_range.start,
+                        event_range.end,
+                        step_number,
+                        session.session_id,
+                        step_number,
+                    ),
                 )
+                if cursor.rowcount != 1:
+                    raise LookupError(
+                        "session checklist step was not recorded: "
+                        f"{session.session_id}"
+                    )
+                return replace(session, event_range=event_range)
+            cursor = self._connection.execute(
+                "UPDATE sessions SET checklist_step = ? "
+                "WHERE session_id = ? AND checklist_step < ?",
+                (step_number, session.session_id, step_number),
+            )
             if cursor.rowcount != 1:
                 raise LookupError(
                     "session checklist step was not recorded: "
                     f"{session.session_id}"
                 )
+        return session
 
     def _write_summary(self, session_id: str, summary: str | None) -> None:
         with transaction(self._connection):

@@ -198,6 +198,10 @@ def get_entity(entity_id: Any) -> str:
     return _invoke("get_entity", _text(entity_id))
 
 
+def get_fact(fact_id: Any) -> str:
+    return _invoke("get_fact", _text(fact_id))
+
+
 def get_relationships(entity_id: Any) -> str:
     return _invoke("get_relationships", _text(entity_id))
 

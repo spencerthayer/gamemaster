@@ -121,7 +121,7 @@ def test_session_record_contains_complete_lifecycle_data(
         "ended_at": "2026-09-22T03:00:00+00:00",
         "participants": ["hero", "warden"],
         "transcript_reference": "transcripts/session-1.jsonl",
-        "event_range": {"start": 2, "end": 3},
+        "event_range": {"start": 2, "end": 4},
         "summary": "The party sealed the gate.",
         "important_facts": ["The gate is weakening"],
         "open_threads": ["Who built the gate?"],
@@ -189,7 +189,7 @@ def test_close_event_range_step_persists_actual_bounds(
     assert dict(row) == {
         "ended_at": "2026-09-22T03:00:00+00:00",
         "event_start_sequence": 2,
-        "event_end_sequence": 3,
+        "event_end_sequence": 4,
         "checklist_step": 1,
     }
 
@@ -271,7 +271,7 @@ def test_projection_regeneration_and_retrieval_update_complete(
         "WHERE chunk_id = 'session:session-1'"
     ).fetchone()
     assert row["document_id"] == "session-1"
-    assert "Event range: 2 through 3" in row["text"]
+    assert "Event range: 2 through 4" in row["text"]
     assert "The gate was sealed." in row["text"]
 
 
@@ -339,7 +339,7 @@ def test_retry_resumes_after_projection_or_retrieval_failure(
     assert retry.ended_at == "2026-09-22T03:00:00+00:00"
     assert retry.summary == "Durable summary"
     assert retry.event_range.start == 2
-    assert retry.event_range.end == 3
+    assert retry.event_range.end == 4
     assert projection_calls == 1
     assert retrieval_calls == (
         0 if failed_step is EndSessionStep.REGENERATE_PROJECTIONS else 1
@@ -412,7 +412,7 @@ def test_event_range_uses_session_sequence_numbers_not_timestamps(
     )
 
     assert session.event_range.start == 2
-    assert session.event_range.end == 3
+    assert session.event_range.end == 4
 
 
 @pytest.mark.parametrize("failure", [None, RuntimeError("model unavailable")])
@@ -440,7 +440,7 @@ def test_missing_or_failed_summary_keeps_authoritative_event_range(
     assert dict(row) == {
         "summary": None,
         "event_start_sequence": 2,
-        "event_end_sequence": 3,
+        "event_end_sequence": 4,
     }
 
 
@@ -463,4 +463,4 @@ def test_runtime_end_session_uses_session_lifecycle(
 
     assert payload["ok"] is True
     assert payload["operation"] == "end-session"
-    assert payload["data"]["session"]["event_range"] == {"start": 2, "end": 3}
+    assert payload["data"]["session"]["event_range"] == {"start": 2, "end": 4}

@@ -270,6 +270,7 @@ def test_runtime_record_ruling_persists_instead_of_reporting_unavailable(
         plugin_roots=[],
         connection=conn,
         workspace=Workspace.CAMPAIGN,
+        active_campaign="campaign-1",
     )
 
     payload = runtime.record_ruling(_ruling())
