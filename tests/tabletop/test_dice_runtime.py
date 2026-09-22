@@ -3,13 +3,14 @@ from pathlib import Path
 
 from systems.freeform import FreeformPlugin
 from tabletop.api.capabilities import Capability
+from tabletop.api.workspace import Workspace
 from tabletop.runtime import TabletopRuntime
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_runtime_roll_returns_json_safe_roll_result_envelope():
-    payload = TabletopRuntime(_REPO_ROOT).roll("2d6+1")
+    payload = TabletopRuntime(_REPO_ROOT, workspace=Workspace.CAMPAIGN).roll("2d6+1")
 
     assert payload["ok"] is True
     assert payload["operation"] == "roll"
@@ -20,7 +21,7 @@ def test_runtime_roll_returns_json_safe_roll_result_envelope():
 
 
 def test_runtime_roll_contains_malformed_expression_error():
-    payload = TabletopRuntime(_REPO_ROOT).roll("not dice")
+    payload = TabletopRuntime(_REPO_ROOT, workspace=Workspace.CAMPAIGN).roll("not dice")
 
     assert payload["ok"] is False
     assert payload["operation"] == "roll"

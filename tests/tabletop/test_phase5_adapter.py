@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from tabletop.api.workspace import Workspace
 from tabletop.runtime import TabletopRuntime
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -45,6 +46,7 @@ def test_bootstrap_campaign_discovery_stays_shallow(tmp_path):
         tmp_path,
         campaign_roots=[campaign_root],
         plugin_roots=[plugin_root],
+        workspace=Workspace.CAMPAIGN,
     )
 
     status = runtime.bootstrap_status()
@@ -55,7 +57,12 @@ def test_current_campaign_requires_explicit_choice_when_ambiguous(tmp_path):
     root = tmp_path / "campaigns"
     (root / "alpha").mkdir(parents=True)
     (root / "beta").mkdir()
-    runtime = TabletopRuntime(tmp_path, campaign_roots=[root], plugin_roots=[])
+    runtime = TabletopRuntime(
+        tmp_path,
+        campaign_roots=[root],
+        plugin_roots=[],
+        workspace=Workspace.CAMPAIGN,
+    )
 
     result = runtime.current_campaign()
     assert result["ok"] is False
@@ -64,7 +71,12 @@ def test_current_campaign_requires_explicit_choice_when_ambiguous(tmp_path):
 
 
 def test_roll_operation_is_available(tmp_path):
-    runtime = TabletopRuntime(tmp_path, campaign_roots=[], plugin_roots=[])
+    runtime = TabletopRuntime(
+        tmp_path,
+        campaign_roots=[],
+        plugin_roots=[],
+        workspace=Workspace.CAMPAIGN,
+    )
     result = runtime.roll("2d6")
 
     assert result["ok"] is True
@@ -101,10 +113,13 @@ def test_adapter_rejects_unsupported_response_types():
     assert payload["error"]["exception_type"] == "TypeError"
 
 
-def test_metta_plugin_registers_all_tabletop_skills_and_prompt_extension():
+def test_metta_plugin_registers_workspace_skills_and_prompt_extension():
     text = (_REPO_ROOT / "plugins" / "tabletop" / "tabletop.metta").read_text()
     assert "omega_tabletop_adapter.py" in text
     assert "(= (loadOmegaPlugin)" in text
+    assert "(= (register-workspace-skills setting)" in text
+    assert "(= (register-workspace-skills campaign)" in text
+    assert "begin_skill_registration" in text
     for skill in _SKILLS:
         assert f"(add-skill {skill}" in text
         assert f"(= ({skill}" in text

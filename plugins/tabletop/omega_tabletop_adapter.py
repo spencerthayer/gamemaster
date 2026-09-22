@@ -2,7 +2,8 @@
 
 ``plugins/tabletop/tabletop.metta`` is the configured Omega plugin. It imports
 this module and forwards skill calls into the standalone ``tabletop`` runtime.
-No game logic lives here.
+No game logic lives here. Skills are registered once from the active
+workspace payload; the adapter never re-registers.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME = None
+_SKILLS_REGISTERED = False
 
 
 def ensure_runtime_importable():
@@ -44,8 +46,95 @@ def reset_runtime_for_tests():
     _RUNTIME = None
 
 
+def reset_skill_registration_for_tests():
+    """Clear the one-shot skill registration guard for isolated tests."""
+    global _SKILLS_REGISTERED
+    _SKILLS_REGISTERED = False
+
+
 def initialize_response() -> str:
     return _invoke("bootstrap_status")
+
+
+def active_workspace() -> str:
+    """Return the fixed workspace value for MeTTa registration branching."""
+    try:
+        runtime = initialize()
+        return runtime.workspace.value
+    except Exception as exc:  # adapter boundary must not leak arbitrary exceptions
+        return _encode(
+            {
+                "ok": False,
+                "operation": "active-workspace",
+                "error": {
+                    "code": "adapter_error",
+                    "message": "Tabletop adapter call failed.",
+                    "exception_type": type(exc).__name__,
+                },
+                "data": {},
+            }
+        )
+
+
+def skill_registration_payload() -> str:
+    """Return the workspace-scoped skill list used for Omega ``add-skill``."""
+    try:
+        runtime = initialize()
+        return _encode(runtime.skill_registration_payload())
+    except Exception as exc:
+        return _encode(
+            {
+                "ok": False,
+                "operation": "skill-registration-payload",
+                "error": {
+                    "code": "adapter_error",
+                    "message": "Tabletop adapter call failed.",
+                    "exception_type": type(exc).__name__,
+                },
+                "data": {},
+            }
+        )
+
+
+def begin_skill_registration() -> str:
+    """Return the registration payload exactly once per process.
+
+    Omega ``add-skill`` is process-global. Re-registration would widen or
+    swap the tool surface across conversations sharing the process.
+    """
+    global _SKILLS_REGISTERED
+    try:
+        runtime = initialize()
+        if _SKILLS_REGISTERED:
+            return _encode(
+                {
+                    "ok": False,
+                    "operation": "begin-skill-registration",
+                    "error": {
+                        "code": "skills_already_registered",
+                        "message": (
+                            "Tabletop skills are registered once per process "
+                            "from TABLETOP_WORKSPACE."
+                        ),
+                    },
+                    "data": {"workspace": runtime.workspace.value},
+                }
+            )
+        _SKILLS_REGISTERED = True
+        return _encode(runtime.skill_registration_payload())
+    except Exception as exc:
+        return _encode(
+            {
+                "ok": False,
+                "operation": "begin-skill-registration",
+                "error": {
+                    "code": "adapter_error",
+                    "message": "Tabletop adapter call failed.",
+                    "exception_type": type(exc).__name__,
+                },
+                "data": {},
+            }
+        )
 
 
 def current_campaign() -> str:
@@ -86,6 +175,50 @@ def record_ruling(ruling: Any) -> str:
 
 def end_session() -> str:
     return _invoke("end_session")
+
+
+def query_setting(query: Any) -> str:
+    return _invoke("query_setting", _text(query))
+
+
+def edit_setting(edit: Any) -> str:
+    return _invoke("edit_setting", _text(edit))
+
+
+def get_world_entity(entity_id: Any) -> str:
+    return _invoke("get_world_entity", _text(entity_id))
+
+
+def upsert_world_entity(entity: Any) -> str:
+    return _invoke("upsert_world_entity", _text(entity))
+
+
+def query_world_history(query: Any) -> str:
+    return _invoke("query_world_history", _text(query))
+
+
+def record_world_history(entry: Any) -> str:
+    return _invoke("record_world_history", _text(entry))
+
+
+def read_session(session_id: Any) -> str:
+    return _invoke("read_session", _text(session_id))
+
+
+def get_party_state() -> str:
+    return _invoke("get_party_state")
+
+
+def get_open_threads() -> str:
+    return _invoke("get_open_threads")
+
+
+def mutate_quest(quest: Any) -> str:
+    return _invoke("mutate_quest", _text(quest))
+
+
+def read_campaign_secret(secret_id: Any) -> str:
+    return _invoke("read_campaign_secret", _text(secret_id))
 
 
 def loadOmegaPlugin():

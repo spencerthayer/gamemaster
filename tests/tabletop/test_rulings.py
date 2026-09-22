@@ -27,6 +27,7 @@ from tabletop.orchestration.adjudication import (
 )
 from tabletop.retrieval.models import RetrievalNamespace, RetrievedChunk, SourceReference
 from tabletop.retrieval.precedence import PrecedenceResolver
+from tabletop.api.workspace import Workspace
 from tabletop.runtime import TabletopRuntime
 from tabletop.storage.sqlite import connect, migrate
 
@@ -268,6 +269,7 @@ def test_runtime_record_ruling_persists_instead_of_reporting_unavailable(
         campaign_roots=[],
         plugin_roots=[],
         connection=conn,
+        workspace=Workspace.CAMPAIGN,
     )
 
     payload = runtime.record_ruling(_ruling())

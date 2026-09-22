@@ -52,6 +52,7 @@ print("LOADER-OK")
 
 def test_adapter_loads_through_omega_python_loader(tmp_path):
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["TABLETOP_WORKSPACE"] = "campaign"
     probe = PROBE.format(name=ADAPTER_NAME, location=ADAPTER_LOCATION)
     result = subprocess.run(
         [sys.executable, "-c", probe, str(_REPO_ROOT)],
