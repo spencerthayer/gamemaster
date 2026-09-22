@@ -124,6 +124,9 @@ def test_resolve_document_reference_returns_original_path(conn) -> None:
     assert resolved.document_path == "/library/core-rules.md"
     assert resolved.content_hash == "document-hash-1"
     assert resolved.ordinal == 7
+    assert resolved.ingest_job_id == "job-1"
+    assert resolved.parser_version == "parser-3"
+    assert resolved.extractor_version == "extractor-1"
 
 
 def test_resolve_transport_reference_by_original_path(conn) -> None:
@@ -146,6 +149,67 @@ def test_resolve_reference_reports_purged_document_as_absent(conn) -> None:
     purge_document(conn, "document-1")
 
     assert resolve_reference(conn, ref) is None
+
+
+def test_fact_reference_with_unmatched_import_job_is_absent(conn) -> None:
+    conn.execute(
+        "UPDATE facts SET import_job_id = 'missing-job' WHERE fact_id = 'fact-1'"
+    )
+
+    assert (
+        resolve_reference(
+            conn,
+            RuleReference(source_id="fact-1", chunk_id="chunk-7"),
+        )
+        is None
+    )
+
+
+def test_fact_reference_with_missing_source_chunk_is_absent(conn) -> None:
+    conn.execute(
+        "UPDATE facts SET source_chunk_id = 'missing-chunk' WHERE fact_id = 'fact-1'"
+    )
+
+    assert resolve_reference(conn, RuleReference(source_id="fact-1")) is None
+
+
+def test_document_reference_without_extractor_identity_is_absent(conn) -> None:
+    conn.execute(
+        "UPDATE facts SET extraction_method = NULL WHERE fact_id = 'fact-1'"
+    )
+
+    assert (
+        resolve_reference(
+            conn,
+            RuleReference(source_id="document-1", chunk_id="chunk-7"),
+        )
+        is None
+    )
+
+
+def test_document_reference_with_several_jobs_is_absent(conn) -> None:
+    conn.execute(
+        "INSERT INTO ingest_jobs "
+        "(job_id, document_hash, parser_version, slice_strategy_version, "
+        "status, total_slices, completed_slices, failed_slices, started_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'completed', 1, 1, 0, ?, ?)",
+        (
+            "job-2",
+            "document-hash-1",
+            "parser-4",
+            "slice-3",
+            "2026-09-22T01:00:00Z",
+            "2026-09-22T01:00:00Z",
+        ),
+    )
+
+    assert (
+        resolve_reference(
+            conn,
+            RuleReference(source_id="document-1", chunk_id="chunk-7"),
+        )
+        is None
+    )
 
 
 def test_deterministic_resolution_keeps_rule_references() -> None:

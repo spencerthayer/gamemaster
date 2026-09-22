@@ -16,11 +16,11 @@ class ResolvedRuleReference:
     document_id: str
     document_path: str
     content_hash: str
-    chunk_id: str | None
-    ordinal: int | None
-    ingest_job_id: str | None
-    parser_version: str | None
-    extractor_version: str | None
+    chunk_id: str
+    ordinal: int
+    ingest_job_id: str
+    parser_version: str
+    extractor_version: str
 
     @property
     def document_content_hash(self) -> str:
@@ -29,7 +29,7 @@ class ResolvedRuleReference:
         return self.content_hash
 
     @property
-    def chunk_or_slice_ordinal(self) -> int | None:
+    def chunk_or_slice_ordinal(self) -> int:
         """The resolved chunk ordinal, or slice ordinal when represented as a chunk."""
 
         return self.ordinal
@@ -44,34 +44,28 @@ def _resolve_fact_reference(
         "c.chunk_id, c.ordinal, f.import_job_id, j.parser_version, "
         "f.extraction_method "
         "FROM facts AS f "
-        "LEFT JOIN documents AS d ON d.document_id = f.source_document_id "
-        "LEFT JOIN document_chunks AS c "
+        "JOIN documents AS d ON d.document_id = f.source_document_id "
+        "JOIN document_chunks AS c "
         "ON c.chunk_id = f.source_chunk_id AND c.document_id = d.document_id "
-        "LEFT JOIN ingest_jobs AS j ON j.job_id = f.import_job_id "
+        "JOIN ingest_jobs AS j "
+        "ON j.job_id = f.import_job_id AND j.document_hash = d.content_hash "
         "WHERE f.fact_id = ? "
+        "AND f.extraction_method IS NOT NULL "
         "AND (? IS NULL OR f.source_chunk_id = ?)",
         (ref.source_id, ref.chunk_id, ref.chunk_id),
     ).fetchone()
-    if row is None or row["document_id"] is None:
+    if row is None:
         return None
     return ResolvedRuleReference(
         source_id=str(row["fact_id"]),
         document_id=str(row["document_id"]),
         document_path=str(row["source_path"]),
         content_hash=str(row["content_hash"]),
-        chunk_id=None if row["chunk_id"] is None else str(row["chunk_id"]),
-        ordinal=None if row["ordinal"] is None else int(row["ordinal"]),
-        ingest_job_id=(
-            None if row["import_job_id"] is None else str(row["import_job_id"])
-        ),
-        parser_version=(
-            None if row["parser_version"] is None else str(row["parser_version"])
-        ),
-        extractor_version=(
-            None
-            if row["extraction_method"] is None
-            else str(row["extraction_method"])
-        ),
+        chunk_id=str(row["chunk_id"]),
+        ordinal=int(row["ordinal"]),
+        ingest_job_id=str(row["import_job_id"]),
+        parser_version=str(row["parser_version"]),
+        extractor_version=str(row["extraction_method"]),
     )
 
 
@@ -79,51 +73,54 @@ def _resolve_document_reference(
     conn: sqlite3.Connection,
     ref: RuleReference,
 ) -> ResolvedRuleReference | None:
-    row = conn.execute(
+    rows = conn.execute(
+        "WITH sole_job AS ("
+        "SELECT document_hash, MIN(job_id) AS job_id "
+        "FROM ingest_jobs "
+        "GROUP BY document_hash "
+        "HAVING COUNT(*) = 1"
+        ") "
         "SELECT d.document_id, d.source_path, d.content_hash, "
-        "c.chunk_id, c.ordinal, j.job_id, j.parser_version "
+        "c.chunk_id, c.ordinal, j.job_id, j.parser_version, "
+        "f.extraction_method "
         "FROM documents AS d "
-        "LEFT JOIN document_chunks AS c "
-        "ON c.document_id = d.document_id "
-        "AND ? IS NOT NULL AND c.chunk_id = ? "
-        "LEFT JOIN ingest_jobs AS j ON j.document_hash = d.content_hash "
+        "JOIN document_chunks AS c "
+        "ON c.document_id = d.document_id AND c.chunk_id = ? "
+        "JOIN sole_job AS sj ON sj.document_hash = d.content_hash "
+        "JOIN ingest_jobs AS j "
+        "ON j.job_id = sj.job_id AND j.document_hash = d.content_hash "
+        "JOIN facts AS f "
+        "ON f.source_document_id = d.document_id "
+        "AND f.source_chunk_id = c.chunk_id "
+        "AND f.import_job_id = j.job_id "
+        "AND f.extraction_method IS NOT NULL "
         "WHERE d.document_id = ? "
         "OR (? IS NOT NULL AND d.source_path = ?) "
-        "OR (? IS NOT NULL AND c.chunk_id = ?) "
-        "ORDER BY CASE "
-        "WHEN d.document_id = ? THEN 0 "
-        "WHEN d.source_path = ? THEN 1 "
-        "ELSE 2 END, "
-        "j.started_at DESC, j.job_id DESC "
-        "LIMIT 1",
+        "OR c.chunk_id = ? "
+        "GROUP BY d.document_id, d.source_path, d.content_hash, "
+        "c.chunk_id, c.ordinal, j.job_id, j.parser_version, "
+        "f.extraction_method",
         (
             ref.chunk_id,
-            ref.chunk_id,
             ref.source_id,
             ref.document_path,
             ref.document_path,
             ref.chunk_id,
-            ref.chunk_id,
-            ref.source_id,
-            ref.document_path,
         ),
-    ).fetchone()
-    if row is None:
+    ).fetchall()
+    if len(rows) != 1:
         return None
-    if ref.chunk_id is not None and row["chunk_id"] is None:
-        return None
+    row = rows[0]
     return ResolvedRuleReference(
         source_id=ref.source_id,
         document_id=str(row["document_id"]),
         document_path=str(row["source_path"]),
         content_hash=str(row["content_hash"]),
-        chunk_id=None if row["chunk_id"] is None else str(row["chunk_id"]),
-        ordinal=None if row["ordinal"] is None else int(row["ordinal"]),
-        ingest_job_id=None if row["job_id"] is None else str(row["job_id"]),
-        parser_version=(
-            None if row["parser_version"] is None else str(row["parser_version"])
-        ),
-        extractor_version=None,
+        chunk_id=str(row["chunk_id"]),
+        ordinal=int(row["ordinal"]),
+        ingest_job_id=str(row["job_id"]),
+        parser_version=str(row["parser_version"]),
+        extractor_version=str(row["extraction_method"]),
     )
 
 
