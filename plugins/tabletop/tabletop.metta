@@ -18,6 +18,14 @@
          (log INFO "tabletop-prompt-extension" "tabletop-runtime-policy")
          ()))))
 
+;; Reevaluated on each getPromptExtensions call. The value is the snapshot
+;; text. The receipt call is separate and cannot replace that text.
+(= (prompt-extension tabletop-allocated-context)
+   (let $text (py-call (omega_tabletop_adapter.allocated_context_text))
+     (progn
+       (py-call (omega_tabletop_adapter.record_allocated_context_receipt))
+       $text)))
+
 ;; Workspace skill surfaces are fixed at startup from TABLETOP_WORKSPACE.
 ;; Forbidden operations are absent from add-skill, not merely discouraged.
 ;; Bare tokens (not JSON) match py-call results from claim_skill_registration.

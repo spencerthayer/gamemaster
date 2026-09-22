@@ -74,3 +74,67 @@ def test_prompt_policy_names_all_non_resolved_statuses() -> None:
 
     for status in ("RULING_REQUIRED", "UNRESOLVED", "UNSUPPORTED"):
         assert status in policy
+
+
+def test_allocated_context_is_a_second_extension_after_policy() -> None:
+    metta = METTA_PATH.read_text(encoding="utf-8")
+    policy = PROMPT_PATH.read_text(encoding="utf-8")
+    policy_at = metta.index("(add-prompt-extension tabletop-runtime-policy $prompt)")
+    context_at = metta.index("(= (prompt-extension tabletop-allocated-context)")
+    assert policy_at < context_at
+    assert "(py-call (omega_tabletop_adapter.allocated_context_text))" in metta
+    assert "(py-call (omega_tabletop_adapter.record_allocated_context_receipt))" in metta
+    assert "record_prompt_context_receipt" not in metta.split("allocated_context_text")[0]
+    assert "Tabletop Runtime is authoritative" in policy
+    assert "HUMAN-MSG" not in policy
+    for path in (REPO_ROOT / "tabletop").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        assert "import omega" not in text
+        assert "import metta" not in text
+
+
+def test_snapshot_text_is_separate_from_the_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tabletop.campaign.store import CampaignStore
+    from tabletop.orchestration.prompt_context import PROMPT_CONTEXT_HEADER
+    from tabletop.storage.sqlite import connect, migrate
+
+    database = tmp_path / "prompt.sqlite3"
+    connection = connect(database)
+    migrate(connection)
+    CampaignStore(connection).create_campaign("campaign-a", "Active", "freeform")
+    connection.close()
+    monkeypatch.setenv("TABLETOP_WORKSPACE", "campaign")
+    monkeypatch.setenv("TABLETOP_CAMPAIGN", "campaign-a")
+    monkeypatch.setenv("TABLETOP_DATABASE_PATH", str(database))
+    adapter = _load_adapter()
+    adapter.reset_runtime_for_tests()
+    adapter.reset_skill_registration_for_tests()
+    text = adapter.allocated_context_text()
+    assert PROMPT_CONTEXT_HEADER in text
+    assert "HUMAN-MSG" not in text
+    counted = connect(database)
+    assert counted.execute(
+        "SELECT COUNT(*) FROM prompt_context_receipts"
+    ).fetchone()[0] == 0
+    assert adapter.record_allocated_context_receipt() == "ok"
+    assert counted.execute(
+        "SELECT COUNT(*) FROM prompt_context_receipts"
+    ).fetchone()[0] == 1
+    assert adapter.record_allocated_context_receipt() == "ok"
+    assert counted.execute(
+        "SELECT COUNT(*) FROM prompt_context_receipts"
+    ).fetchone()[0] == 1
+    counted.close()
+
+    def _boom(*_args: object, **_kwargs: object) -> bool:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(
+        "tabletop.orchestration.prompt_receipt.record_prompt_context_receipt",
+        _boom,
+    )
+    unchanged = adapter.allocated_context_text()
+    assert unchanged == text
+    assert adapter.record_allocated_context_receipt() == "failed"

@@ -9,6 +9,7 @@ workspace payload; the adapter never re-registers.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sys
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME = None
 _SKILLS_REGISTERED = False
+_CONTEXT_UNAVAILABLE = "Tabletop context is unavailable."
+logger = logging.getLogger(__name__)
 
 
 def load_prompt_policy(path: str | Path) -> str:
@@ -299,6 +302,36 @@ def loadOmegaPlugin():
     runtime_module = ensure_runtime_importable()
     initialize()
     return runtime_module
+
+
+def allocated_context_text() -> str:
+    """Return the GM snapshot text. This function writes nothing."""
+
+    try:
+        runtime = initialize()
+        return runtime.prompt_context_snapshot().text
+    except Exception as exc:
+        logger.warning("tabletop context snapshot failed: %s", type(exc).__name__)
+        return _CONTEXT_UNAVAILABLE
+
+
+def record_allocated_context_receipt() -> str:
+    """Store the current snapshot after the text has been produced."""
+
+    try:
+        runtime = initialize()
+        connection = getattr(runtime, "_connection", None)
+        if connection is None:
+            return "failed"
+        snapshot = runtime.prompt_context_snapshot()
+        # Imported after initialize(), which puts the repo root on sys.path.
+        from tabletop.orchestration.prompt_receipt import record_prompt_context_receipt
+
+        stored = record_prompt_context_receipt(connection, snapshot)
+    except Exception as exc:
+        logger.warning("tabletop context receipt failed: %s", type(exc).__name__)
+        return "failed"
+    return "ok" if stored else "failed"
 
 
 def _invoke(method_name: str, *args: Any) -> str:
