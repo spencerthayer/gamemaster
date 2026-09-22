@@ -173,4 +173,10 @@ def test_extraction_module_has_no_campaign_store_write_path() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module is not None
     )
+    imports.update(
+        f"{node.module}.{alias.name}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+        for alias in node.names
+    )
     assert "tabletop.campaign.store" not in imports
