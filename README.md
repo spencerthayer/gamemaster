@@ -121,7 +121,10 @@ Implemented and covered by tests:
 - Markdown and PDF text-layer ingestion
 - lexical retrieval and an optional vector-to-lexical cascade
 - freeform and partial 2014 5e end-to-end demonstration tests
-- a Compose definition for one Omega process with persistent state
+
+Also present, but not covered by a runtime behavior test: a Compose deployment
+definition for one Omega process with persistent state. Its configuration is
+checked with `docker compose config`.
 
 Important limits:
 
