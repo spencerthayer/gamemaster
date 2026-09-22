@@ -102,3 +102,9 @@ class DiceExpressionError(GameSystemError):
     """A dice expression is malformed or out of supported range."""
 
     code = "dice_expression_error"
+
+
+class StorageError(GameSystemError):
+    """SQLite storage or schema migration failed."""
+
+    code = "storage_error"
