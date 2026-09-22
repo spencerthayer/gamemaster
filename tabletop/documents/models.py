@@ -1,6 +1,14 @@
-"""Document and chunk models.
+"""Document and chunk models."""
 
-Models for source documents, heading-aware chunks, and the metadata carried
-on every chunk (source file, page, section, content pack, system,
-edition/version, visibility). Phase 19 of the execution plan fills this in.
-"""
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class DocumentRecord:
+    """Resolved paths and byte identity for one source document."""
+
+    logical_path: Path
+    raw_path: Path
+    processed_path: Path
+    sha256: str
