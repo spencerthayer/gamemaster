@@ -10,11 +10,16 @@ todos:
     content: Add a failing contract that maps every authoritative mutation to an event and a replay result
     status: pending
     dependencies: []
+  - id: task-02a-event-schema-version
+    content: Add a persisted event schema generation before any payload is enriched
+    status: pending
+    dependencies:
+      - task-02-mutation-replay-contract
   - id: task-03-replay-quest-state
     content: Replay quest.mutated into CampaignProjection and prove it matches stored quest state
     status: pending
     dependencies:
-      - task-02-mutation-replay-contract
+      - task-02a-event-schema-version
   - id: task-04-replay-ruling-state
     content: Replay ruling.recorded and ruling.promoted into the campaign projection
     status: pending
@@ -35,11 +40,16 @@ todos:
     status: pending
     dependencies:
       - task-06-setting-event-log
+  - id: task-07a-replay-fidelity-and-model-doc
+    content: Report replay fidelity per campaign and refresh the campaign model document
+    status: pending
+    dependencies:
+      - task-07-replay-fact-lifecycle
   - id: task-08-chunk-refetch-route
     content: Register get-chunk and store it on lexical and vector source references
     status: pending
     dependencies:
-      - task-07-replay-fact-lifecycle
+      - task-07a-replay-fidelity-and-model-doc
   - id: task-09-compaction-refetch-roundtrip
     content: Prove a compacted retrieved chunk can be refetched to the same source record
     status: pending
@@ -55,11 +65,16 @@ todos:
     status: pending
     dependencies:
       - task-10-promote-ruling-skill
+  - id: task-11a-world-history-scope
+    content: Stop world-history reads from crossing into other settings
+    status: pending
+    dependencies:
+      - task-11-fact-lifecycle-skills
   - id: task-12-pytest-integration-markers
     content: Add docker and omega pytest markers that stay skipped in the default suite
     status: pending
     dependencies:
-      - task-11-fact-lifecycle-skills
+      - task-11a-world-history-scope
   - id: task-13-docker-image-contract
     content: Build the image and verify user, mounts, FTS5, PDF import, and restart persistence
     status: pending
@@ -75,8 +90,8 @@ todos:
     status: pending
     dependencies:
       - task-11-fact-lifecycle-skills
-  - id: task-15a-runtime-viewpoint-authority
-    content: Give one campaign read path a runtime-supplied non-GM viewpoint
+  - id: task-15a-library-viewpoint-parameters
+    content: Make every read library take an explicit viewpoint and document the GM-only skill surface
     status: pending
     dependencies:
       - task-15-setting-overlay-reads
@@ -84,17 +99,12 @@ todos:
     content: Add a combinatorial visibility test across scope, canon, knowledge, ownership, and time
     status: pending
     dependencies:
-      - task-15a-runtime-viewpoint-authority
-  - id: task-17a-wire-context-into-play-turn
-    content: Assemble the turn's context through build_context so the trace describes the real turn
-    status: pending
-    dependencies:
-      - task-16-visibility-combination-matrix
+      - task-15a-library-viewpoint-parameters
   - id: task-17-context-allocation-trace
     content: Record which context entries were selected, compacted, or dropped and why
     status: pending
     dependencies:
-      - task-17a-wire-context-into-play-turn
+      - task-16-visibility-combination-matrix
   - id: task-18-turn-receipt
     content: Persist a per-turn diagnostic receipt outside campaign canon
     status: pending
@@ -104,7 +114,7 @@ todos:
     content: Measure the current lexical and brute-force vector retrievers and keep the current backends
     status: pending
     dependencies:
-      - task-07-replay-fact-lifecycle
+      - task-07a-replay-fidelity-and-model-doc
   - id: task-20-gurps-roll-under
     content: Add a minimal GURPS plugin that resolves 3d6 roll-under and contests
     status: pending
@@ -158,7 +168,9 @@ Recommended review boundaries:
   observability, retrieval measurement, GURPS, verification
 ```
 
-`551b21f8faef77c19fc30b5bdb476b8e999244d1` is still `origin/main`. It is an ancestor of local `HEAD`. Local `main` is one unpushed commit ahead: `473a757376b5`, message `docs: update repository state reference in tabletop platform plan`. That commit renames the historical plan files to `*.done.md` and updates the repository-state note. It does not change runtime code. The suite count 660 is from this checkout. `docs/first-draft-verification.md` still records 649 passed from branch `phase-33-40-verification-release`. Treat 649 as historical.
+**The baseline is `origin/main`, not a local working copy.** `551b21f8faef77c19fc30b5bdb476b8e999244d1` is `origin/main`. Two local commits are ahead of it and unpushed: the `*.done.md` rename and this plan file. On `origin/main` the historical plans are still `.agents/plans/2026-09-06-tabletop-platform.md` and `.agents/plans/2026-09-21_223547-tabletop-platform.plan.md`, so a fresh clone cannot execute a plan that assumes the renamed paths.
+
+Boundary 0 therefore owns the whole archival operation and publishes this plan. Every later branch starts from merged `origin/main`. No task starts from an unpushed commit. The suite count 660 is from this checkout. `docs/first-draft-verification.md` still records 649 passed from branch `phase-33-40-verification-release`. Treat 649 as historical.
 
 Historical checkpoints, all ancestors of local `HEAD`:
 
@@ -168,9 +180,9 @@ Historical checkpoints, all ancestors of local `HEAD`:
 | `5a81322` | First draft landed through PR #8 |
 | `5ac88ac` | Canon and campaign boundary hardening |
 | `551b21f8faef77c19fc30b5bdb476b8e999244d1` | Later boundary, refetch, quest-event, and plan-record fixes. Still `origin/main` |
-| `473a757376b5245cf6a95a81d02796461318879a` | Local `HEAD`. Plan-file rename only |
+| `473a757376b5245cf6a95a81d02796461318879a` | Local only. Plan-file rename, published by boundary 0 |
 
-Start new branches from local `HEAD` `473a757376b5` after `git status --short` is empty. Do not reset implementation back to `551b21f`. If that local commit is still unpushed when the first PR opens, include it as already on the branch or push it before the first feature branch. Do not reopen the 55 completed tasks in `.agents/plans/2026-09-21_223547-tabletop-platform.done.md`.
+Start every branch from merged `origin/main` after `git status --short` is empty. Boundary 0 is what makes `origin/main` and this plan agree; until it merges, no other boundary opens. Do not reopen the 55 completed tasks in the completed first-draft plan.
 
 ### Confirmed residual gaps
 
@@ -277,7 +289,7 @@ git switch -c <branch>
 
 Do not stack branches. Do not start boundary N+1 from the unmerged branch of boundary N. There is no parent-PR rebase procedure because stacked branches are not allowed.
 
-**Migration numbers are assigned at PR time, not at planning time.** This plan names `0012_setting_events.sql` and `0013_turn_receipts.sql` because `0011` is the highest file today, but boundaries merge in an order the plan does not control, and the first draft already had to renumber events through rulings for exactly this reason. Before committing a migration, list `tabletop/storage/migrations/` and take the next free number. The `schema_migrations` checksum check catches a collision; a duplicated number does not silently win.
+**Migration numbers are assigned at PR time, not at planning time.** This plan adds three migrations, in this order: the event schema generation (task 02a), setting events (task 06), and turn receipts (task 18). `0011` is the highest file today, but boundaries merge in an order the plan does not control, and the first draft already had to renumber events through rulings for exactly this reason. Before committing a migration, list `tabletop/storage/migrations/` and take the next free number. The `schema_migrations` checksum check catches a collision; a duplicated number does not silently win.
 
 No tracker ticket was present in the request. Branch names below are descriptive. If a ticket id appears before the first commit of a boundary, rename that branch to the ticket id and say which name changed.
 
@@ -288,12 +300,12 @@ The agent may create branches, commit, push, open PRs, review PRs, and update PR
 | Boundary | Branch | Tasks | Closes when |
 |---|---|---|---|
 | 0 Archive | `archive-first-draft-plans` | 01 | task 01 |
-| 1 Event history | `event-history-completeness` | 02-07 | task 07 |
+| 1 Event history | `event-history-completeness` | 02, 02a, 03-07, 07a | task 07a |
 | 2 Refetch | `context-refetch-durability` | 08-09 | task 09 |
-| 3 Lifecycle | `canon-ruling-lifecycle` | 10-11 | task 11 |
+| 3 Lifecycle | `canon-ruling-lifecycle` | 10, 11, 11a | task 11a |
 | 4 Container | `omega-container-integration` | 12-14 | task 14 |
 | 5 Visibility | `visibility-ownership-hardening` | 15, 15a, 16 | task 16 |
-| 6 Observability | `observability-receipts` | 17a, 17-18 | task 18 |
+| 6 Observability | `observability-receipts` | 17-18 | task 18 |
 | Retrieval measurement | `retrieval-scale-benchmark` | 19 | task 19 |
 | 7 Second system | `gurps-architecture-validation` | 20-21 | task 21 |
 | 8 Verification | `second-draft-verification` | 22 | task 22 |
@@ -306,47 +318,51 @@ Boundaries 0 and 1 may open in parallel from the same `main`. They touch differe
 flowchart TD
   task_01_archive_historical_plans["⬜ task-01-archive-historical-plans | Mark the completed first-draft plans superseded and point them at this plan"]
   task_02_mutation_replay_contract["⬜ task-02-mutation-replay-contract | Add a failing contract that maps every authoritative mutation to an event and a replay result"]
+  task_02a_event_schema_version["⬜ task-02a-event-schema-version | Add a persisted event schema generation before any payload is enriched"]
   task_03_replay_quest_state["⬜ task-03-replay-quest-state | Replay quest.mutated into CampaignProjection and prove it matches stored quest state"]
   task_04_replay_ruling_state["⬜ task-04-replay-ruling-state | Replay ruling.recorded and ruling.promoted into the campaign projection"]
   task_05_session_start_and_replay["⬜ task-05-session-start-and-replay | Add start-session and replay session.started and session.ended into session state"]
   task_06_setting_event_log["⬜ task-06-setting-event-log | Append immutable setting events for setting, world-entity, and world-history writes"]
   task_07_replay_fact_lifecycle["⬜ task-07-replay-fact-lifecycle | Carry enough fact payload to replay new campaign facts to the stored row"]
+  task_07a_replay_fidelity_and_model_doc["⬜ task-07a-replay-fidelity-and-model-doc | Report replay fidelity per campaign and refresh the campaign model document"]
   task_08_chunk_refetch_route["⬜ task-08-chunk-refetch-route | Register get-chunk and store it on lexical and vector source references"]
   task_09_compaction_refetch_roundtrip["⬜ task-09-compaction-refetch-roundtrip | Prove a compacted retrieved chunk can be refetched to the same source record"]
   task_10_promote_ruling_skill["⬜ task-10-promote-ruling-skill | Add campaign-only promote-ruling that confirms canon without changing knowledge"]
   task_11_fact_lifecycle_skills["⬜ task-11-fact-lifecycle-skills | Add promote-fact and reveal-fact skills that cannot set canon from input fields"]
+  task_11a_world_history_scope["⬜ task-11a-world-history-scope | Stop world-history reads from crossing into other settings"]
   task_12_pytest_integration_markers["⬜ task-12-pytest-integration-markers | Add docker and omega pytest markers that stay skipped in the default suite"]
   task_13_docker_image_contract["⬜ task-13-docker-image-contract | Build the image and verify user, mounts, FTS5, PDF import, and restart persistence"]
   task_14_omega_startup_contract["⬜ task-14-omega-startup-contract | Boot Omega in the image and verify plugin load, skills, state directory, and shutdown"]
   task_15_setting_overlay_reads["⬜ task-15-setting-overlay-reads | Apply setting-over-campaign precedence on live reads that currently filter by campaign only"]
   task_16_visibility_combination_matrix["⬜ task-16-visibility-combination-matrix | Add a combinatorial visibility test across scope, canon, knowledge, ownership, and time"]
-  task_15a_runtime_viewpoint_authority["⬜ task-15a-runtime-viewpoint-authority | Give one campaign read path a runtime-supplied non-GM viewpoint"]
-  task_17a_wire_context_into_play_turn["⬜ task-17a-wire-context-into-play-turn | Assemble the turn's context through build_context so the trace describes the real turn"]
+  task_15a_library_viewpoint_parameters["⬜ task-15a-library-viewpoint-parameters | Make every read library take an explicit viewpoint and document the GM-only skill surface"]
   task_17_context_allocation_trace["⬜ task-17-context-allocation-trace | Record which context entries were selected, compacted, or dropped and why"]
   task_18_turn_receipt["⬜ task-18-turn-receipt | Persist a per-turn diagnostic receipt outside campaign canon"]
   task_19_retrieval_scale_benchmark["⬜ task-19-retrieval-scale-benchmark | Measure the current lexical and brute-force vector retrievers and keep the current backends"]
   task_20_gurps_roll_under["⬜ task-20-gurps-roll-under | Add a minimal GURPS plugin that resolves 3d6 roll-under and contests"]
   task_21_gurps_defense_damage_fatigue["⬜ task-21-gurps-defense-damage-fatigue | Extend the GURPS plugin through active defense, damage resistance, hit location, and fatigue"]
   task_22_second_draft_verification["⬜ task-22-second-draft-verification | Record the second-stage definition of done against the code and the full suite"]
-  task_02_mutation_replay_contract --> task_03_replay_quest_state
+  task_02_mutation_replay_contract --> task_02a_event_schema_version
+  task_02a_event_schema_version --> task_03_replay_quest_state
   task_03_replay_quest_state --> task_04_replay_ruling_state
   task_04_replay_ruling_state --> task_05_session_start_and_replay
   task_05_session_start_and_replay --> task_06_setting_event_log
   task_06_setting_event_log --> task_07_replay_fact_lifecycle
-  task_07_replay_fact_lifecycle --> task_08_chunk_refetch_route
+  task_07_replay_fact_lifecycle --> task_07a_replay_fidelity_and_model_doc
+  task_07a_replay_fidelity_and_model_doc --> task_08_chunk_refetch_route
   task_08_chunk_refetch_route --> task_09_compaction_refetch_roundtrip
   task_09_compaction_refetch_roundtrip --> task_10_promote_ruling_skill
   task_10_promote_ruling_skill --> task_11_fact_lifecycle_skills
-  task_11_fact_lifecycle_skills --> task_12_pytest_integration_markers
+  task_11_fact_lifecycle_skills --> task_11a_world_history_scope
+  task_11a_world_history_scope --> task_12_pytest_integration_markers
   task_12_pytest_integration_markers --> task_13_docker_image_contract
   task_13_docker_image_contract --> task_14_omega_startup_contract
   task_11_fact_lifecycle_skills --> task_15_setting_overlay_reads
-  task_15_setting_overlay_reads --> task_15a_runtime_viewpoint_authority
-  task_15a_runtime_viewpoint_authority --> task_16_visibility_combination_matrix
-  task_16_visibility_combination_matrix --> task_17a_wire_context_into_play_turn
-  task_17a_wire_context_into_play_turn --> task_17_context_allocation_trace
+  task_15_setting_overlay_reads --> task_15a_library_viewpoint_parameters
+  task_15a_library_viewpoint_parameters --> task_16_visibility_combination_matrix
+  task_16_visibility_combination_matrix --> task_17_context_allocation_trace
   task_17_context_allocation_trace --> task_18_turn_receipt
-  task_07_replay_fact_lifecycle --> task_19_retrieval_scale_benchmark
+  task_07a_replay_fidelity_and_model_doc --> task_19_retrieval_scale_benchmark
   task_16_visibility_combination_matrix --> task_20_gurps_roll_under
   task_20_gurps_roll_under --> task_21_gurps_defense_damage_fatigue
   task_14_omega_startup_contract --> task_22_second_draft_verification
@@ -361,21 +377,25 @@ Task 01 has no incoming edge. It can start immediately, in parallel with task 02
 
 ### Task 1: Mark the completed first-draft plans superseded and point them at this plan
 
-**Objective:** Stop both historical plan files from reading as the active execution plan.
+**Objective:** Make `origin/main` and this plan agree, so every later boundary is executable from a fresh clone.
 
-**Why:** `.agents/plans/2026-09-06-tabletop-platform.done.md` still says `Status: ACTIVE.` The 2026-09-21 file is the completed 55-task record and must stay historical.
+**Why:** On `origin/main` the historical plans are still `2026-09-06-tabletop-platform.md` and `2026-09-21_223547-tabletop-platform.plan.md`, the older one still says `Status: ACTIVE.`, and this hardening plan exists only in a local commit. A plan that assumes local-only renames is not reproducible.
 
 **Files:**
-- Modify: `.agents/plans/2026-09-06-tabletop-platform.done.md` line 3
-- Modify: `.agents/plans/2026-09-21_223547-tabletop-platform.done.md` (add a banner under the title, do not edit todo statuses)
+- Rename: `.agents/plans/2026-09-06-tabletop-platform.md` to `.agents/plans/2026-09-06-tabletop-platform.done.md`
+- Rename: `.agents/plans/2026-09-21_223547-tabletop-platform.plan.md` to `.agents/plans/2026-09-21_223547-tabletop-platform.done.md`
+- Modify: the 2026-09-06 file's `Status:` line
+- Modify: the 2026-09-21 file (banner under the title, do not edit todo statuses)
+- Add: this plan file, if it is not yet on `origin/main`
 
-**Dependencies:** none. Branch `archive-first-draft-plans` from `main`.
+**Dependencies:** none. Branch `archive-first-draft-plans` from `origin/main`. The two unpushed local commits are carried onto this branch; they are the boundary's content, not a precondition.
 
 **Tests written first:** None. This task does not change runtime behavior. The check is textual.
 
 **Invariants the test proves:** Not applicable. The files remain historical. Their frontmatter todos stay `completed` or whatever status they already have. Do not mark completed tasks `pending`.
 
 **Implementation constraints:**
+- Use `git mv` for both renames so history follows the files.
 - Replace `Status: ACTIVE.` in the 2026-09-06 file with `Status: SUPERSEDED.`
 - Add one line under that status pointing at `.agents/plans/2026-09-22_091051-post-first-draft-hardening.plan.md`.
 - Add the same superseded pointer at the top of the 2026-09-21 body, after the title.
@@ -390,9 +410,9 @@ rg -n "2026-09-22_091051-post-first-draft-hardening.plan.md" .agents/plans
 
 Expected: the first command prints nothing. The second command prints both historical files.
 
-**Commit boundary:** one commit, `docs: mark the first-draft plans superseded`.
+**Commit boundary:** one commit, `docs: archive the first-draft plans and publish the hardening plan`.
 
-**PR boundary:** this commit closes boundary 0.
+**PR boundary:** this commit closes boundary 0. It must merge before any other branch opens, because every later boundary starts from the `origin/main` it produces.
 
 ## Boundary 1: Event-history completeness
 
@@ -426,7 +446,17 @@ def test_replay_required_events_change_projection() -> None:
     """
 ```
 
-Build a **minimal prerequisite sequence** per `EventType`, not a single orphan event. `ruling.promoted` needs its `ruling.recorded`, `session.ended` needs its `session.started`, and `fact.promoted` needs its `fact.proposed`. For each type in `REPLAY_REQUIRED`, assert that appending that type to its prerequisite sequence changes the projection on the field that type owns, compared with the prerequisite sequence alone.
+Classify into **three** exhaustive, pairwise disjoint sets, not two:
+
+| Set | Members after boundary 1 |
+|---|---|
+| `REPLAY_REQUIRED` | `fact.proposed`, `fact.promoted`, `fact.revealed`, `fact.detached`, `provenance.purged`, `action.resolved`, `ruling.recorded`, `ruling.promoted`, `session.started`, `session.ended`, `quest.mutated` |
+| `AUDIT_ONLY` | `document.purged`, `canon.contradiction_detected` |
+| `DECLARED_BUT_UNEMITTED` | `scene.opened`, `scene.closed` |
+
+Assert `set(EventType) == REPLAY_REQUIRED | AUDIT_ONLY | DECLARED_BUT_UNEMITTED` and that the three are pairwise disjoint. The third set matters: `scene.opened` and `scene.closed` are not audit events and no production writer emits them, so a two-bucket contract would either force scene lifecycle implementation this boundary or file them dishonestly as audit. Moving a member out of `DECLARED_BUT_UNEMITTED` later becomes an explicit review event.
+
+Build a **minimal prerequisite sequence** per replay-required `EventType`, not a single orphan event. `ruling.promoted` needs its `ruling.recorded`, `session.ended` needs its `session.started`, and `fact.promoted` needs its `fact.proposed`. For each type in `REPLAY_REQUIRED`, assert that appending that type to its prerequisite sequence changes the projection on the field that type owns, compared with the prerequisite sequence alone.
 
 Decide the orphan policy explicitly in this task and assert it, because replay already has one by accident: `_update_fact(facts.get(fact_id), ...)` synthesizes a fact from `None`, so a lone `fact.promoted` invents a half-populated fact. Pick one rule for every dependent type, record it here, and test it: synthesize a partial record, ignore the event, or raise. Extending accidental synthesis to rulings and sessions would let replay invent rows that never existed. For `CANON_CONTRADICTION_DETECTED` and `DOCUMENT_PURGED`, assert they are the only members of `AUDIT_ONLY` and that they do not invent campaign-system keys. Iterate `EventType` so a new member fails until it is placed in exactly one set.
 
@@ -441,7 +471,51 @@ Add a second test, `test_model_facing_writers_are_in_the_matrix`, which is a tab
 
 **Verification:** the focused pytest command fails for the reasons above. Do not run the full suite as a success gate in this task.
 
-**Commit boundary:** one commit, `test: fail when a mutation event does not replay`. The commit contains a failing test. Land it on the boundary branch before the fixes. Do not merge the PR at this commit.
+**Commit boundary:** `test: require every mutation event to declare a replay class`.
+
+**Observe red locally; do not commit red.** Write the contract, run it, and watch it fail for the reasons above. Then either commit it together with task 03, or commit the classification scaffolding green with the unimplemented types recorded as explicit expected-failure markers that task 03 onward removes. Every commit on the branch stays runnable. TDD requires seeing red, not storing it in history, and a red commit costs bisectability and a confusing PR CI record.
+
+**PR boundary:** does not close the boundary.
+
+### Task 2a: Add a persisted event schema generation before any payload is enriched
+
+**Objective:** Every persisted event declares which payload contract it was written under, before tasks 04 through 07 change three payload shapes.
+
+**Why:** `events` has no generation marker and neither does `PersistedEvent`. Tasks 04, 05, and 07 change the payloads of `ruling.recorded`, `session.started`, and `fact.proposed`. Without a version, replay can only sniff which keys happen to exist or assume every old event has the new shape. Both are wrong, and the column cannot be backfilled later because events are immutable. This must land before the payloads change, not after.
+
+**Files:**
+- Create: the next free migration, `<NNNN>_event_schema_version.sql`
+- Modify: `tabletop/campaign/event_store.py` (`PersistedEvent`, both append forms)
+- Modify: `tabletop/campaign/projections.py` to dispatch on type and generation
+- Create: `docs/decisions/0011-event-schema-versioning.md`
+- Modify: `tests/tabletop/test_event_store.py`, `tests/tabletop/test_replay_contract.py`
+
+**Dependencies:** task 02.
+
+**Tests written first:**
+- `ALTER TABLE events ADD COLUMN event_schema_version INTEGER NOT NULL DEFAULT 0` leaves existing rows at generation 0.
+- Every append written after this task stores generation 1.
+- `PersistedEvent` exposes the generation. `GameEvent` does not gain it: `GameEvent` is the plugin-facing proposal type, and schema generation belongs to the persistence envelope.
+- Replay dispatches on `(event_type, event_schema_version)`, so a generation 0 `ruling.recorded` and a generation 1 one can take different arms without key sniffing.
+- Setting events, created in task 06, are born with the column already `NOT NULL` and are written at generation 1.
+
+**Step 2:** Expected FAIL, column missing.
+
+**Step 3:** Add the migration, thread the generation through both append forms, and give replay a generation-aware dispatch. Generation 0 means the historical pre-versioning shape. Generation 1 means the contracts this plan defines. Write ADR 0011 in the same commit: persisted events carry an explicit generation, generation 0 is legacy, new writers use the current generation, replay dispatches by type and generation, historical events are never rewritten, and fidelity reporting exposes the resulting limits.
+
+**Invariants:** Events stay immutable. No historical row is rewritten or migrated to a new payload shape. The plugin-facing event type stays free of persistence concerns.
+
+**Implementation constraints:** Do not put the version on `GameEvent`. Do not default new writes to 0. Do not infer generation from payload keys anywhere in replay.
+
+**Verification:**
+
+```bash
+python3.11 -m pytest tests/tabletop/test_event_store.py tests/tabletop/test_replay_contract.py -q
+```
+
+Expected: generation assertions pass. Replay classification work continues in task 03.
+
+**Commit boundary:** `feat: version the persisted event schema`.
 
 **PR boundary:** does not close the boundary.
 
@@ -470,7 +544,16 @@ def test_quest_replay_matches_sqlite(conn) -> None:
     assert projected == stored
 ```
 
-Cover three `mutate_quest` calls: create `lantern`, replace `lantern` with a different title, create `gate`. There is no delete path. Do not add one. If `system_state` also contains `open_threads`, copy that list onto `CampaignProjection.open_threads` when folding `action.resolved` or when the folded campaign system contains that key, and assert `gm/threads.yaml` is not hardcoded empty while SQLite has threads. Only add that assertion if a writer already stores `open_threads`. Do not invent a thread skill.
+Cover three `mutate_quest` calls: create `lantern`, replace `lantern` with a different title, create `gate`. There is no delete path. Do not add one.
+
+**Derive `open_threads` once, at the end of the fold, not during it.** `get_open_threads` reads `campaigns.system_state["open_threads"]` while `CampaignProjection.open_threads` is a separate field that nothing fills. Maintaining both during the fold creates two representations that can disagree. After replaying every event, compute:
+
+```python
+raw_threads = campaign_system.get("open_threads", ())
+open_threads = tuple(raw_threads) if isinstance(raw_threads, list) else ()
+```
+
+then build the projection. Assert the invariant `projection.open_threads == projection.campaign_system.get("open_threads", ())`. The same rule applies to any later convenience field that is only a view of `campaign_system`. Do not invent a thread skill.
 
 **Step 2:** Run `python3.11 -m pytest tests/tabletop/test_replay_contract.py::test_quest_replay_matches_sqlite -q`. Expected: FAIL, projected quests missing.
 
@@ -510,7 +593,13 @@ Expected: the quest equality test passes. The ruling and session contract tests 
 
 **Step 2:** Expected FAIL because the projection has no rulings and the YAML writer hardcodes `[]`.
 
-**Step 3:** Add a `rulings` map on `CampaignProjection`, default empty, so existing projections stay equal. On `ruling.recorded`, store the payload. On `ruling.promoted`, set that ruling's canon to `confirmed` and leave knowledge unchanged. Widen `RulingStore.record`'s event payload so it includes the fields the equality test names. Do not rewrite events that are already stored. New writes carry the richer payload. `ruling.promoted` can stay `{ruling_id}` if the recorded event already has the body. Point `_projection_files` at the projected map.
+**Step 3:** Add a `rulings` map on `CampaignProjection`, default empty, so existing projections stay equal. On `ruling.recorded`, store the payload. On `ruling.promoted`, set that ruling's canon to `confirmed` and leave knowledge unchanged. Point `_projection_files` at the projected map.
+
+`RulingStore.record` currently emits only `{"ruling_id", "canon_state"}`, which cannot rebuild the row. A generation 1 `ruling.recorded` payload carries: `ruling_id`, `campaign_id`, `system_id`, `question`, `decision`, `scope`, `source_references`, `session_id`, `created_at`, `supersedes`, `canon_state`, `knowledge_state`, `originating_action`, `originating_context`. `ruling.promoted` stays a delta, `{"ruling_id"}`, and replay changes only canon.
+
+**Validate ownership rather than trusting it.** If a generation 1 payload's `campaign_id` disagrees with the event envelope's `campaign_id`, replay fails loudly. Contradictory ownership between payload and envelope is corruption, not a preference.
+
+Do not rewrite events that are already stored; generation 0 rulings replay to whatever their payload holds.
 
 **Invariants:** Promotion and reveal stay distinct. Replay does not mark a ruling `known`. Provenance (`source_references`) survives promotion. Supersede does not erase the prior ruling.
 
@@ -558,7 +647,17 @@ Expected: ruling equality passes. Session rows in the contract still fail.
 
 **Step 3:** Add `SkillSpec(name="start-session", ...)`. Insert the session and append `session.started` in one `transaction`. Replay `session.started` by creating the projected session and `session.ended` by setting `ended_at` from the event. Write `sessions/sessions.yaml` from that map. Mirror the skill in `tabletop.metta` and the adapter the same way `end-session` is mirrored.
 
-**Invariants:** One open session per campaign. Start and end each emit one event. Replay does not write SQLite. Setting workspace does not gain the skill. Events stay immutable.
+**One open session per campaign is a database invariant, not an application convention.** Migration `0010_session_lifecycle.sql` created `idx_sessions_open_campaign` as a plain index on `(campaign_id, started_at) WHERE ended_at IS NULL`, which enforces nothing. Add:
+
+```sql
+CREATE UNIQUE INDEX uq_sessions_one_open_per_campaign
+  ON sessions(campaign_id)
+  WHERE ended_at IS NULL;
+```
+
+Test both layers: the runtime rejects a second `start-session`, and a direct SQL insert of a second open session raises `IntegrityError`. Without the index, two runtime processes both pass the application check.
+
+**Invariants:** One open session per campaign, enforced by SQLite. Start and end each emit one event. Replay does not write SQLite. Setting workspace does not gain the skill. Events stay immutable.
 
 **Implementation constraints:** Do not add archival, deletion, or a second workspace in-process. Do not emit `session.started` from the test SQL helpers. Production code is the writer.
 
@@ -581,7 +680,7 @@ Expected: session equality passes. Setting-writer rows still fail until task 06.
 **Why:** Those three skills mutate SQLite and append nothing. Campaign `events` cannot hold them: `campaign_id` is `NOT NULL` and references `campaigns`. The runtime comment on `record_world_history` states that setting facts do not write campaign events. That leaves setting history with no log.
 
 **Files:**
-- Create: `tabletop/storage/migrations/0012_setting_events.sql`
+- Create: the next free migration, `<NNNN>_setting_events.sql`, after task 02a's version migration
 - Create: `tabletop/campaign/setting_events.py`
 - Modify: `tabletop/runtime.py` (`edit_setting`, `upsert_world_entity`, `record_world_history`)
 - Modify: `tests/tabletop/test_replay_contract.py`
@@ -590,7 +689,7 @@ Expected: session equality passes. Setting-writer rows still fail until task 06.
 **Dependencies:** task 05.
 
 **Tests written first:**
-- Migration creates `setting_events (setting_id, sequence, event_type, payload, occurred_at)` with primary key `(setting_id, sequence)`.
+- Migration creates `setting_events (setting_id, sequence, event_schema_version, event_type, payload, occurred_at)` with primary key `(setting_id, sequence)`. The generation column is `NOT NULL` from creation, since this table has no legacy rows, and every append writes generation 1.
 - Update and delete triggers abort, copied from the behavior in `0005_events.sql`.
 - Foreign key `ON DELETE RESTRICT`.
 - `edit-setting`, `upsert-world-entity`, and `record-world-history` each append one event in the same transaction as the row write. A forced write failure leaves both the row and the event uncommitted.
@@ -599,7 +698,7 @@ Expected: session equality passes. Setting-writer rows still fail until task 06.
 
 **Step 2:** Expected FAIL, table missing and no events appended.
 
-**Step 3:** `migrate()` in `tabletop/storage/sqlite.py` applies `*.sql` in sorted order, so `0012_setting_events.sql` runs after `0011`. Add `SettingEventType` with `setting.edited`, `world_entity.upserted`, and `world_fact.recorded`, plus `assert_never`. Append inside the existing transaction in each runtime method. Replay in a pure function `project_setting(events) -> SettingProjection`. Do not insert setting rows into campaign `events`.
+**Step 3:** `migrate()` in `tabletop/storage/sqlite.py` applies `*.sql` in sorted order, so the setting-events file runs after task 02a's version migration. Add `SettingEventType` with `setting.edited`, `world_entity.upserted`, and `world_fact.recorded`, plus `assert_never`. Append inside the existing transaction in each runtime method. Replay in a pure function `project_setting(events) -> SettingProjection`. Do not insert setting rows into campaign `events`.
 
 **Symmetric replay contract.** Add `SETTING_REPLAY_REQUIRED` and `SETTING_AUDIT_ONLY` beside the campaign sets from task 02, iterate every `SettingEventType` exactly once, and fail when a member belongs to neither or both. Without this, the second event system can grow a no-op replay arm and recreate precisely the defect boundary 1 exists to fix.
 
@@ -631,15 +730,12 @@ Expected: setting writer rows pass. Fact payload equality is still outstanding i
 - Modify: `tabletop/documents/importer.py`
 - Modify: `tabletop/campaign/event_store.py` (`promote_fact`, `reveal_fact`, detach)
 - Modify: `tabletop/campaign/projections.py`
-- Modify: the setting-events migration from task 06 and `0005_events.sql`'s successor for `event_schema_version`
-- Create: `tabletop/campaign/replay_fidelity.py`
-- Create: `tests/tabletop/test_replay_fidelity.py`
 - Modify: `tests/tabletop/test_replay_contract.py`
 - Modify: `tests/tabletop/test_canon_lifecycle_events.py` where payload keys are asserted
 
 **Dependencies:** task 06.
 
-**Tests written first:** Import or insert one campaign fact through the importer, promote it, reveal it, and detach it. Replay must equal the SQLite row for `fact_id`, `fact_scope`, `campaign_id`, `subject_id`, `predicate`, `value`, `canon_state`, `knowledge_state`, `visibility`, `valid_from`, `valid_until`, `source_document_id`, `source_chunk_id`, `source_ownership`. Purge of an attached fact removes it from the projection. A fact written before the payload change is not rewritten. The test uses only events produced after the new writers.
+**Tests written first:** Import or insert one campaign fact through the importer, promote it, reveal it, and detach it. Replay must equal the SQLite row on every authoritative column: `fact_id`, `fact_scope`, `setting_id`, `campaign_id`, `subject_id`, `predicate`, `value`, `canon_state`, `knowledge_state`, `visibility`, `valid_from`, `valid_until`, `source_document_id`, `source_chunk_id`, `import_job_id`, `extraction_method`, `source_ownership`, `created_at`. Row fidelity, not approximate reconstruction: `import_job_id` and `extraction_method` are the provenance chain the purge and rule-reference work depends on. As with rulings, a payload `campaign_id` that disagrees with the envelope fails replay. Purge of an attached fact removes it from the projection. A fact written before the payload change is not rewritten. The test uses only events produced after the new writers.
 
 **Step 2:** Expected FAIL on the missing fields.
 
@@ -647,11 +743,7 @@ Expected: setting writer rows pass. Fact payload equality is still outstanding i
 
 **Invariants:** Promotion changes only canon. Reveal changes only knowledge. Detach changes only source ownership. New facts still start proposed and unrevealed. Extraction is still untrusted until import. Historical events are not updated.
 
-**Replay fidelity is versioned.** Events written before this boundary remain immutable and may lack fields required for complete reconstruction. New event payloads carry an explicit schema version so reconstruction guarantees can be stated without inferring format from missing keys.
-
-Implement that as a column, not a payload key: `event_schema_version INTEGER NOT NULL DEFAULT 1` on campaign `events` and on `setting_events`, set to `2` by every append from this task forward. A column is addable now and impossible to backfill later, because events are immutable. Replay branches on the generation instead of testing for the presence of `valid_from`.
-
-Then make the limitation visible rather than documented. `tabletop/campaign/replay_fidelity.py` reports, per campaign and per setting, how many stored events are generation 1, how many are generation 2, and which event types are affected, so an operator can see what their database can and cannot rebuild. Test it against a database holding both generations.
+**Replay fidelity is versioned.** The generation column from task 02a is what makes this statable: events written before this plan remain immutable and may lack fields required for complete reconstruction, and they are generation 0. Every payload defined in tasks 04 through 07 is generation 1. Replay dispatches on the generation rather than inferring format from missing keys. Task 07a reports the resulting limits.
 
 **Implementation constraints:** Do not add `update-fact`. Do not put setting facts into campaign events. Setting fact promotion arrives in task 11 and must use `setting_events`. Do not rewrite or migrate existing event rows to the new payload shape; generation 1 stays generation 1.
 
@@ -665,6 +757,48 @@ python3.11 -m pytest tests/ -q
 Expected: replay contract passes. Full suite passes. Record the new pass count in the commit message body if it changed from 660.
 
 **Commit boundary:** `fix: replay new campaign fact events onto the stored fact fields`.
+
+**PR boundary:** does not close the boundary. Task 07a does.
+
+### Task 7a: Report replay fidelity per campaign and refresh the campaign model document
+
+**Objective:** An operator can ask whether a given database can actually be rebuilt from history, and the authoritative schema document stops describing a tree that no longer exists.
+
+**Why:** Replay code that works on new events says nothing about a database full of generation 0 events. Separately, `docs/campaign-model.md` currently claims it documents `0001_core.sql` through `0004_scene_state.sql`, that "There is no relationships table yet", and that "There is no event-log table yet". All three are false on `main` today, and leaving them false through eight more boundaries means every implementer consults a known-wrong architecture document.
+
+**Files:**
+- Create: `tabletop/campaign/replay_fidelity.py`
+- Create: `tests/tabletop/test_replay_fidelity.py`
+- Modify: `docs/campaign-model.md`
+
+**Dependencies:** task 07.
+
+**Tests written first:**
+- Against a database holding both generations, the report gives per campaign: total events, counts by event type, counts by schema generation, the number of generation 0 events, whether complete reconstruction is guaranteed, and which event types block it. The same per setting.
+- A database whose events are all generation 1 reports complete reconstruction guaranteed.
+- One generation 0 `ruling.recorded` is enough to report it not guaranteed, and the report names `ruling.recorded` as the reason.
+- The module is operator-facing, not model-facing: it registers no skill and appears in no workspace.
+- A `python3.11 -m tabletop.campaign.replay_fidelity <database>` entry point prints the report. The exact CLI shape is not the point; being able to answer the question is.
+
+**Step 2:** Expected FAIL, module missing.
+
+**Step 3:** Read counts with parameterized SQL. No writes at all. Then rewrite `docs/campaign-model.md` from the migration files as they stand at this commit: every migration `0001` through the latest, the relationships table, the event log and its immutability triggers, documents, retrieval, rulings, session lifecycle, setting events, and the event schema generation. Delete the two false "no such table yet" sections rather than editing around them. Task 22 refreshes it again for anything later boundaries add.
+
+**Invariants:** The report reads and never writes. Operator tooling stays off the skill surface. The schema document matches the migrations at the commit that ships it.
+
+**Implementation constraints:** Do not register a skill. Do not rewrite events to improve the report. Do not extend the old "through 0004" sentence; rewrite the section from the SQL.
+
+**Verification:**
+
+```bash
+python3.11 -m pytest tests/tabletop/test_replay_fidelity.py tests/tabletop -q
+python3.11 -m pytest tests/ -q
+rg -n "no relationships table yet|no event-log table yet|through .0004" docs/campaign-model.md
+```
+
+Expected: tests pass, the full suite passes, and the `rg` prints nothing. Record the suite count in the commit body if it changed from 660.
+
+**Commit boundary:** `feat: report replay fidelity and refresh the campaign model document`.
 
 **PR boundary:** this commit closes boundary 1. Open the PR and stop for human merge approval.
 
@@ -696,11 +830,12 @@ Branch `context-refetch-durability` from merged `main` after boundary 1 is merge
 - `runtime.get_chunk(chunk_id)` returns the stored text, document id, title, section, page, and source path.
 - An unknown chunk id returns a not-found error and no row from another campaign's documents if document rows are campaign-scoped. If chunks are library-global, the test states that and still refuses a chunk whose visibility the caller cannot see.
 - `get-chunk` is on both setting and campaign workspaces, because both can retrieve documents.
-- `get-chunk` re-checks visibility. A GM-only chunk fetched under a character viewpoint returns not found. Do not add a tool argument that lets the model pick the viewpoint.
+- `get-chunk` takes its viewpoint as a **runtime-supplied internal argument** and never from the model payload. A GM-only chunk fetched under a character viewpoint returns not found, asserted at the library level.
+- Until boundary 5, the campaign workspace passes the GM viewpoint, because no trusted runtime viewpoint source exists yet. The test says so explicitly rather than implying a player execution surface.
 
 **Step 2:** Expected FAIL, `refetch_tool is None` and `get_chunk` missing.
 
-**Step 3:** Set `refetch_tool="get-chunk"` in both retrievers. Add the skill and runtime method. Read the chunk with parameterized SQL. Apply the same visibility parse used by `can_see`. The current skill surface is GM-scoped where runtime methods hardcode `Viewpoint(scope=parse_scope("GM"))`. `get-chunk` uses that same GM viewpoint until a later boundary. The character-viewpoint case belongs in the library function the runtime calls, with the viewpoint passed by the runtime, not by the model payload.
+**Step 3:** Set `refetch_tool="get-chunk"` in both retrievers. Add the skill and runtime method. Read the chunk with parameterized SQL. Apply the same visibility parse used by `can_see`. The library function takes a viewpoint; the runtime supplies the GM one for now, exactly as `query_campaign` and `get_relationships` already do. That keeps the function ready for scoped reads without pretending a player surface exists.
 
 **Invariants:** Retrieval remains lookup. Refetch uses a registered tool and stored args. Forbidden operations stay absent. Compaction can name `get-chunk`.
 
@@ -865,6 +1000,44 @@ Expected: PASS.
 
 **Commit boundary:** `fix: promote and reveal facts through explicit workspace skills`.
 
+**PR boundary:** does not close the boundary. Task 11a does.
+
+### Task 11a: Stop world-history reads from crossing into other settings
+
+**Objective:** `query-world-history` never returns a fact owned by a setting other than the caller's.
+
+**Why:** With an empty query string the runtime runs `SELECT ... FROM facts WHERE fact_scope = 'setting' ORDER BY ... LIMIT 50`, with no setting filter. That returns world history from every setting in the database. This is not an overlay improvement, it is a cross-tenant read that violates the owned-setting boundary the rest of the surface enforces, so it lands here with the other boundary work rather than waiting for boundary 5.
+
+**Files:**
+- Modify: `tabletop/runtime.py` (`query_world_history`)
+- Create: `tests/tabletop/test_world_history_scope.py`
+
+**Dependencies:** task 11.
+
+**Tests written first:**
+- Seed two settings, each with world-history facts. An empty query returns only the owned setting's rows, and a non-empty query does the same.
+- The assertion is on `setting_id`: no returned row carries a `setting_id` other than `_owned_setting_id()`.
+- A runtime with no owned setting returns an error rather than every setting's history.
+- The limit still applies after scoping, so a large foreign setting cannot crowd out owned rows.
+
+**Step 2:** Expected FAIL on the empty-query case, which currently returns foreign rows.
+
+**Step 3:** Add the owned-setting predicate to both query paths, parameterized. Do not filter in Python after fetching, which would still read foreign rows into the process.
+
+**Invariants:** Owned-setting boundary holds on every read path. Model tools cannot see another setting's material.
+
+**Implementation constraints:** Do not widen the skill to take a setting id. The owned setting comes from runtime configuration.
+
+**Verification:**
+
+```bash
+python3.11 -m pytest tests/tabletop/test_world_history_scope.py tests/tabletop/test_runtime_boundaries.py -q
+```
+
+Expected: PASS.
+
+**Commit boundary:** `fix: scope world-history reads to the owned setting`.
+
 **PR boundary:** this commit closes boundary 3.
 
 ## Boundary 4: Omega and container integration
@@ -927,7 +1100,7 @@ docker compose build
 
 Then asserts, from `docker image inspect` and a one-shot container:
 
-- The Omega process after the entrypoint privilege drop is uid 65534. `entrypoint.sh` may still start as root long enough to run nginx and `chown`. Do not require `USER` in the Dockerfile if that would break the nginx `www-data` step. Assert the process that executes `run.sh` is uid 65534.
+- The process executing `sh run.sh run.metta` is uid 65534, read from the process table or `/proc/<pid>/status` inside the container. Do not assert `docker exec id -u`: `entrypoint.sh` legitimately starts as root to `chown` the state directory and start nginx as `www-data`, then drops with `su nobody`. Do not add `USER nobody` to the Dockerfile to make the assertion easier; that would break the startup responsibilities the entrypoint owns.
 - Plugin and library bind mounts are read-only.
 - The container mounts do not include `docker.sock`.
 - Inside the image, Python sqlite compile options include `ENABLE_FTS5`.
@@ -940,6 +1113,8 @@ Then asserts, from `docker image inspect` and a one-shot container:
 **Step 3:** Implement the test as subprocess calls. Fix only image defects the assertions find. If the build fails because the embedding-model download or PeTTa clone cannot reach the network, record that in the PR and leave the test failing. Do not stub the image and call it built.
 
 **Invariants:** No Docker socket. Read-only plugin and library mounts. State volume owned by the runtime user. Lexical search's FTS5 dependency is true in the image. PDF extraction's import is true in the image.
+
+**Build reproducibility is part of the image contract.** `Dockerfile` pins `PETTA_REF=v1.0.4` and `FAISS_REF=v1.8.0` but leaves `ARG CHROMADB_REF=master`, so the same Gamemaster commit can produce different images on different days. Pin `petta_lib_chromadb` to a commit SHA in this task. `SWIPL_IMAGE` defaults to the tag `swipl:10.0.2`; the Dockerfile comment already recommends an immutable digest for CI, so at minimum record the digest actually used and put it in the task 22 verification document.
 
 **Implementation constraints:** Do not add a health HTTP server that Omega does not already have. Do not mount the Docker socket to make the test easier. This task does not have to boot the agent loop. Task 14 does that.
 
@@ -969,7 +1144,11 @@ Expected: docker test passed when the daemon and network are available. Default 
 
 **Dependencies:** task 13.
 
-**Tests written first:** Mark `omega` and `docker`. Skip unless `GAMEMASTER_RUN_DOCKER=1`. Start compose with a project name unique to the test. Set `TABLETOP_WORKSPACE=campaign` and `TABLETOP_DATABASE_PATH` to the example state path. **Use a keyless test profile.** Startup verification must be reproducible by anyone, without a personal API key and without a live provider, and it must still exercise the real adapter and plugin machinery rather than replacing Omega with a mock. Add a compose profile or a dedicated env file used only by this test, configuring a stub or offline provider and no live channel, and check it in beside `.env.example`. The container runs real Omega, real PeTTa, the real `plugins/tabletop` glue, and the real runtime; only the outbound provider and channel are neutralized. Pass condition:
+**Tests written first:** Mark `omega` and `docker`. Skip unless `GAMEMASTER_RUN_DOCKER=1`. Start compose with a project name unique to the test. Set `TABLETOP_WORKSPACE=campaign` and `TABLETOP_DATABASE_PATH` to the example state path. **Reuse Omega's own test infrastructure rather than inventing a keyless provider.** The repository already ships `providers/mockprovider.py`, `channels/mockchannel.py`, the `Autotests/mock` harness, and a CI workflow that starts Omega with `./scripts/omega start -p Test -t test`. That is exactly the configuration this task needs, and it is already exercised upstream.
+
+Add `docker-compose.integration.yml` as an overlay used only by this test, setting provider `Test`, communication channel `test`, and `TEST_SERVER_IP`. `entrypoint.sh` already preserves `TEST_SERVER_IP` in `SAFE_VARS`, but the current `docker-compose.yml` never passes it, so the overlay must. `.env.example` stays production-oriented, with `OMEGA_PROVIDER=ASICloud` and `OMEGA_COMMCHANNEL=irc` untouched.
+
+The container still runs real Omega, real PeTTa, the real `plugins/tabletop` glue, and the real runtime. Only the model and the outbound channel are the upstream test doubles. Pass condition:
 
 - Log contains `tabletop-plugin` and `tabletop-plugin-workspace` with `campaign`.
 - Log contains the new prompt-extension line, `tabletop-runtime-policy`.
@@ -978,7 +1157,7 @@ Expected: docker test passed when the daemon and network are available. Default 
 - The skill names returned by `skill_registration_payload()` for the campaign workspace match `Workspace.CAMPAIGN.skills` at this commit. Do not hardcode a skill list that will drift.
 - `docker compose stop` exits 0 and a following start does not report a migration checksum failure.
 
-A provider or channel connection error after the plugin lines does not fail the test. A traceback before or during plugin registration does. If the keyless profile cannot get Omega as far as plugin registration, that is a finding about the startup path itself, recorded in the PR, not a reason to fall back to a personal key.
+A traceback before or during plugin registration fails the test. With the `Test` provider and `test` channel there is no live network dependency to forgive, so an unexplained connection error is a finding rather than an accepted condition. If this configuration cannot get Omega as far as plugin registration, that is a finding about the startup path, recorded in the PR, not a reason to fall back to a personal key.
 
 **Step 2:** Expected FAIL until the test and the log line exist.
 
@@ -997,9 +1176,11 @@ python3.11 -m pytest tests/ -q
 
 Expected: omega test passed, or a recorded blocker if the image cannot reach IRC and crashes before the plugin log. A skip is not a pass. The PR states which result happened.
 
+**Once it passes locally, it goes into CI.** A test that only one machine has ever run decays into a permanent skip. Add one explicit integration job that sets `GAMEMASTER_RUN_DOCKER=1` and runs `tests/integration/`. Keep it out of the fast per-commit workflow: the image clones PeTTa, builds FAISS, and downloads `intfloat/e5-large-v2`, so a separate workflow or a merge-gate job is the right home. The default Python suite keeps skipping these tests.
+
 **Commit boundary:** `test: boot Omega and require the tabletop plugin to load`.
 
-**PR boundary:** this commit closes boundary 4.
+**PR boundary:** this commit closes boundary 4, including the CI job.
 
 ## Boundary 5: Visibility and ownership
 
@@ -1026,11 +1207,12 @@ Branch `visibility-ownership-hardening` from merged `main` after boundary 3 is m
 - A fact from a different setting is not returned.
 - `build_resolution_context` includes a setting-owned entity when no campaign entity has the same id, and the campaign entity wins when both exist (`overrides_id` or the same entity id, matching the schema already used).
 - `get-relationships` returns a visible setting edge when no campaign edge supersedes it, and hides a setting edge that a campaign edge supersedes. Use the existing temporal `valid_until` rule. Do not `UNION` and return both.
-- `query-world-history` with an empty query returns only the owned setting's facts.
 
 **Step 2:** Expected FAIL.
 
-**Step 3:** Follow `_fact_precedence` in `tabletop/orchestration/context.py`: campaign scope outranks setting scope. Apply that in the live read paths. Do not call `build_context` from `play_turn` in this task. `play_turn` still passes `ResolutionContext` into the plugin. The fix is the snapshot that function already builds. Keep GM as the viewpoint inside `query_campaign`. This task does not turn campaign skills into a player viewport.
+**Step 3:** Write **one** overlay resolver per record kind and route every reader through it: `resolve_fact_overlay`, `resolve_entity_overlay`, `resolve_relationship_overlay`, sharing one ownership rule. `query_campaign`, `build_resolution_context`, `get_relationships`, and `build_context` all call those helpers. Four bespoke overlays would drift apart, which is the failure this plan exists to remove.
+
+Entity precedence is decided here, not left to the implementer: a campaign entity with the same `entity_id` wins; otherwise a campaign entity whose `overrides_id` names the setting entity wins; otherwise the setting entity is returned. Facts follow `_fact_precedence` in `tabletop/orchestration/context.py`, campaign scope over setting scope. Do not call `build_context` from `play_turn` in this task. `play_turn` still passes `ResolutionContext` into the plugin. The fix is the snapshot that function already builds. Keep GM as the viewpoint inside `query_campaign`. This task does not turn campaign skills into a player viewport.
 
 **Invariants:** Setting and campaign stay distinct. Precedence is campaign over setting, not a concatenated list. Visibility filters still apply. Temporal closure still hides expired edges.
 
@@ -1048,45 +1230,46 @@ Expected: PASS.
 
 **PR boundary:** does not close the boundary.
 
-### Task 15a: Give one campaign read path a runtime-supplied non-GM viewpoint
+### Task 15a: Make every read library take an explicit viewpoint and document the GM-only skill surface
 
-**Objective:** At least one registered skill reads under a viewpoint that is not GM, chosen by the runtime, so visibility scoping is reachable in production and provable end to end.
+**Objective:** Every read library accepts an explicit `Viewpoint`, and the plan records plainly that the registered skill surface is GM-only.
 
-**Why:** `tabletop/runtime.py` hardcodes `Viewpoint(scope=parse_scope("GM"))` in both places it builds one, so every registered skill sees GM-visible rows. The store filters correctly and nothing in the tool surface ever asks it to. Task 16's matrix would otherwise harden a library that production never calls with a player viewpoint, and the docs would keep describing visibility as a working feature.
+**Why:** `tabletop/runtime.py` hardcodes `Viewpoint(scope=parse_scope("GM"))` in both places it builds one, so the visibility model is real in the store and unused above it. The tempting fix, handing the existing campaign workspace a player viewpoint, is worse than the current state: that workspace exposes `mutate-quest`, `read-campaign-secret`, `record-ruling`, `resolve-action`, and `end-session`. A player-scoped reader bolted to a GM-capability tool surface violates the invariant that forbidden operations are absent from the surface rather than merely filtered. A viewpoint does not remove a skill.
+
+So this boundary hardens the library and states the limit. The player surface is a later feature: a `Workspace.PLAYER` whose skill set physically lacks the GM operations.
 
 **Files:**
-- Modify: `tabletop/runtime.py`
-- Modify: `tabletop/api/workspace.py` if the reading skill needs a sibling rather than a changed signature
-- Modify: `plugins/tabletop/tabletop.metta` and `plugins/tabletop/omega_tabletop_adapter.py` if a skill is added
-- Create: `tests/tabletop/test_runtime_viewpoint.py`
-- Modify: `tests/tabletop/test_workspace_skills.py` if the skill set changes
+- Modify: `tabletop/campaign/store.py`, `tabletop/campaign/relationships.py`, `tabletop/orchestration/turn.py`, `tabletop/orchestration/context.py` where a read builds its own viewpoint
+- Modify: `tabletop/runtime.py` so the GM viewpoint is supplied at one place, not constructed inline at two
+- Modify: `docs/plugin-api.md` or `docs/architecture.md` with the GM-only statement
+- Create: `tests/tabletop/test_library_viewpoints.py`
 
 **Dependencies:** task 15.
 
 **Tests written first:**
-- A campaign read executed under a character viewpoint omits a `GM` scoped fact, an `unrevealed` fact, and a `proposed` fact that the GM path returns.
-- The same read under the GM viewpoint still returns them, so the change is a new path and not a downgrade of the existing one.
-- The viewpoint comes from runtime or session authority. A model-supplied `viewpoint`, `as_character`, or `scope` field in the skill payload is ignored or rejected, asserted directly: passing `{"viewpoint": "GM"}` from a character context must not widen the result.
-- The viewpoint cannot be widened by any registered skill argument, and no skill accepts a raw scope string.
-- Setting workspace behavior is unchanged by this task.
+- Every read library entry point requires a viewpoint argument. Omitting it raises rather than defaulting to GM, so a new caller cannot leak by forgetting.
+- Passing a character viewpoint to each library read omits `GM` scoped, `unrevealed`, and `proposed` rows that the GM viewpoint returns.
+- No registered skill accepts a viewpoint, scope, or character argument from its payload, asserted across the whole `Workspace` skill set.
+- The runtime constructs the GM viewpoint in exactly one place.
+- A documentation test or a plain assertion that the docs say the registered surface is GM-only, so the claim cannot rot silently.
 
-**Step 2:** Expected FAIL, no non-GM path exists.
+**Step 2:** Expected FAIL, some reads build their own viewpoint and one has no parameter at all.
 
-**Step 3:** Pick the smallest production-reachable path, most likely `query-campaign` or `get-fact`. Resolve the viewpoint from the active campaign and session state the runtime already holds, then pass it to the library call that already accepts one. Do not build a player workspace, a party-membership editor, or a per-request identity system in this task. One proven path is the deliverable.
+**Step 3:** Thread the parameter through. Do not add a workspace, a player identity, or a party-membership editor. Do not give any skill a viewpoint argument.
 
-**Invariants:** Visibility is enforced by the store, not by the caller. The viewpoint is runtime authority and never a model argument. Forbidden operations stay absent from the tool surface. GM paths keep their current behavior.
+**Invariants:** Visibility is enforced by the store. Viewpoint is runtime authority, never a model argument. Forbidden operations stay absent from the surface, which is why the player surface waits for its own workspace.
 
-**Implementation constraints:** Do not add a third workspace. Do not let a skill choose its own viewpoint. Do not weaken `can_see` to make a case pass.
+**Implementation constraints:** Do not add `Workspace.PLAYER` here. Do not introduce `TABLETOP_VIEWPOINT`. Do not weaken `can_see`.
 
 **Verification:**
 
 ```bash
-python3.11 -m pytest tests/tabletop/test_runtime_viewpoint.py tests/tabletop/test_workspace_skills.py tests/tabletop/test_visibility_filter.py -q
+python3.11 -m pytest tests/tabletop/test_library_viewpoints.py tests/tabletop/test_workspace_skills.py tests/tabletop/test_visibility_filter.py -q
 ```
 
 Expected: PASS.
 
-**Commit boundary:** `feat: read one campaign path under a runtime-chosen viewpoint`.
+**Commit boundary:** `refactor: require an explicit viewpoint on every read library`.
 
 **PR boundary:** does not close the boundary.
 
@@ -1119,7 +1302,16 @@ For each case, insert one fact or one relationship and query through `get_facts`
 
 **Invariants:** The failure condition is disclosure. Proposed or unrevealed facts stay hidden from non-GM viewers. Expired edges stay hidden. Setting versus campaign ownership does not bypass visibility.
 
-**Implementation constraints:** Do not add the `hypothesis` package. The cartesian product is finite and belongs in pytest parameters. Do not weaken `can_see`.
+**Decide what fact temporal validity means before asserting it.** Relationship queries already filter on validity. `CampaignStore.get_facts` does not filter `valid_from` or `valid_until` at all, so the matrix row "non-GM viewers see only temporally active rows" would be asserting behavior the code does not have, and adding it silently would bake `datetime.now()` into visibility filtering. Game-world time is not wall-clock time.
+
+Pick one and write it down in this task:
+
+- Current-state reads exclude expired facts and a separate `as_of` parameter returns history, or
+- `get_facts` intentionally returns historical facts and the matrix asserts only visibility, canon, knowledge, and ownership, with temporal filtering marked out of scope and tracked.
+
+If the first, the `as_of` value is supplied by the caller from campaign time, never from `datetime.now()` inside the filter.
+
+**Implementation constraints:** Do not add the `hypothesis` package. The cartesian product is finite and belongs in pytest parameters. Do not weaken `can_see`. Do not put a wall-clock default inside the visibility filter.
 
 **Verification:**
 
@@ -1138,49 +1330,6 @@ Expected: PASS, including every parameter case.
 
 Branch `observability-receipts` from merged `main` after boundary 5 is merged.
 
-### Task 17a: Assemble the turn's context through build_context so the trace describes the real turn
-
-**Objective:** `play_turn` builds its context through `build_context`, so budgeting, precedence, compaction, and the task 17 trace describe the turn that actually happens.
-
-**Why:** `play_turn` calls `build_resolution_context` (`tabletop/orchestration/turn.py`), and `build_context` is called only by its own module and `tests/tabletop/test_context_budget.py`. Instrumenting the builder without this task would produce a trace of a path production never runs, and task 18's `retrieval_tier` would always be null because nothing in the turn loop knows a tier. This is an architectural disconnect to close, not a feature to add.
-
-**Files:**
-- Modify: `tabletop/orchestration/turn.py`
-- Modify: `tabletop/orchestration/context.py` only if the builder needs the snapshot shape `ResolutionContext` requires
-- Modify: `tests/tabletop/test_turn_loop.py`
-- Create: `tests/tabletop/test_turn_context_wiring.py`
-
-**Dependencies:** task 16.
-
-**Tests written first:**
-- A turn's `ResolutionContext.state` is derived from `build_context` output, asserted by a marker that only the builder produces, such as an entry the builder includes and the old snapshot did not.
-- Plugin-visible state keeps the shape plugins already receive. `systems/freeform` and `systems/dnd5e` resolve the same actions with the same outcomes as before this task, so the wiring is not a behavior change to mechanics.
-- The task 15 setting-over-campaign precedence now applies to the turn, not only to the library test.
-- Visibility filtering applies to what reaches the plugin, using the same viewpoint rule as task 15a.
-- A turn that exceeds the budget still resolves, with lower-priority entries compacted or dropped rather than the turn failing.
-- `retrieval_tier` is now derivable from the turn, which task 18 records.
-
-**Step 2:** Expected FAIL, the turn's state does not come from the builder.
-
-**Step 3:** Replace the ad hoc snapshot with a `build_context` call, then project the allocated entries into the plugin-visible `state` mapping. Keep `resolve_action` and the Phase 9 guard untouched: this task changes what the context contains, never who resolves the action. If the builder cannot yet express something `build_resolution_context` provided, add it to the builder rather than keeping two assemblers.
-
-**Invariants:** Deterministic mechanics stay in the plugin. The guard stays the only path to a mechanical result. Plugins see a state tree, never SQL. Context assembly has one implementation after this task, not two.
-
-**Implementation constraints:** Do not call a model. Do not change `ResolutionContext`'s public shape without a test showing every plugin still resolves. Do not leave `build_resolution_context` as a second live assembler; delete it or reduce it to the builder's internals.
-
-**Verification:**
-
-```bash
-python3.11 -m pytest tests/tabletop/test_turn_context_wiring.py tests/tabletop/test_turn_loop.py tests/tabletop/test_freeform_system.py tests/tabletop/test_dnd5e_system.py -q
-python3.11 -m pytest tests/ -q
-```
-
-Expected: PASS, with the full suite green and the plugin outcomes unchanged.
-
-**Commit boundary:** `fix: assemble the play turn's context through the context builder`.
-
-**PR boundary:** does not close the boundary.
-
 ### Task 17: Record which context entries were selected, compacted, or dropped and why
 
 **Objective:** `build_context` returns a trace of considered, selected, compacted, and dropped entries with a reason and the estimated token cost.
@@ -1192,7 +1341,9 @@ Expected: PASS, with the full suite green and the plugin outcomes unchanged.
 - Modify: `tests/tabletop/test_context_budget.py`
 - Modify: `tests/tabletop/test_context_compaction.py`
 
-**Dependencies:** task 17a.
+**Dependencies:** task 16.
+
+**This trace describes the tabletop context builder. It is not an audit of Omega's model prompt.** `play_turn` calls `build_resolution_context` and never invokes a model: by the time it runs, Omega has already decided to call `resolve-action`. Calling `build_context` from inside the turn and then discarding everything but the trace would execute an unused allocator during a mechanical tool call and produce observability of a prompt nobody sent. Wiring the context builder into Omega's inference path is a separate feature, and the model-prompt receipt waits for it.
 
 **Tests written first:** Build a context with three entries: one selected as-is, one compacted because it has a refetch tool, one dropped because it has no refetch tool and the budget is tight. The trace lists each entry once with `action` in `selected`, `compacted`, or `dropped`, a `reason`, and `estimated_tokens`. `Context.entries` still contains only what the prompt would receive. The trace is not appended to entry content. `estimate_tokens` stays the estimator. No field claims provider-actual usage.
 
@@ -1220,16 +1371,18 @@ Expected: PASS.
 
 **Objective:** `play_turn` writes one receipt row per resolved or adjudicated turn.
 
-**Why:** The roadmap asks for a per-turn receipt. Nothing in `tabletop/orchestration/turn.py` records one. The receipt must not become campaign truth.
+**Why:** The roadmap asks for a per-turn receipt. Nothing in `tabletop/orchestration/turn.py` records one. The receipt must not become campaign truth, and it must describe the deterministic resolution path that actually runs rather than a prompt path that does not.
 
 **Files:**
-- Create: `tabletop/storage/migrations/0013_turn_receipts.sql`
+- Create: the next free migration, `<NNNN>_turn_receipts.sql`
 - Modify: `tabletop/orchestration/turn.py`
 - Create: `tests/tabletop/test_turn_receipt.py`
 
 **Dependencies:** task 17.
 
-**Tests written first:** One `play_turn` inserts one row. A second turn inserts a second row. The row contains `turn_id`, `campaign_id`, `system_id`, `status`, `event_sequence` when an event was appended, `retrieval_tier`, `latency_ms`, and empty or null model fields `provider`, `model`, `tokens_in`, `tokens_out`. After task 17a the turn assembles context through `build_context`, so `retrieval_tier` records the tier that answered and is null only when the turn performed no retrieval. A test asserts a retrieving turn stores a non-null tier. `play_turn` does not call a provider, so those model fields stay null. The receipt table is not read by `project_campaign`. Deleting a receipt is allowed. Deleting an event is not. Restarting on the same database still shows the receipt.
+**Tests written first:** One `play_turn` inserts one row. A second turn inserts a second row. The receipt records what the mechanical turn actually did, not what a prompt pipeline might have done: `turn_id`, `campaign_id`, `system_id`, `resolution_status`, `event_sequence` when an event was appended, `scene_id`, counts describing the resolution snapshot the plugin received, `roll_count`, `rule_reference_count`, and `latency_ms`.
+
+No `retrieval_tier` column, and no `provider`, `model`, `tokens_in`, or `tokens_out`. `play_turn` performs no retrieval and calls no model, so those columns would be permanently null while implying retrieval and inference were part of the turn. They arrive with the model-prompt receipt, after the context builder is wired into Omega's inference path. `play_turn` does not call a provider, so those model fields stay null. The receipt table is not read by `project_campaign`. Deleting a receipt is allowed. Deleting an event is not. Restarting on the same database still shows the receipt.
 
 **Step 2:** Expected FAIL, table missing.
 
@@ -1244,6 +1397,8 @@ authoritative transaction commits first
 ```
 
 Test all three: a committed turn with a working receipt writes one row; a receipt insert that raises leaves the turn's state and event committed and does not propagate as a failed turn to the caller; and that failure is still observable, through a logged warning or a returned diagnostic field, so a silently receipt-less system is detectable. If the turn rolled back its event, do not write a receipt naming an event sequence that does not exist.
+
+`event_sequence` is a reference in meaning, not in authority: no foreign key to `events`, because a diagnostic row must never constrain or be constrained by immutable history.
 
 **Invariants:** The receipt is diagnostic. It is not canon, not an event, and not a retrieval document. Event immutability stays intact. The core stays system-agnostic: the receipt stores `system_id` as data.
 
@@ -1280,7 +1435,7 @@ Branch `retrieval-scale-benchmark` from merged `main` after boundary 1 is merged
 
 **Tests written first:** Build an in-memory corpus of 1000 chunks in one namespace. Run lexical search and vector search with the existing test embedder, not a network model. Assert **correctness only**: both return without error, lexical uses FTS5, vector still uses the Python cosine path, and results are ranked deterministically for a fixed seed.
 
-**Timing is output, not an assertion.** A wall-clock ceiling in the ordinary suite turns CI, virtualization, thermal state, and a SQLite version bump into test failures, and it freezes one laptop as the performance specification. Print the measured timings and throughput, and record them in `docs/retrieval-benchmark.md` with the machine, Python version, and SQLite version that produced them. If a guardrail is wanted later, it belongs behind an opt-in benchmark marker like the docker one from task 12, never in the default gate. The outcome this task owes is a measurement taken before any infrastructure is replaced, not a pass or fail verdict on current speed.
+**Timing is output, not an assertion.** A wall-clock ceiling in the ordinary suite turns CI, virtualization, thermal state, and a SQLite version bump into test failures, and it freezes one laptop as the performance specification. Run the measurement as a separate benchmark command, not as part of the assertion, and record in `docs/retrieval-benchmark.md`: hardware, Python version, SQLite version, corpus size, warmup count, iteration count, p50, p95, and max, per retriever. If a catastrophic guard is wanted in the suite at all, make it loose, on the order of ten or twenty seconds, never two. If a guardrail is wanted later, it belongs behind an opt-in benchmark marker like the docker one from task 12, never in the default gate. The outcome this task owes is a measurement taken before any infrastructure is replaced, not a pass or fail verdict on current speed.
 
 **Step 2:** Expected FAIL until the corpus harness exists.
 
@@ -1327,7 +1482,16 @@ Branch `gurps-architecture-validation` from merged `main` after boundary 5 is me
 - Action type `skill_check` with parameters `effective_skill` rolls `3d6` through `tabletop.dice`, succeeds when `total <= effective_skill`, and puts margin and the dice in plugin-owned `Resolution.outcome` and `RollResult.details`.
 - The same total and seed replay the same roll.
 - Action type `contest` resolves two sides without a higher-is-better assumption in `tabletop/api`.
-- A scan of `tabletop/api/*.py` with docstrings removed finds none of these tokens: `gurps`, `dodge`, `parry`, `fatigue`, `hit location`. Mirror `test_tabletop_api_has_no_live_dnd5e_vocabulary`.
+- Replace the per-plugin vocabulary test with one architecture test carrying a map, so a third system does not need a third bespoke test:
+
+```python
+SYSTEM_VOCABULARY = {
+    "dnd5e": {"armor class", "saving throw", "hit point", "spell slot"},
+    "gurps": {"gurps", "dodge", "parry", "fatigue", "hit location"},
+}
+```
+
+Scan `tabletop/api`, `tabletop/orchestration`, and `tabletop/campaign` with docstrings and comments excluded, per the convention `test_tabletop_api_has_no_live_dnd5e_vocabulary` already uses. Adding Dying Earth later means adding one map entry.
 
 **Step 2:** Expected FAIL, plugin not discovered.
 
@@ -1363,8 +1527,12 @@ Expected: PASS.
 **Dependencies:** task 20.
 
 **Tests written first:**
-- `attack` can return a plugin-owned outcome that asks for an active defense, with status `RESOLVED` or the existing non-ruling status the API already uses for a pending mechanical response. It must not use `RULING_REQUIRED` for a dodge the plugin can resolve.
-- A follow-up `active_defense` action consumes that pending data from `ResolutionContext.state` and applies injury only after the defense settles.
+Assert behavior, not representation. The plugin, not this plan, decides whether the intermediate state travels as a `StateChange`, an outcome payload, or a resource marker, as long as it stays generic:
+
+- `attack` produces a deterministic intermediate mechanical state rather than an immediate injury.
+- A follow-up `active_defense` action consumes that state.
+- Injury is applied only after the defense resolves.
+- `RULING_REQUIRED` is not used for a defense the plugin can resolve deterministically.
 - Damage reduction uses a plugin-owned DR value on the target. Remaining injury is a `StateChange` on entity system state, not a core damage type.
 - `hit_location` rolls a location with the dice engine and reports it in `outcome`. Capability `HIT_LOCATIONS` is advertised only once this action exists.
 - `spend_fatigue` changes a plugin-owned FP field through `StateChange` and advertises `RESOURCE_TRACKING`.
@@ -1416,11 +1584,16 @@ Branch `second-draft-verification` from merged `main` after boundaries 4, 6, 7, 
 - Every authoritative model-facing mutation emits a replayable event. Evidence: `tests/tabletop/test_replay_contract.py`.
 - Event replay reconstructs the campaign system state those mutations represent, including quests, rulings, sessions, and new campaign facts. Evidence: the same module plus `test_setting_events.py` for setting rows.
 - Context entries that should survive compaction have a registered refetch route. Evidence: `test_chunk_refetch.py` for document chunks and the ruling refetch test from task 10. Boundary 2 alone does not satisfy this line; both routes must exist.
-- The play turn assembles its context through `build_context`, so budgeting, precedence, compaction, and the trace describe the shipped turn. Evidence: `test_turn_context_wiring.py`.
-- At least one registered skill reads under a runtime-chosen non-GM viewpoint, and no skill argument can widen it. Evidence: `test_runtime_viewpoint.py`.
+- Every read library requires an explicit viewpoint, no skill accepts one from its payload, and the registered surface is documented as GM-only. Evidence: `test_library_viewpoints.py`.
+- World-history reads never cross settings. Evidence: `test_world_history_scope.py`.
+- Persisted events carry a schema generation, and replay dispatches on type and generation rather than on missing keys. Evidence: `test_event_store.py` and ADR 0011.
+- The turn receipt describes the deterministic resolution path. The context trace is stated as library-only and is not presented as an audit of the model prompt.
 - Campaign and setting event enums are both closed replay contracts, each member classified exactly once. Evidence: `test_replay_contract.py` and `test_setting_events.py`.
-- New events carry `event_schema_version`, and the fidelity report states how much stored history predates complete payloads. Evidence: `test_replay_fidelity.py` plus the report output recorded in the document.
-- Container startup used the keyless test profile, not a personal key.
+- The fidelity report states how much stored history predates complete payloads, with its output pasted into this document for the verification database.
+- Container startup used Omega's `Test` provider and `test` channel through `docker-compose.integration.yml`, not a personal key.
+- `petta_lib_chromadb` is pinned to a commit SHA, and the `swipl` image digest used for the verified build is recorded here.
+- One CI job runs the integration tests with `GAMEMASTER_RUN_DOCKER=1`.
+- `docs/campaign-model.md` was refreshed in boundary 1 and again here, and no longer claims the schema stops at `0004` or that relationships and events do not exist.
 - Ruling promotion is on the campaign workspace and absent from the setting workspace.
 - `record-ruling`, `promote-fact`, and `reveal-fact` cannot confirm or reveal by an input field.
 - Model tools cannot write outside the active campaign or the owned setting. Evidence: existing boundary tests plus the new mismatch tests.
@@ -1456,10 +1629,13 @@ The plan is done only when `docs/second-draft-verification.md` exists and each l
 - Quest, ruling, session, and new campaign-fact replay match stored rows.
 - Setting edits, world entities, and world-history facts have setting events and a setting projection.
 - `get-chunk` and `get-ruling` round-trip after compaction. Chunks land in boundary 2, rulings in boundary 3.
-- The play turn's context comes from `build_context`, with one assembler rather than two.
-- One production read path runs under a runtime-chosen non-GM viewpoint, and no model argument can widen it.
-- Setting events are a closed replay contract with the same classification rule as campaign events.
-- New campaign and setting events carry `event_schema_version`, and the replay-fidelity report names what pre-versioned history cannot rebuild.
+- Every read library requires an explicit viewpoint; the registered skill surface stays GM-only and says so.
+- World-history reads are scoped to the owned setting.
+- Overlay resolution lives in shared resolvers, not in four separate readers.
+- Setting events are a closed replay contract with the same classification rule as campaign events, including the third class for declared but unemitted types.
+- Persisted events carry a schema generation, ADR 0011 records the rule, and the replay-fidelity report names what generation 0 history cannot rebuild.
+- One open session per campaign is enforced by a unique index, not by application code alone.
+- `docs/campaign-model.md` matched the migrations from boundary 1 onward, not only at the end.
 - Retrieval timings are recorded as measurements, with no wall-clock assertion in the default suite.
 - `promote-ruling`, `promote-fact`, and `reveal-fact` exist on the intended workspace and nowhere else.
 - No model tool confirms canon by an input field.
@@ -1484,7 +1660,8 @@ These items were inspected and left out on purpose:
 - **`detach-provenance` as a skill, and any `update-fact` skill.**
 - **`scene.opened` and `scene.closed` writers.** No production mutation emits them. Scene JSON still replays through `action.resolved`.
 - **Relationship and document-import event sourcing.** No registered skill writes those library paths. A new skill that does must add a contract row.
-- **A player workspace.** Task 15a proves one production read path under a non-GM viewpoint. A third workspace, party-membership editing, and per-request player identity stay deferred.
+- **A player workspace.** Task 15a hardens the read libraries and documents that the registered surface is GM-only. A real player surface is `Workspace.PLAYER`, whose skill set physically lacks `read-campaign-secret`, `mutate-quest`, `record-ruling`, the promote skills, and `end-session`. A viewpoint on a GM-capability workspace is not that, and this plan does not ship a halfway version.
+- **Wiring the context builder into Omega's inference path.** Until that happens, `build_context` stays a library with a library-level trace, and the turn receipt describes the mechanical path only.
 - **Retagging all existing tests as `unit`.** Only the new docker and omega tests carry markers.
 
 ## Risks
@@ -1495,18 +1672,20 @@ These items were inspected and left out on purpose:
 - `CampaignProjection` gains fields. Defaults must stay empty so existing projection equality tests keep passing.
 - Setting events use `ON DELETE RESTRICT`. Any test that deletes a setting row will start failing and must stop deleting history.
 - Boundary 4 and boundary 5 both edit different trees and can merge in either order. Boundary 8 rebases onto the result. Do not develop them on one stacked branch.
-- Task 17a changes what plugins see in `ResolutionContext.state`. The freeform and 5e suites are the regression guard, and a shape change that passes them can still surprise a future plugin. Keep the plugin-visible tree the same shape the canonical state tree already documents.
-- The keyless startup profile is itself unproven. If Omega cannot reach plugin registration without a provider, task 14 reports that as a startup-path finding rather than reaching for a personal key, and the item stays NOT MET until the path is fixed.
+- The `Test` provider and `test` channel are exercised by upstream CI against an upstream image tag, not against this repository's `Dockerfile`. If they behave differently here, task 14 reports it as a startup-path finding and the item stays NOT MET.
+- Boundary 1 now carries the schema generation, three replay fixes, a second event subsystem, the fidelity report, and a document rewrite. It is the largest branch in the plan and the one most likely to want splitting at the task 05 and 06 seam.
+- `docs/campaign-model.md` is rewritten in boundary 1 and again in task 22. The first rewrite is from the migrations at that commit and will be incomplete for later boundaries by design.
 - Migration numbers in this plan are placeholders. Boundaries merge in an order the plan does not control, so the number is read from the directory at PR time.
 - Local `main` is ahead of `origin/main` by the plan-rename commit. The first push of `main`, or the first PR base, has to include that commit so reviewers see the `.done.md` filenames.
 
 ## ASSUMPTIONS
 
-- Implementation starts at local `HEAD` `473a757376b5245cf6a95a81d02796461318879a`, not by resetting to `origin/main`.
+- Implementation starts from `origin/main`. Boundary 0 publishes the two local commits that are currently unpushed, and nothing else depends on a local working copy.
 - No tracker ticket exists. Branch names in this plan are the names to use unless a ticket id arrives before the first commit of that boundary.
 - Docker is available on this machine. The image was not built while writing this plan, so container items start unmet.
 - GURPS is the second system. The plugin covers the six named mechanics and nothing else.
 - Campaign archival is deferred for this entire plan.
 - Detach stays a non-skill library operation.
-- The viewpoint for task 15a can be derived from state the runtime already holds. If it cannot, that finding lands in the PR and the task becomes a viewpoint-source decision rather than a silent GM fallback.
-- `event_schema_version` starts at 1 for existing rows and 2 for everything appended from task 07 onward.
+- `event_schema_version` is 0 for existing rows and 1 for everything appended from task 02a onward.
+- The registered skill surface stays GM-only for this entire plan. Any player-facing read arrives with `Workspace.PLAYER`, in a later plan.
+- Omega's `Test` provider and `test` channel can bring the container far enough to register the tabletop plugin. If not, that is the finding task 14 reports.
