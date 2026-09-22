@@ -82,7 +82,7 @@ def test_search_returns_retrieved_chunks_with_score_namespace_and_source(tmp_pat
     assert isinstance(chunk.source, SourceReference)
     assert chunk.source.chunk_id == "chunk-attack"
     assert chunk.source.document_id == "doc-1"
-    assert chunk.source.refetch_tool is None
+    assert chunk.source.refetch_tool == "get-chunk"
     assert chunk.source.refetch_args["chunk_id"] == "chunk-attack"
     fetched = retriever.fetch(chunk.source)
     assert fetched is not None

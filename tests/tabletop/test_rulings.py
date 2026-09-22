@@ -88,7 +88,7 @@ def test_record_stores_complete_ruling_and_appends_event(conn: sqlite3.Connectio
     assert [(event.event_type, event.payload) for event in events] == [
         (
             EventType.RULING_RECORDED.value,
-            {"ruling_id": "ruling-1", "canon_state": "confirmed"},
+            _ruling().to_dict(),
         )
     ]
 

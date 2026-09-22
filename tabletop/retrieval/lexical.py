@@ -14,6 +14,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 from tabletop.api.errors import StorageError
+from tabletop.api.visibility import VisibilityScopeError, can_see, parse_scope
 from tabletop.retrieval.models import (
     RetrievalFilters,
     RetrievalNamespace,
@@ -37,6 +38,46 @@ _FTS_TABLES: Mapping[RetrievalNamespace, str] = MappingProxyType(
 )
 
 _FTS5_TOKEN_SPLIT = re.compile(r"\s+")
+
+
+def load_visible_chunk(
+    connection: sqlite3.Connection,
+    chunk_id: str,
+    *,
+    viewpoint,
+) -> dict[str, object] | None:
+    """Return one chunk when ``viewpoint`` can see its visibility scope.
+
+    Chunks are library records, not campaign rows. A hidden chunk is
+    indistinguishable from a missing one.
+    """
+
+    row = connection.execute(
+        "SELECT c.chunk_id, c.document_id, c.text, c.heading_path, c.page, "
+        "c.visibility, d.title, d.source_path "
+        "FROM document_chunks AS c "
+        "JOIN documents AS d ON d.document_id = c.document_id "
+        "WHERE c.chunk_id = ?",
+        (chunk_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        visible = can_see(viewpoint, parse_scope(str(row["visibility"])))
+    except VisibilityScopeError:
+        return None
+    if not visible:
+        return None
+    return {
+        "chunk_id": row["chunk_id"],
+        "document_id": row["document_id"],
+        "text": row["text"],
+        "section": str(row["heading_path"]),
+        "page": row["page"],
+        "document_title": row["title"],
+        "source_path": row["source_path"],
+        "visibility": row["visibility"],
+    }
 
 
 def escape_fts5_query(query: str) -> str:
@@ -231,4 +272,5 @@ class LexicalRetriever:
             section=section,
             page=_page_from_storage(row["page"]),
             source_path=row["source_path"],
+            refetch_tool="get-chunk",
         )

@@ -1,0 +1,11 @@
+# Overlay for the Omega startup test. Production .env.example stays on
+# ASICloud and irc. This file is not the deployment stack.
+services:
+  omega:
+    environment:
+      TEST_SERVER_IP: ${TEST_SERVER_IP:-127.0.0.1}
+    command:
+      - commchannel=test
+      - provider=Test
+      - embeddingprovider=${OMEGA_EMBEDDING_PROVIDER}
+      - securityPolicyPath=${OMEGA_SECURITY_POLICY_PATH}

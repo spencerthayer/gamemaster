@@ -250,6 +250,44 @@ def test_adapter_record_ruling_accepts_json_string(
     assert payload.get("error") is None
 
 
+def test_promote_ruling_confirms_only_the_active_campaign(tmp_path: Path, conn) -> None:
+    runtime = _runtime(tmp_path, conn)
+    recorded = runtime.record_ruling(
+        json.dumps(
+            {
+                "ruling_id": "ruling-promote",
+                "campaign_id": "campaign-1",
+                "system_id": "freeform",
+                "question": "May the gate open?",
+                "decision": "Yes.",
+                "scope": "gate",
+                "source_references": [{"source_id": "core-rules"}],
+                "session_id": None,
+                "created_at": "2026-09-22T01:00:00+00:00",
+                "canon_state": "confirmed",
+                "knowledge_state": "known",
+            }
+        )
+    )
+    assert recorded["ok"] is True
+    assert recorded["data"]["canon_state"] == "proposed"
+    assert recorded["data"]["knowledge_state"] == "unrevealed"
+    promoted = runtime.promote_ruling('{"ruling_id":"ruling-promote","canon_state":"known"}')
+    assert promoted["ok"] is True
+    assert promoted["data"]["canon_state"] == "confirmed"
+    assert promoted["data"]["knowledge_state"] == "unrevealed"
+    assert promoted["data"]["source_references"][0]["source_id"] == "core-rules"
+    other = _runtime(tmp_path, conn, active_campaign="campaign-2")
+    rejected = other.promote_ruling("ruling-promote")
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "campaign_mismatch"
+    fetched = runtime.get_ruling("ruling-promote")
+    assert fetched["data"]["ruling_id"] == "ruling-promote"
+    setting_names = {skill.name for skill in Workspace.SETTING.skills}
+    assert "promote-ruling" not in setting_names
+    assert "get-ruling" not in setting_names
+
+
 def test_reads_are_scoped_to_active_campaign(tmp_path: Path, conn) -> None:
     runtime = _runtime(tmp_path, conn)
     conn.execute(

@@ -109,10 +109,19 @@ def _record_fact(connection, fact: Fact) -> None:
             event_type=EventType.FACT_PROPOSED.value,
             payload={
                 "fact_id": fact.fact_id,
+                "fact_scope": fact.fact_scope.value,
+                "campaign_id": fact.campaign_id,
                 "subject_id": fact.subject_id,
                 "predicate": fact.predicate,
                 "value": fact.value,
+                "canon_state": fact.canon_state.value,
+                "knowledge_state": fact.knowledge_state.value,
                 "visibility": fact.visibility,
+                "valid_from": fact.valid_from,
+                "valid_until": fact.valid_until,
+                "source_document_id": fact.source_document_id,
+                "source_chunk_id": fact.source_chunk_id,
+                "source_ownership": fact.source_ownership,
             },
         ),
         session_id=_SESSION_ID,
@@ -170,7 +179,10 @@ def test_freeform_example_campaign_runs_end_to_end(tmp_path: Path) -> None:
     events = EventStore(connection)
     events.append(
         _CAMPAIGN_ID,
-        GameEvent(event_type=EventType.SESSION_STARTED.value),
+        GameEvent(
+            event_type=EventType.SESSION_STARTED.value,
+            payload={"session_id": _SESSION_ID, "started_at": _STARTED_AT},
+        ),
         session_id=_SESSION_ID,
         occurred_at=_STARTED_AT,
     )

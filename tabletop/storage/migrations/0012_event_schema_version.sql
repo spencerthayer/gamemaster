@@ -1,0 +1,1 @@
+ALTER TABLE events ADD COLUMN event_schema_version INTEGER NOT NULL DEFAULT 0;

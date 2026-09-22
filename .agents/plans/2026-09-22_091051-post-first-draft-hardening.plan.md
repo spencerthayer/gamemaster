@@ -1,133 +1,131 @@
 ---
 name: Gamemaster post-first-draft hardening
-overview: 'Close reconstruction, refetch, lifecycle, integration, and deployment gaps before expanding the platform.'
+overview: Close reconstruction, refetch, lifecycle, integration, and deployment gaps before expanding the platform.
 todos:
   - id: task-01-archive-historical-plans
     content: Mark the completed first-draft plans superseded and point them at this plan
-    status: pending
-    dependencies: []
+    status: completed
   - id: task-02-mutation-replay-contract
     content: Add a failing contract that maps every authoritative mutation to an event and a replay result
-    status: pending
-    dependencies: []
+    status: completed
   - id: task-02a-event-schema-version
     content: Add a persisted event schema generation before any payload is enriched
-    status: pending
+    status: completed
     dependencies:
       - task-02-mutation-replay-contract
   - id: task-03-replay-quest-state
     content: Replay quest.mutated into CampaignProjection and prove it matches stored quest state
-    status: pending
+    status: completed
     dependencies:
       - task-02a-event-schema-version
   - id: task-04-replay-ruling-state
     content: Replay ruling.recorded and ruling.promoted into the campaign projection
-    status: pending
+    status: completed
     dependencies:
       - task-03-replay-quest-state
   - id: task-05-session-start-and-replay
     content: Add start-session and replay session.started and session.ended into session state
-    status: pending
+    status: completed
     dependencies:
       - task-04-replay-ruling-state
   - id: task-06-setting-event-log
     content: Append immutable setting events for setting, world-entity, and world-history writes
-    status: pending
+    status: completed
     dependencies:
       - task-05-session-start-and-replay
   - id: task-07-replay-fact-lifecycle
     content: Carry enough fact payload to replay new campaign facts to the stored row
-    status: pending
+    status: completed
     dependencies:
       - task-06-setting-event-log
   - id: task-07a-replay-fidelity-and-model-doc
     content: Report replay fidelity per campaign and refresh the campaign model document
-    status: pending
+    status: completed
     dependencies:
       - task-07-replay-fact-lifecycle
   - id: task-08-chunk-refetch-route
     content: Register get-chunk and store it on lexical and vector source references
-    status: pending
+    status: completed
     dependencies:
       - task-07a-replay-fidelity-and-model-doc
   - id: task-09-compaction-refetch-roundtrip
     content: Prove a compacted retrieved chunk can be refetched to the same source record
-    status: pending
+    status: completed
     dependencies:
       - task-08-chunk-refetch-route
   - id: task-10-promote-ruling-skill
     content: Add campaign-only promote-ruling that confirms canon without changing knowledge
-    status: pending
+    status: completed
     dependencies:
       - task-09-compaction-refetch-roundtrip
   - id: task-11-fact-lifecycle-skills
     content: Add promote-fact and reveal-fact skills that cannot set canon from input fields
-    status: pending
+    status: completed
     dependencies:
       - task-10-promote-ruling-skill
   - id: task-11a-world-history-scope
     content: Stop world-history reads from crossing into other settings
-    status: pending
+    status: completed
     dependencies:
       - task-11-fact-lifecycle-skills
   - id: task-12-pytest-integration-markers
     content: Add docker and omega pytest markers that stay skipped in the default suite
-    status: pending
+    status: completed
     dependencies:
       - task-11a-world-history-scope
   - id: task-13-docker-image-contract
     content: Build the image and verify user, mounts, FTS5, PDF import, and restart persistence
-    status: pending
+    status: completed
     dependencies:
       - task-12-pytest-integration-markers
   - id: task-14-omega-startup-contract
     content: Boot Omega in the image and verify plugin load, skills, state directory, and shutdown
-    status: pending
+    status: completed
     dependencies:
       - task-13-docker-image-contract
   - id: task-15-setting-overlay-reads
     content: Apply setting-over-campaign precedence on live reads that currently filter by campaign only
-    status: pending
+    status: completed
     dependencies:
       - task-11-fact-lifecycle-skills
   - id: task-15a-library-viewpoint-parameters
     content: Make every read library take an explicit viewpoint and document the GM-only skill surface
-    status: pending
+    status: completed
     dependencies:
       - task-15-setting-overlay-reads
   - id: task-16-visibility-combination-matrix
     content: Add a combinatorial visibility test across scope, canon, knowledge, ownership, and time
-    status: pending
+    status: completed
     dependencies:
       - task-15a-library-viewpoint-parameters
   - id: task-17-context-allocation-trace
     content: Record which context entries were selected, compacted, or dropped and why
-    status: pending
+    status: completed
     dependencies:
       - task-16-visibility-combination-matrix
   - id: task-18-turn-receipt
     content: Persist a per-turn diagnostic receipt outside campaign canon
-    status: pending
+    status: completed
     dependencies:
       - task-17-context-allocation-trace
   - id: task-19-retrieval-scale-benchmark
     content: Measure the current lexical and brute-force vector retrievers and keep the current backends
-    status: pending
+    status: completed
     dependencies:
       - task-07a-replay-fidelity-and-model-doc
   - id: task-20-gurps-roll-under
     content: Add a minimal GURPS plugin that resolves 3d6 roll-under and contests
-    status: pending
+    status: completed
     dependencies:
       - task-16-visibility-combination-matrix
   - id: task-21-gurps-defense-damage-fatigue
     content: Extend the GURPS plugin through active defense, damage resistance, hit location, and fatigue
-    status: pending
+    status: completed
     dependencies:
       - task-20-gurps-roll-under
   - id: task-22-second-draft-verification
     content: Record the second-stage definition of done against the code and the full suite
-    status: pending
+    status: completed
     dependencies:
       - task-14-omega-startup-contract
       - task-18-turn-receipt

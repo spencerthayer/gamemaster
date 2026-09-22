@@ -1,6 +1,7 @@
 # Gamemaster: Omega-based Tabletop RPG Platform - Execution Plan
 
-Status: ACTIVE.
+Status: SUPERSEDED.
+Superseded by `.agents/plans/2026-09-22_091051-post-first-draft-hardening.plan.md`.
 Integration branch: `main`.
 Development occurs on per-phase feature branches and merges through PRs.
 Bootstrap date: 2026-09-06. Full plan and TODO tracker in one file.

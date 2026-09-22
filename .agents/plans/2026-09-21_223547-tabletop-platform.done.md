@@ -326,6 +326,8 @@ isProject: true
 
 # Gamemaster tabletop platform first draft
 
+Status: SUPERSEDED. Superseded by `.agents/plans/2026-09-22_091051-post-first-draft-hardening.plan.md`.
+
 **Goal:** Finish the first runnable draft of a platform-agnostic tabletop RPG framework on top of SingularityNET Omega, where authoritative game state lives in SQLite, mechanics live in swappable game-system plugins, and the LLM proposes and narrates but never owns truth.
 
 **Architecture:** Four layers that must not collapse into each other. Omega supplies cognition, tools, providers, and channels. One thin MeTTa plugin (`plugins/tabletop/`) is the only Omega-aware code. `tabletop/` is a pure-Python runtime with zero Omega or MeTTa imports, owning orchestration, persistence, visibility, documents, and retrieval. `systems/*` are game-system plugins loaded through `plugin.yaml` manifests that never import Omega, MeTTa, or each other.

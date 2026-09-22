@@ -68,6 +68,18 @@ def session_database(tmp_path: Path) -> tuple[sqlite3.Connection, Path]:
     events = EventStore(connection)
     events.append(
         "campaign-1",
+        GameEvent(
+            event_type="session.started",
+            payload={
+                "session_id": "session-1",
+                "started_at": "2026-09-22T01:00:00+00:00",
+            },
+        ),
+        session_id="session-1",
+        occurred_at="2026-09-22T01:00:00+00:00",
+    )
+    events.append(
+        "campaign-1",
         GameEvent(event_type="scene.opened", payload={}),
         occurred_at="1999-01-01T00:00:00+00:00",
     )
@@ -121,7 +133,7 @@ def test_session_record_contains_complete_lifecycle_data(
         "ended_at": "2026-09-22T03:00:00+00:00",
         "participants": ["hero", "warden"],
         "transcript_reference": "transcripts/session-1.jsonl",
-        "event_range": {"start": 2, "end": 4},
+        "event_range": {"start": 1, "end": 5},
         "summary": "The party sealed the gate.",
         "important_facts": ["The gate is weakening"],
         "open_threads": ["Who built the gate?"],
@@ -188,8 +200,8 @@ def test_close_event_range_step_persists_actual_bounds(
     ).fetchone()
     assert dict(row) == {
         "ended_at": "2026-09-22T03:00:00+00:00",
-        "event_start_sequence": 2,
-        "event_end_sequence": 4,
+        "event_start_sequence": 1,
+        "event_end_sequence": 5,
         "checklist_step": 1,
     }
 
@@ -271,7 +283,7 @@ def test_projection_regeneration_and_retrieval_update_complete(
         "WHERE chunk_id = 'session:session-1'"
     ).fetchone()
     assert row["document_id"] == "session-1"
-    assert "Event range: 2 through 4" in row["text"]
+    assert "Event range: 1 through 5" in row["text"]
     assert "The gate was sealed." in row["text"]
 
 
@@ -338,8 +350,8 @@ def test_retry_resumes_after_projection_or_retrieval_failure(
 
     assert retry.ended_at == "2026-09-22T03:00:00+00:00"
     assert retry.summary == "Durable summary"
-    assert retry.event_range.start == 2
-    assert retry.event_range.end == 4
+    assert retry.event_range.start == 1
+    assert retry.event_range.end == 5
     assert projection_calls == 1
     assert retrieval_calls == (
         0 if failed_step is EndSessionStep.REGENERATE_PROJECTIONS else 1
@@ -398,7 +410,9 @@ def test_end_session_preserves_agendas_clocks_rulings_and_events(
     assert after["rulings"] == before["rulings"]
     assert after["events"][:-1] == before["events"]
     assert after["events"][-1]["event_type"] == "session.ended"
-    assert json.loads(after["events"][-1]["payload"]) == {"session_id": "session-1"}
+    ended_payload = json.loads(after["events"][-1]["payload"])
+    assert ended_payload["session_id"] == "session-1"
+    assert isinstance(ended_payload["ended_at"], str)
 
 
 def test_event_range_uses_session_sequence_numbers_not_timestamps(
@@ -411,8 +425,8 @@ def test_event_range_uses_session_sequence_numbers_not_timestamps(
         summary_provider=lambda _: "Summary",
     )
 
-    assert session.event_range.start == 2
-    assert session.event_range.end == 4
+    assert session.event_range.start == 1
+    assert session.event_range.end == 5
 
 
 @pytest.mark.parametrize("failure", [None, RuntimeError("model unavailable")])
@@ -439,8 +453,8 @@ def test_missing_or_failed_summary_keeps_authoritative_event_range(
     assert session.summary is None
     assert dict(row) == {
         "summary": None,
-        "event_start_sequence": 2,
-        "event_end_sequence": 4,
+        "event_start_sequence": 1,
+        "event_end_sequence": 5,
     }
 
 
@@ -463,4 +477,4 @@ def test_runtime_end_session_uses_session_lifecycle(
 
     assert payload["ok"] is True
     assert payload["operation"] == "end-session"
-    assert payload["data"]["session"]["event_range"] == {"start": 2, "end": 4}
+    assert payload["data"]["session"]["event_range"] == {"start": 1, "end": 5}

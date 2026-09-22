@@ -175,7 +175,9 @@ At minimum, replace `OMEGA_AUTH_SECRET`, choose the provider and channel, and
 set the provider credential such as `ASI_API_KEY`. The Compose file defines
 one Omega service. Named volumes persist Omega memory and tabletop SQLite
 state. Plugin and library mounts are read-only. The campaigns mount is
-read-write. The stack does not mount the Docker socket.
+read-write. The entrypoint copies those three mounts onto the container
+filesystem before Omega applies Landlock, because that policy cannot read
+Docker Desktop bind mounts. The stack does not mount the Docker socket.
 
 For Portainer:
 

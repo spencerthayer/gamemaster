@@ -1,5 +1,7 @@
 # First-draft verification
 
+Historical record. Later evidence is in `docs/second-draft-verification.md`.
+
 Verified on 2026-09-22 from branch
 `phase-33-40-verification-release`.
 
