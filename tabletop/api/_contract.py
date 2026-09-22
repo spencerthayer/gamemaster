@@ -13,6 +13,10 @@ T = TypeVar("T")
 def require_non_empty_str(value: Any, field_name: str, error_cls: type[Exception]) -> str:
     if not isinstance(value, str) or not value.strip():
         raise error_cls(f"{field_name} must be a non-empty string, got {value!r}")
+    if value != value.strip():
+        raise error_cls(
+            f"{field_name} must not have leading or trailing whitespace, got {value!r}"
+        )
     return value
 
 
@@ -125,8 +129,11 @@ def freeze_state_path(value: Any, error_cls: type[Exception]) -> tuple[str | int
                 "path components must be non-empty strings or non-negative ints, "
                 f"got {type(item).__name__}"
             )
-        if isinstance(item, str) and not item:
-            raise error_cls("path string components must be non-empty")
+        if isinstance(item, str) and (not item or item != item.strip()):
+            raise error_cls(
+                "path string components must be non-empty and unpadded, "
+                f"got {item!r}"
+            )
         if isinstance(item, int) and item < 0:
             raise error_cls("path integer components must be non-negative")
         frozen.append(item)
@@ -135,7 +142,11 @@ def freeze_state_path(value: Any, error_cls: type[Exception]) -> tuple[str | int
 
 def to_jsonable(value: Any) -> Any:
     """Convert already-validated transport values to JSON primitives."""
-    if value is None or isinstance(value, str):
+    if value is None:
+        return value
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, str):
         return value
     if isinstance(value, bool):
         return value
@@ -145,8 +156,6 @@ def to_jsonable(value: Any) -> Any:
         if not math.isfinite(value):
             raise TypeError(f"non-finite float is not JSON-safe: {value!r}")
         return value
-    if isinstance(value, Enum):
-        return value.value
     to_dict = getattr(value, "to_dict", None)
     if callable(to_dict):
         return to_dict()

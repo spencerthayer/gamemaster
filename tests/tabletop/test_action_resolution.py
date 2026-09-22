@@ -8,6 +8,7 @@ from dataclasses import fields
 import pytest
 
 from systems.freeform import FreeformPlugin
+from tabletop.api._contract import to_jsonable
 from tabletop.api.actions import GameAction
 from tabletop.api.capabilities import Capability
 from tabletop.api.entities import EntityRef
@@ -60,6 +61,8 @@ def test_entity_ref_rejects_empty_id():
         EntityRef(id="")
     with pytest.raises(InvalidActionError):
         EntityRef(id="   ")
+    with pytest.raises(InvalidActionError):
+        EntityRef(id="  mara  ")
     with pytest.raises(InvalidActionError):
         EntityRef(id=None)  # type: ignore[arg-type]
 
@@ -120,6 +123,8 @@ def test_game_action_rejects_empty_action_type():
         GameAction(actor=_actor(), action_type="")
     with pytest.raises(InvalidActionError):
         GameAction(actor=_actor(), action_type="  ")
+    with pytest.raises(InvalidActionError):
+        GameAction(actor=_actor(), action_type="  wave  ")
 
 
 def test_game_action_rejects_non_entity_actor_and_malformed_targets():
@@ -238,6 +243,8 @@ def test_state_change_path_keeps_dotted_keys_as_single_components():
         )
     with pytest.raises(InvalidResolutionError):
         StateChange(operation=StateOperation.SET, path=())
+    with pytest.raises(InvalidResolutionError):
+        StateChange(operation=StateOperation.SET, path=("  entities  ",))
 
 
 def test_state_change_rejects_unknown_operations_and_delete_values():
@@ -255,6 +262,12 @@ def test_state_change_rejects_unknown_operations_and_delete_values():
             path=("flags", "door"),
             value=True,
         )
+
+
+def test_to_jsonable_string_enums_become_plain_strings():
+    converted = to_jsonable(StateOperation.SET)
+    assert converted == "set"
+    assert type(converted) is str
 
 
 def test_opaque_mappings_reject_non_json_values_at_construction():
