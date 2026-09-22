@@ -165,6 +165,38 @@ def test_fact_reference_with_unmatched_import_job_is_absent(conn) -> None:
     )
 
 
+def test_incomplete_fact_does_not_fall_through_to_valid_fact_on_chunk(conn) -> None:
+    conn.execute(
+        "UPDATE facts SET import_job_id = 'missing-job' WHERE fact_id = 'fact-1'"
+    )
+    conn.execute(
+        "INSERT INTO facts "
+        "(fact_id, fact_scope, campaign_id, subject_id, predicate, value, "
+        "source_document_id, source_chunk_id, import_job_id, extraction_method, "
+        "created_at) VALUES (?, 'campaign', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "fact-2",
+            "campaign-1",
+            "parry",
+            "allows",
+            "defense",
+            "document-1",
+            "chunk-7",
+            "job-1",
+            "extractor-1",
+            "2026-09-22T00:00:00Z",
+        ),
+    )
+
+    assert (
+        resolve_reference(
+            conn,
+            RuleReference(source_id="fact-1", chunk_id="chunk-7"),
+        )
+        is None
+    )
+
+
 def test_fact_reference_with_missing_source_chunk_is_absent(conn) -> None:
     conn.execute(
         "UPDATE facts SET source_chunk_id = 'missing-chunk' WHERE fact_id = 'fact-1'"
@@ -207,6 +239,73 @@ def test_document_reference_with_several_jobs_is_absent(conn) -> None:
         resolve_reference(
             conn,
             RuleReference(source_id="document-1", chunk_id="chunk-7"),
+        )
+        is None
+    )
+
+
+def test_conflicting_document_and_chunk_identifiers_are_absent(conn) -> None:
+    conn.execute(
+        "INSERT INTO ingest_jobs "
+        "(job_id, document_hash, parser_version, slice_strategy_version, "
+        "status, total_slices, completed_slices, failed_slices, started_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'completed', 1, 1, 0, ?, ?)",
+        (
+            "job-2",
+            "document-hash-2",
+            "parser-3",
+            "slice-2",
+            "2026-09-22T00:00:00Z",
+            "2026-09-22T00:00:00Z",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO documents "
+        "(document_id, content_hash, source_path, title, document_shape, "
+        "visibility, ingested_at) VALUES (?, ?, ?, ?, 'structured_rules', 'GM', ?)",
+        (
+            "document-2",
+            "document-hash-2",
+            "/library/other-rules.md",
+            "Other Rules",
+            "2026-09-22T00:00:00Z",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO document_chunks "
+        "(chunk_id, document_id, ordinal, heading_path, page, text, content_hash, "
+        "visibility) VALUES (?, ?, 3, ?, 12, ?, ?, 'GM')",
+        (
+            "chunk-3",
+            "document-2",
+            '["Magic"]',
+            "A caster may resist.",
+            "chunk-hash-3",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO facts "
+        "(fact_id, fact_scope, campaign_id, subject_id, predicate, value, "
+        "source_document_id, source_chunk_id, import_job_id, extraction_method, "
+        "created_at) VALUES (?, 'campaign', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "fact-2",
+            "campaign-1",
+            "resist",
+            "allows",
+            "defense",
+            "document-2",
+            "chunk-3",
+            "job-2",
+            "extractor-1",
+            "2026-09-22T00:00:00Z",
+        ),
+    )
+
+    assert (
+        resolve_reference(
+            conn,
+            RuleReference(source_id="document-1", chunk_id="chunk-3"),
         )
         is None
     )

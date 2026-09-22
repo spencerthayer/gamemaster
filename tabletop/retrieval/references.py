@@ -51,8 +51,15 @@ def _resolve_fact_reference(
         "ON j.job_id = f.import_job_id AND j.document_hash = d.content_hash "
         "WHERE f.fact_id = ? "
         "AND f.extraction_method IS NOT NULL "
-        "AND (? IS NULL OR f.source_chunk_id = ?)",
-        (ref.source_id, ref.chunk_id, ref.chunk_id),
+        "AND (? IS NULL OR f.source_chunk_id = ?) "
+        "AND (? IS NULL OR d.source_path = ?)",
+        (
+            ref.source_id,
+            ref.chunk_id,
+            ref.chunk_id,
+            ref.document_path,
+            ref.document_path,
+        ),
     ).fetchone()
     if row is None:
         return None
@@ -94,18 +101,25 @@ def _resolve_document_reference(
         "AND f.source_chunk_id = c.chunk_id "
         "AND f.import_job_id = j.job_id "
         "AND f.extraction_method IS NOT NULL "
-        "WHERE d.document_id = ? "
-        "OR (? IS NOT NULL AND d.source_path = ?) "
-        "OR c.chunk_id = ? "
+        "WHERE ("
+        "d.document_id = ? "
+        "OR ("
+        "NOT EXISTS (SELECT 1 FROM documents WHERE document_id = ?) "
+        "AND (? IS NOT NULL OR ? IS NOT NULL)"
+        ")"
+        ") "
+        "AND (? IS NULL OR d.source_path = ?) "
         "GROUP BY d.document_id, d.source_path, d.content_hash, "
         "c.chunk_id, c.ordinal, j.job_id, j.parser_version, "
         "f.extraction_method",
         (
             ref.chunk_id,
             ref.source_id,
-            ref.document_path,
+            ref.source_id,
             ref.document_path,
             ref.chunk_id,
+            ref.document_path,
+            ref.document_path,
         ),
     ).fetchall()
     if len(rows) != 1:
@@ -130,7 +144,10 @@ def resolve_reference(
 ) -> ResolvedRuleReference | None:
     """Resolve a fact or document reference without failing after source purge."""
 
-    fact_reference = _resolve_fact_reference(conn, ref)
-    if fact_reference is not None:
-        return fact_reference
+    fact_exists = conn.execute(
+        "SELECT 1 FROM facts WHERE fact_id = ?",
+        (ref.source_id,),
+    ).fetchone()
+    if fact_exists is not None:
+        return _resolve_fact_reference(conn, ref)
     return _resolve_document_reference(conn, ref)
