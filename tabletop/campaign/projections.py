@@ -13,7 +13,7 @@ from typing import Any, Iterable, Mapping, MutableMapping, assert_never
 from tabletop.api.resolution import StateChange, StateOperation
 from tabletop.campaign.event_store import EventType, PersistedEvent
 from tabletop.campaign.models import CanonState, KnowledgeState
-from tabletop.campaign.store import _apply_json_change
+from tabletop.campaign.state_paths import apply_json_change, route_state_change_path
 
 
 @dataclass(frozen=True)
@@ -147,6 +147,7 @@ def _apply_action_resolved(
         change = _state_change_from_dict(raw)
         campaign_system, entities, scenes = _apply_state_change(
             change,
+            campaign_id=event.campaign_id,
             campaign_system=campaign_system,
             entities=entities,
             scenes=scenes,
@@ -170,44 +171,26 @@ def _state_change_from_dict(raw: Mapping[str, Any]) -> StateChange:
 def _apply_state_change(
     change: StateChange,
     *,
+    campaign_id: str,
     campaign_system: Any,
     entities: MutableMapping[str, Any],
     scenes: MutableMapping[str, Any],
     scene_id: str | None,
 ) -> tuple[Any, MutableMapping[str, Any], MutableMapping[str, Any]]:
-    path = change.path
-    if not path:
-        raise ValueError("state change path must not be empty")
-
-    root = path[0]
-    if root == "campaign":
-        if len(path) < 2 or path[1] != "system":
-            raise ValueError(
-                "campaign state changes must start with ('campaign', 'system')"
-            )
-        campaign_system = _apply_json_change(
-            copy.deepcopy(campaign_system), path[2:], change
+    _, target, relative_path = route_state_change_path(
+        campaign_id, change, scene_id
+    )
+    target_kind, target_id = target
+    if target_kind == "campaign":
+        campaign_system = apply_json_change(
+            copy.deepcopy(campaign_system), relative_path, change
         )
-    elif root == "entities":
-        if len(path) < 3 or not isinstance(path[1], str) or path[2] != "system":
-            raise ValueError(
-                "entity state changes must start with "
-                "('entities', '<entity-id>', 'system')"
-            )
-        entity_id = path[1]
-        current = copy.deepcopy(entities.get(entity_id, {}))
-        entities[entity_id] = _apply_json_change(current, path[3:], change)
-    elif root == "scene":
-        if len(path) < 2 or path[1] != "system":
-            raise ValueError(
-                "scene state changes must start with ('scene', 'system')"
-            )
-        if scene_id is None:
-            raise ValueError("scene state changes require scene_id on the event")
-        current = copy.deepcopy(scenes.get(scene_id, {}))
-        scenes[scene_id] = _apply_json_change(current, path[2:], change)
+    elif target_kind == "entity":
+        current = copy.deepcopy(entities.get(target_id, {}))
+        entities[target_id] = apply_json_change(current, relative_path, change)
+    elif target_kind == "scene":
+        current = copy.deepcopy(scenes.get(target_id, {}))
+        scenes[target_id] = apply_json_change(current, relative_path, change)
     else:
-        raise ValueError(
-            "state change path root must be 'campaign', 'entities', or 'scene'"
-        )
+        assert_never(target_kind)
     return campaign_system, entities, scenes
