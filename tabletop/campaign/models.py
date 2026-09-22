@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
+from typing import Any, Mapping
 
 
 class CanonState(str, Enum):
@@ -23,6 +25,39 @@ class KnowledgeState(str, Enum):
 
     UNREVEALED = "unrevealed"
     KNOWN = "known"
+
+
+@dataclass(frozen=True, kw_only=True)
+class NpcRecord:
+    """System-agnostic NPC state, including GM-only information."""
+
+    entity_id: str
+    identity: Mapping[str, Any]
+    public: Mapping[str, Any]
+    private: Mapping[str, Any]
+    knowledge: Mapping[str, Any]
+    agenda: Mapping[str, Any]
+    relationships: tuple[Any, ...]
+    clocks: Mapping[str, int]
+    system_state: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "identity",
+            "public",
+            "private",
+            "knowledge",
+            "agenda",
+            "clocks",
+            "system_state",
+        ):
+            value = getattr(self, field_name)
+            object.__setattr__(
+                self,
+                field_name,
+                MappingProxyType(dict(value)),
+            )
+        object.__setattr__(self, "relationships", tuple(self.relationships))
 
 
 class FactScope(str, Enum):
