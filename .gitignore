@@ -26,6 +26,7 @@ tabletop/campaigns/
 # Sourcebooks and document library (copyrighted material)
 /library/
 library/
+*.pdf
 
 # Vector stores and retrieval caches
 tabletop/vector/
