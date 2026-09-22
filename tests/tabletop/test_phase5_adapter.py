@@ -156,6 +156,21 @@ def test_entrypoint_preserves_tabletop_runtime_environment():
     } <= allowlist
 
 
+def test_entrypoint_makes_existing_tabletop_state_writable_before_privilege_drop():
+    entrypoint = _ENTRYPOINT_PATH.read_text()
+
+    mkdir = 'mkdir -p -- "$TABLETOP_STATE_DIRECTORY"'
+    chown = 'chown -R 65534:65534 -- "$TABLETOP_STATE_DIRECTORY"'
+    first_privilege_drop = min(
+        entrypoint.index("su www-data"),
+        entrypoint.index("su nobody"),
+    )
+
+    assert mkdir in entrypoint
+    assert chown in entrypoint
+    assert entrypoint.index(mkdir) < entrypoint.index(chown) < first_privilege_drop
+
+
 def test_from_environment_creates_and_migrates_configured_database(tmp_path):
     (tmp_path / "systems").mkdir()
     database_path = tmp_path / "state" / "tabletop.sqlite3"

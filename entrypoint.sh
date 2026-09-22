@@ -33,6 +33,12 @@ for arg in "$@"; do
 done
 export EMBEDDING_PROVIDER OPENAIAPI_URL MM_URL OPENCLAW_URL
 
+if [[ -n "${TABLETOP_DATABASE_PATH:-}" ]]; then
+  TABLETOP_STATE_DIRECTORY="$(dirname -- "$TABLETOP_DATABASE_PATH")"
+  mkdir -p -- "$TABLETOP_STATE_DIRECTORY"
+  chown -R 65534:65534 -- "$TABLETOP_STATE_DIRECTORY"
+fi
+
 su www-data -s /bin/sh -c "sh /opt/nginx/nginx.sh"
 
 # Optional knowledge-base import

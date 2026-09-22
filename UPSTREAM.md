@@ -26,13 +26,15 @@ Omega-facing plugin.
 
 - `config/plugins.yaml`: registers the local `tabletop` MeTTa plugin from
   `{REPO}/plugins/tabletop`.
-- `entrypoint.sh`: preserves the five `TABLETOP_*` runtime configuration
-  variables when Omega reduces the container environment to its startup
-  allowlist.
+- `entrypoint.sh`: prepares the configured tabletop SQLite directory for UID
+  and GID 65534, including existing root-owned volume contents, and preserves
+  the five `TABLETOP_*` runtime configuration variables when Omega reduces the
+  container environment to its startup allowlist.
 
 No Omega agent-loop, provider, channel, memory, or plugin-loader implementation
 is modified. The adapter uses Omega's existing plugin extension points; the
-entrypoint change only extends the environment allowlist.
+entrypoint change is limited to tabletop state-directory ownership and the
+environment allowlist.
 
 ## Tabletop-only dependencies
 
