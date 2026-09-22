@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from tabletop.api.errors import DiceExpressionError
+from tabletop.dice.roller import roll as roll_dice
 from tabletop.plugins.discovery import discover_plugins, load_plugin
 from tabletop.plugins.registry import PluginRegistry
 
@@ -229,7 +231,11 @@ class TabletopRuntime:
         return self._unavailable("resolve-action", phase=8, input_data={"action": action})
 
     def roll(self, expression: str) -> dict[str, Any]:
-        return self._unavailable("roll", phase=10, input_data={"expression": expression})
+        try:
+            result = roll_dice(expression)
+        except DiceExpressionError as exc:
+            return self._error("roll", exc.code, str(exc))
+        return self._ok("roll", result.to_dict())
 
     def get_entity(self, entity_id: str) -> dict[str, Any]:
         return self._unavailable("get-entity", phase=11, input_data={"entity_id": entity_id})

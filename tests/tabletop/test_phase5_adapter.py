@@ -63,15 +63,13 @@ def test_current_campaign_requires_explicit_choice_when_ambiguous(tmp_path):
     assert result["data"]["available"] == ["alpha", "beta"]
 
 
-def test_future_phase_operation_is_explicitly_unavailable(tmp_path):
+def test_roll_operation_is_available(tmp_path):
     runtime = TabletopRuntime(tmp_path, campaign_roots=[], plugin_roots=[])
     result = runtime.roll("2d6")
 
-    assert result["ok"] is False
+    assert result["ok"] is True
     assert result["operation"] == "roll"
-    assert result["error"]["code"] == "capability_unavailable"
-    assert result["data"]["planned_phase"] == 10
-    assert result["data"]["input"] == {"expression": "2d6"}
+    assert result["data"]["expression"] == "2d6"
 
 
 def test_adapter_returns_json_and_contains_runtime_exceptions():

@@ -104,13 +104,13 @@ def test_require_capability_raises_for_unsupported_capability():
 
 def test_negotiation_does_not_leak_state_between_plugins():
     dicey = DicePlugin()
-    freeform = FreeformPlugin()
+    dnd5e = Dnd5ePlugin()
     assert dicey.supports(Capability.DICE)
-    assert not freeform.supports(Capability.DICE)
-    assert dicey.capabilities() != freeform.capabilities()
+    assert not dnd5e.supports(Capability.DICE)
+    assert dicey.capabilities() != dnd5e.capabilities()
     with pytest.raises(UnsupportedCapabilityError):
-        freeform.require_capability(Capability.DICE)
-    dicey.require_capability(Capability.DICE)  # unchanged by freeform's failure
+        dnd5e.require_capability(Capability.DICE)
+    dicey.require_capability(Capability.DICE)  # unchanged by dnd5e's failure
 
 
 # Base contract
@@ -127,11 +127,11 @@ def test_minimal_plugin_instantiates_and_lifecycle_defaults_are_safe():
     plugin.shutdown()
 
 
-def test_freeform_plugin_conforms_and_advertises_nothing():
+def test_freeform_plugin_conforms_and_advertises_dice():
     plugin = FreeformPlugin()
     assert plugin.info.id == "freeform"
     assert plugin.info.api_version == TABLETOP_PLUGIN_API_VERSION
-    assert plugin.capabilities() == frozenset()
+    assert plugin.capabilities() == frozenset({Capability.DICE})
     assert plugin.character_schema() == {}
     assert plugin.state_schema() == {}
     assert plugin.rule_namespaces() == frozenset()

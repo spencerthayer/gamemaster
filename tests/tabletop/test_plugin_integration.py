@@ -26,9 +26,9 @@ def test_builtin_systems_load_through_generic_pipeline():
     assert systems["freeform"]["name"] == "Freeform Reference System"
     assert systems["freeform"]["version"] == "0.1.0"
     assert systems["freeform"]["api_version"] == "tabletop/v1"
-    assert systems["freeform"]["capabilities"] == []
+    assert systems["freeform"]["capabilities"] == ["dice"]
     assert systems["dnd5e"]["capabilities"] == []
-    assert runtime.system_capabilities("freeform") == []
+    assert runtime.system_capabilities("freeform") == ["dice"]
 
 
 def test_builtin_systems_are_registered_not_hardcoded():

@@ -1,10 +1,9 @@
 """Freeform reference system: the minimal contract test implementation.
 
-Implements the Phase 6 ``GameSystemPlugin`` API with no gameplay. Freeform
-is proof that a game with no dice, no combat, no turn order, no hit points,
-and no numeric sheet can satisfy the plugin contract. Mechanics arrive in
-Phase 26; capabilities stay empty until then because capabilities mean
-"implemented by this plugin", not "the game conceptually supports this".
+Implements the Phase 6 ``GameSystemPlugin`` API with no system-specific
+gameplay. Freeform advertises the platform's generic dice roller while combat,
+turn order, hit points, and numeric sheets remain unsupported. System mechanics
+arrive in Phase 26.
 """
 
 from __future__ import annotations
@@ -44,8 +43,8 @@ class FreeformPlugin(GameSystemPlugin):
         )
 
     def capabilities(self) -> frozenset[Capability]:
-        """No mechanics implemented yet; nothing is advertised."""
-        return frozenset()
+        """Advertise generic runtime dice rolling."""
+        return frozenset({Capability.DICE})
 
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         raise GameSystemError(
