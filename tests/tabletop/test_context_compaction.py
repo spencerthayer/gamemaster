@@ -23,7 +23,11 @@ def _entry(
         content=content,
         token_cost=token_cost,
         refetch_tool=refetch_tool,
-        refetch_args=refetch_args or {"entity_id": content.lower()},
+        refetch_args=(
+            {"entity_id": content.lower()}
+            if refetch_args is None
+            else refetch_args
+        ),
         priority=priority,
         compacted=False,
         recency=recency,
@@ -74,6 +78,25 @@ def test_compaction_creates_exact_refetchable_stub_and_round_trips() -> None:
     assert refetched == original
 
 
+def test_compaction_replaces_long_content_with_a_smaller_short_label() -> None:
+    original_content = "Ithrazel guards the obsidian gate. " * 40
+    entry = _entry(
+        original_content,
+        token_cost=len(original_content.encode("utf-8")) // 4,
+        priority=10,
+        recency=1,
+        refetch_args={"entity_id": "ithrazel"},
+    )
+
+    (stub,) = compact((entry,), budget=30)
+
+    assert stub.content == (
+        '[Compacted entity record: Ithrazel. Refetch with get-entity("ithrazel").]'
+    )
+    assert original_content not in stub.content
+    assert stub.token_cost < entry.token_cost
+
+
 def test_compaction_drops_an_entry_that_cannot_be_refetched() -> None:
     unrefetchable = _entry(
         "transient narration",
@@ -101,13 +124,44 @@ def test_compaction_selects_lowest_priority_then_oldest() -> None:
 
     result = compact((high_old, low_new, low_old), budget=180)
 
-    by_original_content = {
-        entry.content.replace("[Compacted ", "").split(". Refetch", 1)[0]: entry
-        for entry in result
-    }
-    assert by_original_content["low old"].compacted is True
-    assert by_original_content["low new"].compacted is False
-    assert by_original_content["high old"].compacted is False
+    by_entity_id = {entry.refetch_args["entity_id"]: entry for entry in result}
+    assert by_entity_id["low old"].compacted is True
+    assert by_entity_id["low new"].compacted is False
+    assert by_entity_id["high old"].compacted is False
+
+
+def test_compaction_drops_stubs_until_total_cost_fits_budget() -> None:
+    low_old = _entry("low old " * 20, token_cost=40, priority=1, recency=1)
+    high_new = _entry("high new " * 20, token_cost=40, priority=2, recency=2)
+
+    result = compact((high_new, low_old), budget=20)
+
+    assert sum(entry.token_cost for entry in result) <= 20
+    assert all(entry.refetch_args["entity_id"] != "low old " * 20 for entry in result)
+
+
+def test_empty_args_are_valid_only_for_no_argument_skills() -> None:
+    required_args = _entry(
+        "entity",
+        token_cost=40,
+        priority=1,
+        recency=1,
+        refetch_args={},
+    )
+    no_args = _entry(
+        "current scene",
+        token_cost=40,
+        priority=2,
+        recency=2,
+        refetch_tool="current-scene",
+        refetch_args={},
+    )
+
+    result = compact((no_args, required_args), budget=30)
+
+    assert len(result) == 1
+    assert result[0].refetch_tool == "current-scene"
+    assert result[0].compacted is True
 
 
 def test_compaction_never_imports_a_provider_or_model_module(monkeypatch) -> None:

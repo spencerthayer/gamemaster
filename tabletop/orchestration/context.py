@@ -229,7 +229,7 @@ def compact(
             break
         if entry.compacted:
             continue
-        if not entry.refetch_tool or not entry.refetch_tool.strip():
+        if not _has_refetch_information(entry):
             result[index] = None
             used_tokens -= entry.token_cost
             continue
@@ -238,8 +238,9 @@ def compact(
             json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
             for _, value in sorted(entry.refetch_args.items())
         )
+        label = _compaction_label(entry.refetch_tool, entry.refetch_args)
         content = (
-            f"[Compacted {entry.content}. "
+            f"[Compacted {label}. "
             f"Refetch with {entry.refetch_tool}({arguments}).]"
         )
         compacted = replace(
@@ -251,7 +252,55 @@ def compact(
         result[index] = compacted
         used_tokens += compacted.token_cost - entry.token_cost
 
+    if used_tokens > budget:
+        for index, _ in candidates:
+            entry = result[index]
+            if entry is None or not entry.compacted:
+                continue
+            result[index] = None
+            used_tokens -= entry.token_cost
+            if used_tokens <= budget:
+                break
+
     return tuple(entry for entry in result if entry is not None)
+
+
+def _has_refetch_information(entry: ContextEntry) -> bool:
+    tool = entry.refetch_tool
+    if not tool or not tool.strip():
+        return False
+    if entry.refetch_args:
+        return True
+    matching_skills = (
+        skill
+        for workspace in Workspace
+        for skill in workspace.skills
+        if skill.name == tool
+    )
+    return any(not skill.parameters for skill in matching_skills)
+
+
+def _compaction_label(tool: str, arguments: Mapping[str, object]) -> str:
+    record_kind = tool.removeprefix("get-").replace("_", " ").replace("-", " ")
+    label = f"{record_kind} record"
+    if not arguments:
+        return label
+
+    _, identity = min(
+        arguments.items(),
+        key=lambda item: (not item[0].endswith("_id"), item[0]),
+    )
+    rendered = (
+        identity.strip().capitalize()
+        if isinstance(identity, str)
+        else json.dumps(
+            identity,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+    )
+    return f"{label}: {rendered}"
 
 
 def build_context(request: ContextRequest) -> Context:
