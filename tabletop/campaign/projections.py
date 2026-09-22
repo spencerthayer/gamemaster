@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, assert_never
@@ -34,6 +34,37 @@ class ProjectedFact:
     predicate: str | None = None
     value: str | None = None
     visibility: str = "GM"
+    fact_scope: str | None = None
+    campaign_id: str | None = None
+    valid_from: str | None = None
+    valid_until: str | None = None
+    source_document_id: str | None = None
+    source_chunk_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ProjectedRuling:
+    """Ruling fields reconstructible from ruling lifecycle events."""
+
+    ruling_id: str
+    canon_state: str | None = None
+    knowledge_state: str | None = None
+    question: str | None = None
+    decision: str | None = None
+    scope: str | None = None
+    supersedes: str | None = None
+    source_references: tuple[Any, ...] = ()
+    campaign_id: str | None = None
+    system_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ProjectedSession:
+    """Session identity and bounds reconstructible from session events."""
+
+    session_id: str
+    started_at: str | None = None
+    ended_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +78,8 @@ class CampaignProjection:
     scenes: Mapping[str, Any] = field(default_factory=dict)
     open_threads: tuple[Any, ...] = ()
     campaign_system: Mapping[str, Any] = field(default_factory=dict)
+    rulings: Mapping[str, ProjectedRuling] = field(default_factory=dict)
+    sessions: Mapping[str, ProjectedSession] = field(default_factory=dict)
 
 
 def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
@@ -57,6 +90,8 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
     scenes: dict[str, Any] = {}
     open_threads: list[Any] = []
     campaign_system: Any = {}
+    rulings: dict[str, ProjectedRuling] = {}
+    sessions: dict[str, ProjectedSession] = {}
     campaign_id: str | None = None
     sequence: int | None = None
 
@@ -65,6 +100,11 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
             raise ValueError("campaign projection cannot mix campaign ids")
         campaign_id = event.campaign_id
         sequence = event.sequence
+        if event.event_schema_version not in (0, 1):
+            raise ValueError(
+                "unsupported event schema generation: "
+                f"{event.event_schema_version}"
+            )
         try:
             event_type = EventType(event.event_type)
         except ValueError as exc:
@@ -109,26 +149,40 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
             case EventType.FACT_PROPOSED:
                 raw_fact_id = event.payload.get("fact_id")
                 if isinstance(raw_fact_id, str) and raw_fact_id:
-                    facts[raw_fact_id] = _update_fact(
-                        facts.get(raw_fact_id),
-                        raw_fact_id,
-                        subject_id=_optional_string(event.payload, "subject_id"),
-                        predicate=_optional_string(event.payload, "predicate"),
-                        value=_optional_string(event.payload, "value"),
-                        visibility=_optional_string(event.payload, "visibility"),
-                    )
-            case (
-                EventType.RULING_RECORDED
-                | EventType.RULING_PROMOTED
-                | EventType.SCENE_OPENED
-                | EventType.SCENE_CLOSED
-                | EventType.SESSION_STARTED
-                | EventType.SESSION_ENDED
-                | EventType.QUEST_MUTATED
-            ):
+                    if event.event_schema_version >= 1:
+                        facts[raw_fact_id] = _fact_from_generation_one(event, raw_fact_id)
+                    else:
+                        facts[raw_fact_id] = _update_fact(
+                            facts.get(raw_fact_id),
+                            raw_fact_id,
+                            subject_id=_optional_string(event.payload, "subject_id"),
+                            predicate=_optional_string(event.payload, "predicate"),
+                            value=_optional_string(event.payload, "value"),
+                            visibility=_optional_string(event.payload, "visibility"),
+                        )
+            case EventType.QUEST_MUTATED:
+                campaign_system = _apply_quest_mutated(event, campaign_system)
+            case EventType.RULING_RECORDED:
+                projected = _ruling_from_event(event)
+                if projected is not None:
+                    rulings[projected.ruling_id] = projected
+            case EventType.RULING_PROMOTED:
+                rulings = _promote_projected_ruling(event, rulings)
+            case EventType.SESSION_STARTED:
+                started = _session_from_started(event)
+                if started is not None:
+                    sessions[started.session_id] = started
+            case EventType.SESSION_ENDED:
+                sessions = _end_projected_session(event, sessions)
+            case EventType.SCENE_OPENED | EventType.SCENE_CLOSED:
                 pass
             case _:
                 assert_never(event_type)
+
+    if not isinstance(campaign_system, dict):
+        campaign_system = {}
+    raw_threads = campaign_system.get("open_threads", ())
+    open_threads = tuple(raw_threads) if isinstance(raw_threads, list) else ()
 
     return CampaignProjection(
         campaign_id=campaign_id,
@@ -138,7 +192,124 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
         scenes={key: copy.deepcopy(value) for key, value in scenes.items()},
         open_threads=tuple(open_threads),
         campaign_system=copy.deepcopy(campaign_system),
+        rulings=dict(rulings),
+        sessions=dict(sessions),
     )
+
+
+def _session_from_started(event: PersistedEvent) -> ProjectedSession | None:
+    session_id = event.payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        if event.event_schema_version == 0:
+            return None
+        raise ValueError("session.started requires a non-empty session_id")
+    started_at = event.payload.get("started_at")
+    if event.event_schema_version >= 1 and not isinstance(started_at, str):
+        raise ValueError("session.started requires started_at")
+    return ProjectedSession(
+        session_id=session_id,
+        started_at=started_at if isinstance(started_at, str) else None,
+    )
+
+
+def _end_projected_session(
+    event: PersistedEvent,
+    sessions: dict[str, ProjectedSession],
+) -> dict[str, ProjectedSession]:
+    session_id = event.payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        if event.event_schema_version == 0:
+            return sessions
+        raise ValueError("session.ended requires a non-empty session_id")
+    existing = sessions.get(session_id)
+    if existing is None:
+        raise ValueError(f"session.ended has no started session: {session_id}")
+    ended_at = event.payload.get("ended_at")
+    sessions[session_id] = ProjectedSession(
+        session_id=existing.session_id,
+        started_at=existing.started_at,
+        ended_at=ended_at if isinstance(ended_at, str) else event.occurred_at,
+    )
+    return sessions
+
+
+def _ruling_from_event(event: PersistedEvent) -> ProjectedRuling | None:
+    payload = event.payload
+    ruling_id = payload.get("ruling_id")
+    if event.event_schema_version == 0:
+        if not isinstance(ruling_id, str) or not ruling_id:
+            return None
+        return ProjectedRuling(
+            ruling_id=ruling_id,
+            canon_state=_optional_string(payload, "canon_state"),
+        )
+    if not isinstance(ruling_id, str) or not ruling_id:
+        raise ValueError("ruling.recorded requires a non-empty ruling_id")
+    if payload.get("campaign_id") != event.campaign_id:
+        raise ValueError("ruling payload campaign_id does not match the event")
+    references = payload.get("source_references", ())
+    if not isinstance(references, list):
+        raise ValueError("ruling source_references must be a list")
+    return ProjectedRuling(
+        ruling_id=ruling_id,
+        canon_state=_optional_string(payload, "canon_state"),
+        knowledge_state=_optional_string(payload, "knowledge_state"),
+        question=_optional_string(payload, "question"),
+        decision=_optional_string(payload, "decision"),
+        scope=_optional_string(payload, "scope"),
+        supersedes=payload.get("supersedes") if payload.get("supersedes") is None or isinstance(payload.get("supersedes"), str) else None,
+        source_references=tuple(references),
+        campaign_id=_optional_string(payload, "campaign_id"),
+        system_id=_optional_string(payload, "system_id"),
+    )
+
+
+def _promote_projected_ruling(
+    event: PersistedEvent,
+    rulings: dict[str, ProjectedRuling],
+) -> dict[str, ProjectedRuling]:
+    ruling_id = event.payload.get("ruling_id")
+    if not isinstance(ruling_id, str) or not ruling_id:
+        raise ValueError("ruling.promoted requires a non-empty ruling_id")
+    existing = rulings.get(ruling_id)
+    if existing is None:
+        raise ValueError(f"ruling.promoted has no recorded ruling: {ruling_id}")
+    rulings[ruling_id] = ProjectedRuling(
+        ruling_id=existing.ruling_id,
+        canon_state=CanonState.CONFIRMED.value,
+        knowledge_state=existing.knowledge_state,
+        question=existing.question,
+        decision=existing.decision,
+        scope=existing.scope,
+        supersedes=existing.supersedes,
+        source_references=existing.source_references,
+        campaign_id=existing.campaign_id,
+        system_id=existing.system_id,
+    )
+    return rulings
+
+
+def _apply_quest_mutated(event: PersistedEvent, campaign_system: Any) -> Any:
+    quest_id = event.payload.get("quest_id")
+    quest = event.payload.get("quest")
+    if not isinstance(quest_id, str) or not quest_id:
+        raise ValueError("quest.mutated requires a non-empty quest_id")
+    if not isinstance(quest, dict):
+        raise ValueError("quest.mutated requires a quest object")
+    change = StateChange(
+        operation=StateOperation.SET,
+        path=("campaign", "system", "quests", quest_id),
+        value=dict(quest),
+    )
+    campaign_system, _entities, _scenes = _apply_state_change(
+        change,
+        campaign_id=event.campaign_id,
+        campaign_system=campaign_system,
+        entities={},
+        scenes={},
+        scene_id=None,
+    )
+    return campaign_system
 
 
 def _require_fact_id(payload: Mapping[str, Any]) -> str:
@@ -174,6 +345,34 @@ def _update_fact(
         predicate=base.predicate if predicate is None else predicate,
         value=base.value if value is None else value,
         visibility=base.visibility if visibility is None else visibility,
+        fact_scope=base.fact_scope,
+        campaign_id=base.campaign_id,
+        valid_from=base.valid_from,
+        valid_until=base.valid_until,
+        source_document_id=base.source_document_id,
+        source_chunk_id=base.source_chunk_id,
+    )
+
+
+def _fact_from_generation_one(event: PersistedEvent, fact_id: str) -> ProjectedFact:
+    payload = event.payload
+    if payload.get("campaign_id") != event.campaign_id:
+        raise ValueError("fact payload campaign_id does not match the event")
+    return ProjectedFact(
+        fact_id=fact_id,
+        subject_id=_optional_string(payload, "subject_id"),
+        predicate=_optional_string(payload, "predicate"),
+        value=_optional_string(payload, "value"),
+        visibility=_optional_string(payload, "visibility") or "GM",
+        fact_scope=_optional_string(payload, "fact_scope"),
+        campaign_id=_optional_string(payload, "campaign_id"),
+        valid_from=_optional_string(payload, "valid_from"),
+        valid_until=_optional_string(payload, "valid_until"),
+        source_document_id=_optional_string(payload, "source_document_id"),
+        source_chunk_id=_optional_string(payload, "source_chunk_id"),
+        source_ownership=_optional_string(payload, "source_ownership"),
+        canon_state=CanonState.PROPOSED,
+        knowledge_state=KnowledgeState.UNREVEALED,
     )
 
 
@@ -239,8 +438,18 @@ def _projection_files(
         },
         Path("state/scenes.yaml"): {"scenes": _to_yaml_data(projection.scenes)},
         Path("world/facts.yaml"): {"facts": world_facts},
-        Path("rulings/rulings.yaml"): {"rulings": []},
-        Path("sessions/sessions.yaml"): {"sessions": []},
+        Path("rulings/rulings.yaml"): {
+            "rulings": [
+                _to_yaml_data(ruling)
+                for _ruling_id, ruling in sorted(projection.rulings.items())
+            ]
+        },
+        Path("sessions/sessions.yaml"): {
+            "sessions": [
+                _to_yaml_data(session)
+                for _session_id, session in sorted(projection.sessions.items())
+            ]
+        },
         Path("gm/facts.yaml"): {"facts": gm_facts},
         Path("gm/threads.yaml"): {
             "open_threads": _to_yaml_data(projection.open_threads)
@@ -262,6 +471,8 @@ def _serialize_fact(fact: ProjectedFact) -> dict[str, Any]:
 
 
 def _to_yaml_data(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return _to_yaml_data(asdict(value))
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, Mapping):

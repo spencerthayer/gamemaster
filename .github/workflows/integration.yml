@@ -1,0 +1,31 @@
+name: integration
+
+# Separate from the fast unit workflow. The image clones PeTTa, builds
+# FAISS, and downloads an embedding model.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - docker-compose.yml
+      - docker-compose.integration.yml
+      - entrypoint.sh
+      - plugins/tabletop/**
+      - tests/integration/**
+      - .github/workflows/integration.yml
+
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Container contract
+        env:
+          GAMEMASTER_RUN_DOCKER: "1"
+        run: python3.11 -m pytest tests/integration -q

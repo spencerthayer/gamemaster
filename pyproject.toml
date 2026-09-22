@@ -3,3 +3,7 @@ pythonpath = [
   "src",
   ".",
 ]
+markers = [
+  "docker: requires GAMEMASTER_RUN_DOCKER=1 and a local docker daemon",
+  "omega: boots the Omega container",
+]

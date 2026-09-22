@@ -113,6 +113,12 @@ def parse_scope(text: str) -> VisibilityScope:
     return VisibilityScope(kind=kind, target=target)
 
 
+def gm_viewpoint() -> Viewpoint:
+    """The single GM viewpoint constructor used by the registered skill surface."""
+
+    return Viewpoint(scope=parse_scope("GM"))
+
+
 def can_see(viewer: Viewpoint, scope: VisibilityScope) -> bool:
     """Return whether ``viewer`` can see data with ``scope``."""
 

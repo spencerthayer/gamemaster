@@ -15,6 +15,7 @@
              (log INFO "tabletop-plugin-workspace" $workspace)
              (register-workspace-skills $workspace)))
          (add-prompt-extension tabletop-runtime-policy $prompt)
+         (log INFO "tabletop-prompt-extension" "tabletop-runtime-policy")
          ()))))
 
 ;; Workspace skill surfaces are fixed at startup from TABLETOP_WORKSPACE.
@@ -48,6 +49,15 @@
      (add-skill record-world-history
        "Record a setting-scoped world history entry"
        (entry_in_quotes))
+     (add-skill get-chunk
+       "Reload one retrieved source chunk by its stable identifier"
+       (chunk_id_in_quotes))
+     (add-skill promote-world-fact
+       "Confirm one proposed setting fact in the owned setting"
+       (fact_id_in_quotes))
+     (add-skill reveal-world-fact
+       "Reveal one setting fact in the owned setting"
+       (fact_id_in_quotes))
      ()))
 
 (= (register-workspace-skills campaign)
@@ -61,9 +71,15 @@
      (add-skill query-world-history
        "Query setting-scoped world history and durable world facts"
        (query_in_quotes))
+     (add-skill get-chunk
+       "Reload one retrieved source chunk by its stable identifier"
+       (chunk_id_in_quotes))
      (add-skill read-session
        "Read one campaign session record by session identifier"
        (session_id_in_quotes))
+     (add-skill start-session
+       "Open one campaign session through the authoritative runtime"
+       (session_in_quotes))
      (add-skill end-session
        "Close the active tabletop session through the authoritative runtime"
        ())
@@ -109,6 +125,18 @@
      (add-skill record-ruling
        "Record a durable campaign ruling through the authoritative runtime"
        (ruling_in_quotes))
+     (add-skill promote-ruling
+       "Confirm one proposed ruling in the active campaign"
+       (ruling_id_in_quotes))
+     (add-skill get-ruling
+       "Return one ruling in the active campaign by stable identifier"
+       (ruling_id_in_quotes))
+     (add-skill promote-fact
+       "Confirm one proposed campaign fact in the active campaign"
+       (fact_id_in_quotes))
+     (add-skill reveal-fact
+       "Reveal one confirmed campaign fact in the active campaign"
+       (fact_id_in_quotes))
      ()))
 
 (= (query-setting $query)
@@ -129,8 +157,26 @@
 (= (record-world-history $entry)
    (py-call (omega_tabletop_adapter.record_world_history $entry)))
 
+(= (get-chunk $chunk-id)
+   (py-call (omega_tabletop_adapter.get_chunk $chunk-id)))
+
+(= (promote-world-fact $fact-id)
+   (py-call (omega_tabletop_adapter.promote_world_fact $fact-id)))
+
+(= (reveal-world-fact $fact-id)
+   (py-call (omega_tabletop_adapter.reveal_world_fact $fact-id)))
+
+(= (promote-fact $fact-id)
+   (py-call (omega_tabletop_adapter.promote_fact $fact-id)))
+
+(= (reveal-fact $fact-id)
+   (py-call (omega_tabletop_adapter.reveal_fact $fact-id)))
+
 (= (read-session $session-id)
    (py-call (omega_tabletop_adapter.read_session $session-id)))
+
+(= (start-session $session)
+   (py-call (omega_tabletop_adapter.start_session $session)))
 
 (= (end-session)
    (py-call (omega_tabletop_adapter.end_session)))
@@ -176,3 +222,9 @@
 
 (= (record-ruling $ruling)
    (py-call (omega_tabletop_adapter.record_ruling $ruling)))
+
+(= (promote-ruling $ruling-id)
+   (py-call (omega_tabletop_adapter.promote_ruling $ruling-id)))
+
+(= (get-ruling $ruling-id)
+   (py-call (omega_tabletop_adapter.get_ruling $ruling-id)))

@@ -12,8 +12,13 @@ filesystem_policy:
   - /var/log
   - /sys/devices/system
   - /PeTTa
+  # Bind mounts are separate filesystems. A rule on /PeTTa does not cover them.
+  - /PeTTa/repos/Omega/plugins
+  - /PeTTa/repos/Omega/library
   read_write:
   - /PeTTa/repos/Omega/memory
+  - /PeTTa/repos/Omega/tabletop/data
+  - /PeTTa/repos/Omega/campaigns
   - /memory-transfer
   - /tmp
   - /dev/null

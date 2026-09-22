@@ -285,4 +285,5 @@ class VectorRetriever:
             section=" > ".join(heading_parts),
             page=row["page"],
             source_path=row["source_path"],
+            refetch_tool="get-chunk",
         )

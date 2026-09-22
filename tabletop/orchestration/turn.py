@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -135,6 +137,7 @@ def play_turn(
     ``action.resolved`` event atomically or routes to adjudication without
     writing state.
     """
+    started = time.perf_counter()
     context = build_resolution_context(
         conn,
         campaign_id=campaign_id,
@@ -145,7 +148,7 @@ def play_turn(
     narration = assemble_narration(resolution)
 
     if requires_adjudication(resolution):
-        return TurnResult(
+        result = TurnResult(
             action=action,
             context=context,
             resolution=resolution,
@@ -153,6 +156,8 @@ def play_turn(
             event=None,
             adjudication=adjudication_request(resolution, action, context),
         )
+        _write_turn_receipt(conn, result, campaign_id, system_id, started)
+        return result
 
     event = apply_resolved_action(
         conn,
@@ -161,7 +166,7 @@ def play_turn(
         resolution,
         scene_id=scene_id,
     )
-    return TurnResult(
+    result = TurnResult(
         action=action,
         context=context,
         resolution=resolution,
@@ -169,6 +174,34 @@ def play_turn(
         event=event,
         adjudication=None,
     )
+    _write_turn_receipt(conn, result, campaign_id, system_id, started)
+    return result
+
+
+def _write_turn_receipt(
+    conn: sqlite3.Connection,
+    result: TurnResult,
+    campaign_id: str,
+    system_id: str,
+    started: float,
+) -> None:
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    sequence = None if result.event is None else result.event.sequence
+    conn.execute(
+        "INSERT INTO turn_receipts "
+        "(turn_id, campaign_id, system_id, status, event_sequence, retrieval_tier, "
+        "latency_ms, provider, model, tokens_in, tokens_out) "
+        "VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, NULL, NULL, NULL)",
+        (
+            uuid.uuid4().hex,
+            campaign_id,
+            system_id,
+            result.resolution.status.value,
+            sequence,
+            latency_ms,
+        ),
+    )
+    conn.commit()
 
 
 def build_resolution_context(
@@ -185,17 +218,7 @@ def build_resolution_context(
     if campaign is None:
         raise InvalidResolutionError(f"campaign {campaign_id!r} does not exist")
 
-    entities: dict[str, Any] = {}
-    rows = conn.execute(
-        "SELECT entity_id, system_state FROM entities "
-        "WHERE owner_scope = 'campaign' AND campaign_id = ? "
-        "ORDER BY entity_id",
-        (campaign_id,),
-    ).fetchall()
-    for row in rows:
-        entities[row["entity_id"]] = {
-            "system": json.loads(row["system_state"]),
-        }
+    entities = resolve_entity_overlay(conn, campaign_id, campaign.get("setting_id"))
 
     state: dict[str, Any] = {
         "campaign": {"system": dict(campaign["system_state"])},
@@ -216,6 +239,40 @@ def build_resolution_context(
         scene_id=scene_id,
         state=state,
     )
+
+
+def resolve_entity_overlay(
+    conn: sqlite3.Connection,
+    campaign_id: str,
+    setting_id: str | None,
+) -> dict[str, Any]:
+    """Campaign entity ids win, then campaign overrides, then setting entities."""
+
+    rows = conn.execute(
+        "SELECT entity_id, owner_scope, overrides_id, system_state FROM entities "
+        "WHERE (owner_scope = 'campaign' AND campaign_id = ?) "
+        "OR (owner_scope = 'setting' AND setting_id = ?) "
+        "ORDER BY entity_id",
+        (campaign_id, setting_id),
+    ).fetchall()
+    setting_rows = {
+        row["entity_id"]: row for row in rows if row["owner_scope"] == "setting"
+    }
+    campaign_rows = [row for row in rows if row["owner_scope"] == "campaign"]
+    hidden_setting_ids = {row["entity_id"] for row in campaign_rows}
+    hidden_setting_ids.update(
+        row["overrides_id"]
+        for row in campaign_rows
+        if isinstance(row["overrides_id"], str) and row["overrides_id"]
+    )
+    entities: dict[str, Any] = {}
+    for row in campaign_rows:
+        entities[row["entity_id"]] = {"system": json.loads(row["system_state"])}
+    for entity_id, row in setting_rows.items():
+        if entity_id in hidden_setting_ids:
+            continue
+        entities[entity_id] = {"system": json.loads(row["system_state"])}
+    return entities
 
 
 def assemble_narration(resolution: Resolution) -> str:

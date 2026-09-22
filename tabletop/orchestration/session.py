@@ -198,7 +198,10 @@ class SessionLifecycle:
                         session.campaign_id,
                         GameEvent(
                             event_type=EventType.SESSION_ENDED.value,
-                            payload={"session_id": session.session_id},
+                            payload={
+                                "session_id": session.session_id,
+                                "ended_at": session.ended_at,
+                            },
                         ),
                         session_id=session.session_id,
                         occurred_at=session.ended_at,
