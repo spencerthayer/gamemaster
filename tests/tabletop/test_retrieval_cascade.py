@@ -15,6 +15,7 @@ from tabletop.retrieval.lexical import LexicalRetriever
 from tabletop.retrieval.models import RetrievalFilters, RetrievalNamespace
 from tabletop.retrieval.vector import (
     EmbeddingDimensionError,
+    EmbeddingModelError,
     Embedder,
     VectorRetriever,
 )
@@ -130,6 +131,51 @@ def test_vector_search_raises_before_comparing_a_different_dimension(tmp_path):
             RetrievalFilters(namespace=RetrievalNamespace.ADVENTURE),
             limit=5,
         )
+
+
+def test_same_dimension_different_model_raises_and_cascade_uses_lexical(tmp_path):
+    connection = _connection(tmp_path / "model-mismatch.db")
+    indexing_embedder = StaticEmbedder(
+        model="embedding-model-a",
+        dimension=2,
+        vectors={"ancient sealed vault": (1.0, 0.0)},
+    )
+    _index_vector(VectorRetriever(connection, indexing_embedder))
+    querying_embedder = StaticEmbedder(
+        model="embedding-model-b",
+        dimension=2,
+        vectors={"vault": (1.0, 0.0)},
+    )
+    vector = VectorRetriever(connection, querying_embedder)
+
+    with pytest.raises(
+        EmbeddingModelError,
+        match="stored model 'embedding-model-a' does not match "
+        "embedder model 'embedding-model-b'",
+    ):
+        vector.search(
+            "vault",
+            RetrievalFilters(namespace=RetrievalNamespace.ADVENTURE),
+            limit=5,
+        )
+
+    lexical = LexicalRetriever(connection)
+    _index_lexical(lexical)
+    result = CascadeRetriever(vector=vector, lexical=lexical).search(
+        "vault",
+        RetrievalFilters(namespace=RetrievalNamespace.ADVENTURE),
+        limit=5,
+    )
+
+    assert result.answered_by is RetrievalTier.LEXICAL
+    assert [(skip.tier, skip.reason) for skip in result.skipped_tiers] == [
+        (
+            RetrievalTier.SEMANTIC,
+            "stored model 'embedding-model-a' does not match "
+            "embedder model 'embedding-model-b'",
+        )
+    ]
+    assert [chunk.source.chunk_id for chunk in result.chunks] == ["chunk-1"]
 
 
 def test_matching_embedder_uses_only_the_semantic_tier(tmp_path):

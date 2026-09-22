@@ -208,7 +208,7 @@ class VectorRetriever:
                 filters.visibility,
             ),
         ).fetchall()
-        self._assert_candidate_dimensions(rows)
+        self._assert_candidate_identity(rows)
         query_embedding = self._embedder.embed(query)
         self._assert_embedding_dimension(query_embedding)
 
@@ -245,10 +245,15 @@ class VectorRetriever:
             )
         self._raise_dimension_mismatch(int(row["dimension"]))
 
-    def _assert_candidate_dimensions(self, rows: list[sqlite3.Row]) -> None:
+    def _assert_candidate_identity(self, rows: list[sqlite3.Row]) -> None:
         for row in rows:
             stored_dimension = int(row["dimension"])
             self._raise_dimension_mismatch(stored_dimension)
+            if row["embedding_model"] != self._embedder.model:
+                raise EmbeddingModelError(
+                    f"stored model {row['embedding_model']!r} does not match "
+                    f"embedder model {self._embedder.model!r}"
+                )
             stored_embedding = _decode(row["embedding"])
             if len(stored_embedding) != stored_dimension:
                 raise EmbeddingDimensionError(

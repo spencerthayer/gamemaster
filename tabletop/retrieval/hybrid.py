@@ -11,7 +11,7 @@ from enum import Enum
 
 from tabletop.retrieval.interface import Retriever
 from tabletop.retrieval.models import RetrievalFilters, RetrievedChunk
-from tabletop.retrieval.vector import EmbeddingDimensionError
+from tabletop.retrieval.vector import EmbeddingDimensionError, EmbeddingModelError
 
 
 class RetrievalTier(str, Enum):
@@ -69,7 +69,7 @@ class CascadeRetriever:
         else:
             try:
                 chunks = self._vector.search(query, filters, limit)
-            except EmbeddingDimensionError as exc:
+            except (EmbeddingDimensionError, EmbeddingModelError) as exc:
                 skipped.append(
                     SkippedTier(
                         tier=RetrievalTier.SEMANTIC,
