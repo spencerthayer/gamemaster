@@ -144,6 +144,38 @@ def test_transaction_rolls_back_on_base_exception(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_migrate_applies_sql_with_trailing_line_comment(tmp_path: Path) -> None:
+    mig_dir = tmp_path / "migrations"
+    mig_dir.mkdir()
+    (mig_dir / "001_line_comment.sql").write_text(
+        "CREATE TABLE line_comment (id INTEGER PRIMARY KEY);\n"
+        "-- end of migration\n"
+    )
+
+    conn = connect(tmp_path / "test.db")
+    try:
+        assert migrate(conn, directory=mig_dir) == ("001_line_comment.sql",)
+        conn.execute("SELECT 1 FROM line_comment")
+    finally:
+        conn.close()
+
+
+def test_migrate_applies_sql_with_trailing_block_comment(tmp_path: Path) -> None:
+    mig_dir = tmp_path / "migrations"
+    mig_dir.mkdir()
+    (mig_dir / "001_block_comment.sql").write_text(
+        "CREATE TABLE block_comment (id INTEGER PRIMARY KEY);\n"
+        "/* end of migration */\n"
+    )
+
+    conn = connect(tmp_path / "test.db")
+    try:
+        assert migrate(conn, directory=mig_dir) == ("001_block_comment.sql",)
+        conn.execute("SELECT 1 FROM block_comment")
+    finally:
+        conn.close()
+
+
 def test_migrate_checksum_mismatch_raises(tmp_path: Path) -> None:
     mig_dir = tmp_path / "migrations"
     mig_dir.mkdir()

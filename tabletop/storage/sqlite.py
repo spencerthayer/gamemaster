@@ -45,11 +45,98 @@ def transaction(conn: sqlite3.Connection) -> Iterator[None]:
         raise
 
 
+def _strip_sql_comments(sql: str) -> str:
+    result: list[str] = []
+    index = 0
+    length = len(sql)
+    in_single_quote = False
+    in_double_quote = False
+
+    while index < length:
+        char = sql[index]
+
+        if in_single_quote:
+            result.append(char)
+            if char == "'":
+                if index + 1 < length and sql[index + 1] == "'":
+                    result.append(sql[index + 1])
+                    index += 2
+                    continue
+                in_single_quote = False
+            index += 1
+            continue
+
+        if in_double_quote:
+            result.append(char)
+            if char == '"':
+                in_double_quote = False
+            index += 1
+            continue
+
+        if char == "'":
+            in_single_quote = True
+            result.append(char)
+            index += 1
+            continue
+
+        if char == '"':
+            in_double_quote = True
+            result.append(char)
+            index += 1
+            continue
+
+        if char == "-" and index + 1 < length and sql[index + 1] == "-":
+            while index < length and sql[index] != "\n":
+                index += 1
+            continue
+
+        if char == "/" and index + 1 < length and sql[index + 1] == "*":
+            index += 2
+            while index + 1 < length and not (sql[index] == "*" and sql[index + 1] == "/"):
+                index += 1
+            index = min(index + 2, length)
+            continue
+
+        result.append(char)
+        index += 1
+
+    return "".join(result)
+
+
+def _strip_leading_sql_noise(sql: str) -> str:
+    index = 0
+    length = len(sql)
+    while index < length:
+        while index < length and sql[index] in " \t\r\n":
+            index += 1
+        if index >= length:
+            break
+        if sql[index : index + 2] == "--":
+            while index < length and sql[index] != "\n":
+                index += 1
+            continue
+        if sql[index : index + 2] == "/*":
+            end = sql.find("*/", index + 2)
+            if end == -1:
+                break
+            index = end + 2
+            continue
+        break
+    return sql[index:]
+
+
+def _is_sql_insignificant(sql: str) -> bool:
+    return not _strip_sql_comments(sql).strip()
+
+
 def _execute_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
     buffer = ""
     for line in sql.splitlines(keepends=True):
         buffer += line
-        while buffer.strip():
+        while not _is_sql_insignificant(buffer):
+            buffer = _strip_leading_sql_noise(buffer)
+            if _is_sql_insignificant(buffer):
+                break
             if not sqlite3.complete_statement(buffer):
                 break
             semicolon_index = buffer.find(";")
@@ -59,16 +146,17 @@ def _execute_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
                     stripped = statement.strip()
                     if stripped:
                         conn.execute(stripped)
-                    buffer = buffer[semicolon_index + 1 :]
+                    buffer = _strip_leading_sql_noise(buffer[semicolon_index + 1 :])
                     break
                 semicolon_index = buffer.find(";", semicolon_index + 1)
             else:
                 break
-    remainder = buffer.strip()
-    if remainder:
-        if not sqlite3.complete_statement(remainder):
-            raise StorageError("migration SQL ends with an incomplete statement")
-        conn.execute(remainder)
+    remainder = _strip_leading_sql_noise(buffer)
+    if _is_sql_insignificant(remainder):
+        return
+    if not sqlite3.complete_statement(remainder):
+        raise StorageError("migration SQL ends with an incomplete statement")
+    conn.execute(remainder)
 
 
 def migrate(
