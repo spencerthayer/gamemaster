@@ -139,21 +139,23 @@ class Dnd5ePlugin(GameSystemPlugin):
 
     def state_schema(self) -> Mapping[str, Any]:
         """Opaque entity-oriented state used by the partial 2014 mechanics."""
+        entity_system = {
+            "armor_class": "integer",
+            "hit_points": "integer",
+            "max_hit_points": "integer",
+            "speed": "integer",
+            "position": {"x": "number", "y": "number"},
+            "conditions": ["string"],
+            "abilities": {ability: "integer" for ability in sorted(_ABILITIES)},
+            "resources": {"hit_dice": "integer"},
+        }
         return {
             "rules_revision": _RULES_REVISION,
             "entities": {
-                "<entity_id>": {
-                    "armor_class": "integer",
-                    "hit_points": "integer",
-                    "max_hit_points": "integer",
-                    "speed": "integer",
-                    "position": {"x": "number", "y": "number"},
-                    "conditions": ["string"],
-                    "abilities": {ability: "integer" for ability in sorted(_ABILITIES)},
-                    "resources": {"hit_dice": "integer"},
-                }
+                "<entity_id>": {"system": entity_system},
             },
-            "combat": {"initiative_order": ["entity_id"]},
+            "campaign": {"system": {"initiative_order": ["entity_id"]}},
+            "scene": {"system": {"initiative_order": ["entity_id"]}},
         }
 
     def _resolve_ability_check(
@@ -256,7 +258,7 @@ class Dnd5ePlugin(GameSystemPlugin):
             return _unresolved("An attack requires a numeric attack_bonus.")
 
         target_id = action.targets[0].id
-        target = _entity(context, target_id)
+        target = _entity_system(context, target_id)
         if target is None:
             return _unresolved(f"Target {target_id!r} is not present in state.")
         armor_class = target.get("armor_class")
@@ -295,7 +297,7 @@ class Dnd5ePlugin(GameSystemPlugin):
             return _unresolved("Damage requires a non-negative numeric amount.")
 
         target_id = action.targets[0].id
-        target = _entity(context, target_id)
+        target = _entity_system(context, target_id)
         if target is None:
             return _unresolved(f"Target {target_id!r} is not present in state.")
         current = target.get("hit_points")
@@ -315,7 +317,7 @@ class Dnd5ePlugin(GameSystemPlugin):
             state_changes=(
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("entities", target_id, "hit_points"),
+                    path=("entities", target_id, "system", "hit_points"),
                     value=new_value,
                 ),
             ),
@@ -340,7 +342,7 @@ class Dnd5ePlugin(GameSystemPlugin):
             )
 
         target_id = action.targets[0].id
-        target = _entity(context, target_id)
+        target = _entity_system(context, target_id)
         if target is None:
             return _unresolved(f"Target {target_id!r} is not present in state.")
 
@@ -359,7 +361,7 @@ class Dnd5ePlugin(GameSystemPlugin):
             state_changes=(
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("entities", target_id, "conditions"),
+                    path=("entities", target_id, "system", "conditions"),
                     value=new_conditions,
                 ),
             ),
@@ -374,9 +376,9 @@ class Dnd5ePlugin(GameSystemPlugin):
             return _unresolved("Initiative requires at least one participant.")
 
         rolls = []
-        scored: list[tuple[int, int, str]] = []
+        scored: list[tuple[int, str]] = []
         for participant in participants:
-            entity = _entity(context, participant.id)
+            entity = _entity_system(context, participant.id)
             if entity is None:
                 return _unresolved(
                     f"Participant {participant.id!r} is not present in state."
@@ -389,18 +391,46 @@ class Dnd5ePlugin(GameSystemPlugin):
             expression = _d20_expression(dex_mod)
             roll = roller.roll(expression)
             rolls.append(roll)
-            scored.append((roll.total, dex_mod, participant.id))
+            scored.append((roll.total, participant.id))
 
-        # Higher total first; equal totals break on higher Dexterity, then id.
-        scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
-        order = tuple(entity_id for _, _, entity_id in scored)
+        totals = [total for total, _ in scored]
+        if len(totals) != len(set(totals)):
+            tied = sorted(
+                {
+                    entity_id
+                    for total, entity_id in scored
+                    if totals.count(total) > 1
+                }
+            )
+            return Resolution(
+                outcome={
+                    "initiative_totals": {
+                        entity_id: total for total, entity_id in scored
+                    },
+                    "tied_participants": tuple(tied),
+                },
+                status=ResolutionStatus.RULING_REQUIRED,
+                rolls=tuple(rolls),
+                ruling_question=(
+                    "Initiative totals are tied between "
+                    f"{', '.join(tied)}. Under the 2014 rules, who goes "
+                    "first?"
+                ),
+                explanation=(
+                    "Equal initiative totals are not broken by Dexterity in "
+                    "the 2014 rules; the GM decides order among ties."
+                ),
+            )
+
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        order = tuple(entity_id for _, entity_id in scored)
         return Resolution(
             outcome={"initiative_order": order},
             rolls=tuple(rolls),
             state_changes=(
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("combat", "initiative_order"),
+                    path=_initiative_path(context),
                     value=order,
                 ),
             ),
@@ -416,7 +446,7 @@ class Dnd5ePlugin(GameSystemPlugin):
         if not _is_number(destination.get("x")) or not _is_number(destination.get("y")):
             return _unresolved("Destination requires numeric x and y.")
 
-        entity = _entity(context, action.actor.id)
+        entity = _entity_system(context, action.actor.id)
         if entity is None:
             return _unresolved(f"Actor {action.actor.id!r} is not present in state.")
         position = entity.get("position")
@@ -450,7 +480,7 @@ class Dnd5ePlugin(GameSystemPlugin):
             state_changes=(
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("entities", action.actor.id, "position"),
+                    path=("entities", action.actor.id, "system", "position"),
                     value=new_position,
                 ),
             ),
@@ -463,7 +493,7 @@ class Dnd5ePlugin(GameSystemPlugin):
     def _resolve_short_rest(
         self, action: GameAction, context: ResolutionContext
     ) -> Resolution:
-        entity = _entity(context, action.actor.id)
+        entity = _entity_system(context, action.actor.id)
         if entity is None:
             return _unresolved(f"Actor {action.actor.id!r} is not present in state.")
 
@@ -498,11 +528,15 @@ class Dnd5ePlugin(GameSystemPlugin):
                 f"Actor {action.actor.id!r} is missing constitution."
             )
 
-        expression = _dice_with_modifier(int(hit_dice_spent), int(hit_die_faces), con_mod)
+        # 2014: add Constitution modifier once per Hit Die spent.
+        spent = int(hit_dice_spent)
+        expression = _dice_with_modifier(
+            spent, int(hit_die_faces), con_mod * spent
+        )
         roll = roller.roll(expression)
         healed = max(0, int(roll.total))
         new_hp = min(int(max_hp), int(current_hp) + healed)
-        new_hit_dice = int(hit_dice) - int(hit_dice_spent)
+        new_hit_dice = int(hit_dice) - spent
         return Resolution(
             outcome={
                 "rest_result": "short_rest",
@@ -514,12 +548,18 @@ class Dnd5ePlugin(GameSystemPlugin):
             state_changes=(
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("entities", action.actor.id, "hit_points"),
+                    path=("entities", action.actor.id, "system", "hit_points"),
                     value=new_hp,
                 ),
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("entities", action.actor.id, "resources", "hit_dice"),
+                    path=(
+                        "entities",
+                        action.actor.id,
+                        "system",
+                        "resources",
+                        "hit_dice",
+                    ),
                     value=new_hit_dice,
                 ),
             ),
@@ -533,7 +573,7 @@ class Dnd5ePlugin(GameSystemPlugin):
     def _resolve_long_rest(
         self, action: GameAction, context: ResolutionContext
     ) -> Resolution:
-        entity = _entity(context, action.actor.id)
+        entity = _entity_system(context, action.actor.id)
         if entity is None:
             return _unresolved(f"Actor {action.actor.id!r} is not present in state.")
 
@@ -568,12 +608,18 @@ class Dnd5ePlugin(GameSystemPlugin):
             state_changes=(
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("entities", action.actor.id, "hit_points"),
+                    path=("entities", action.actor.id, "system", "hit_points"),
                     value=int(max_hp),
                 ),
                 StateChange(
                     operation=StateOperation.SET,
-                    path=("entities", action.actor.id, "resources", "hit_dice"),
+                    path=(
+                        "entities",
+                        action.actor.id,
+                        "system",
+                        "resources",
+                        "hit_dice",
+                    ),
                     value=new_hit_dice,
                 ),
             ),
@@ -584,29 +630,40 @@ class Dnd5ePlugin(GameSystemPlugin):
         )
 
 
-def _entity(context: ResolutionContext, entity_id: str) -> Mapping[str, Any] | None:
+def _entity_system(
+    context: ResolutionContext, entity_id: str
+) -> Mapping[str, Any] | None:
     entities = context.state.get("entities")
     if not isinstance(entities, Mapping):
         return None
     entity = entities.get(entity_id)
     if not isinstance(entity, Mapping):
         return None
-    return entity
+    system = entity.get("system")
+    if not isinstance(system, Mapping):
+        return None
+    return system
 
 
 def _ability_modifier(
     context: ResolutionContext, entity_id: str, ability: str
 ) -> int | None:
-    entity = _entity(context, entity_id)
-    if entity is None:
+    system = _entity_system(context, entity_id)
+    if system is None:
         return None
-    abilities = entity.get("abilities")
+    abilities = system.get("abilities")
     if not isinstance(abilities, Mapping):
         return None
     score = abilities.get(ability)
     if not _is_number(score):
         return None
     return (int(score) - 10) // 2
+
+
+def _initiative_path(context: ResolutionContext) -> tuple[str, ...]:
+    if context.scene_id is not None:
+        return ("scene", "system", "initiative_order")
+    return ("campaign", "system", "initiative_order")
 
 
 def _d20_expression(

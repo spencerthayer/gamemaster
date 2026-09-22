@@ -15,6 +15,7 @@ from tabletop.api.entities import EntityRef
 from tabletop.api.resolution import (
     ResolutionContext,
     ResolutionStatus,
+    RollResult,
     StateOperation,
 )
 from tabletop.plugins.manifest import load_manifest
@@ -59,8 +60,8 @@ def _targeted(
     )
 
 
-def _hero_state(**overrides: object) -> dict[str, object]:
-    hero: dict[str, object] = {
+def _entity_system(**overrides: object) -> dict[str, object]:
+    system: dict[str, object] = {
         "armor_class": 15,
         "hit_points": 20,
         "max_hit_points": 20,
@@ -77,32 +78,64 @@ def _hero_state(**overrides: object) -> dict[str, object]:
         },
         "resources": {"hit_dice": 3},
     }
-    hero.update(overrides)
-    return {"entities": {"hero": hero, "goblin": {
-        "armor_class": 13,
-        "hit_points": 7,
-        "max_hit_points": 7,
-        "speed": 30,
-        "position": {"x": 5, "y": 0},
-        "conditions": [],
-        "abilities": {
-            "strength": 8,
-            "dexterity": 14,
-            "constitution": 10,
-            "intelligence": 10,
-            "wisdom": 8,
-            "charisma": 8,
-        },
-        "resources": {"hit_dice": 1},
-    }}}
+    system.update(overrides)
+    return system
 
 
-def _context(state: dict[str, object] | None = None) -> ResolutionContext:
+def _hero_state(
+    *,
+    hero: dict[str, object] | None = None,
+    goblin: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "entities": {
+            "hero": {"system": hero or _entity_system()},
+            "goblin": {
+                "system": goblin
+                or _entity_system(
+                    armor_class=13,
+                    hit_points=7,
+                    max_hit_points=7,
+                    position={"x": 5, "y": 0},
+                    abilities={
+                        "strength": 8,
+                        "dexterity": 14,
+                        "constitution": 10,
+                        "intelligence": 10,
+                        "wisdom": 8,
+                        "charisma": 8,
+                    },
+                    resources={"hit_dice": 1},
+                )
+            },
+        }
+    }
+
+
+def _context(
+    state: dict[str, object] | None = None,
+    *,
+    scene_id: str | None = None,
+) -> ResolutionContext:
     return ResolutionContext(
         campaign_id="campaign-1",
         system_id="dnd5e",
+        scene_id=scene_id,
         state=state or _hero_state(),
     )
+
+
+def _patch_rolls(monkeypatch: pytest.MonkeyPatch, totals: list[int]) -> None:
+    remaining = iter(totals)
+
+    def fake_roll(expression: str, rng=None) -> RollResult:
+        return RollResult(
+            expression=expression,
+            total=next(remaining),
+            details={"rolls": [], "kept": [], "dropped": [], "modifier": 0},
+        )
+
+    monkeypatch.setattr("systems.dnd5e.roller.roll", fake_roll)
 
 
 def test_manifest_declares_2014_rules_revision_only():
@@ -231,10 +264,10 @@ def test_damage_returns_hit_point_state_change_without_mutating_context():
     assert len(result.state_changes) == 1
     change = result.state_changes[0]
     assert change.operation is StateOperation.SET
-    assert change.path == ("entities", "goblin", "hit_points")
+    assert change.path == ("entities", "goblin", "system", "hit_points")
     assert change.value == 3
-    assert context.state["entities"]["goblin"]["hit_points"] == 7
-    assert state["entities"]["goblin"]["hit_points"] == 7
+    assert context.state["entities"]["goblin"]["system"]["hit_points"] == 7
+    assert state["entities"]["goblin"]["system"]["hit_points"] == 7
 
 
 def test_basic_condition_application_returns_state_change():
@@ -245,7 +278,12 @@ def test_basic_condition_application_returns_state_change():
 
     assert result.status is ResolutionStatus.RESOLVED
     assert result.outcome["condition"] == "poisoned"
-    assert result.state_changes[0].path == ("entities", "goblin", "conditions")
+    assert result.state_changes[0].path == (
+        "entities",
+        "goblin",
+        "system",
+        "conditions",
+    )
     assert result.state_changes[0].value == ("poisoned",)
 
 
@@ -261,7 +299,8 @@ def test_unknown_basic_condition_is_unsupported():
     assert result.state_changes == ()
 
 
-def test_initiative_orders_participants_by_roll_total():
+def test_initiative_orders_participants_by_roll_total(monkeypatch):
+    _patch_rolls(monkeypatch, [18, 12])
     result = Dnd5ePlugin().resolve(
         GameAction(
             actor=EntityRef(id="hero"),
@@ -276,11 +315,46 @@ def test_initiative_orders_participants_by_roll_total():
     assert len(result.rolls) == 2
     assert {roll.expression for roll in result.rolls} == {"1d20+2"}
     order = result.outcome["initiative_order"]
-    assert set(order) == {"hero", "goblin"}
-    assert len(order) == 2
+    assert order == ("hero", "goblin")
     change = result.state_changes[0]
-    assert change.path == ("combat", "initiative_order")
+    assert change.path == ("campaign", "system", "initiative_order")
     assert change.value == order
+
+
+def test_initiative_writes_scene_path_when_scene_present(monkeypatch):
+    _patch_rolls(monkeypatch, [10, 5])
+    result = Dnd5ePlugin().resolve(
+        GameAction(
+            actor=EntityRef(id="hero"),
+            action_type="roll_initiative",
+            targets=(EntityRef(id="hero"), EntityRef(id="goblin")),
+            parameters={},
+        ),
+        _context(scene_id="scene-1"),
+    )
+
+    assert result.status is ResolutionStatus.RESOLVED
+    assert result.state_changes[0].path == ("scene", "system", "initiative_order")
+
+
+def test_initiative_tie_requires_ruling_not_dexterity_order(monkeypatch):
+    _patch_rolls(monkeypatch, [15, 15])
+    result = Dnd5ePlugin().resolve(
+        GameAction(
+            actor=EntityRef(id="hero"),
+            action_type="roll_initiative",
+            targets=(EntityRef(id="hero"), EntityRef(id="goblin")),
+            parameters={},
+        ),
+        _context(),
+    )
+
+    assert result.status is ResolutionStatus.RULING_REQUIRED
+    assert result.ruling_question
+    assert "tied" in result.ruling_question.lower() or "tie" in result.ruling_question.lower()
+    assert result.state_changes == ()
+    assert len(result.rolls) == 2
+    assert set(result.outcome["tied_participants"]) == {"hero", "goblin"}
 
 
 def test_simple_movement_returns_position_state_change():
@@ -291,7 +365,12 @@ def test_simple_movement_returns_position_state_change():
 
     assert result.status is ResolutionStatus.RESOLVED
     assert result.outcome["distance"] == 10
-    assert result.state_changes[0].path == ("entities", "hero", "position")
+    assert result.state_changes[0].path == (
+        "entities",
+        "hero",
+        "system",
+        "position",
+    )
     assert result.state_changes[0].value == {"x": 10, "y": 0}
 
 
@@ -307,7 +386,7 @@ def test_movement_beyond_speed_is_unresolved():
 
 
 def test_short_rest_recovers_hit_points_via_hit_dice():
-    state = _hero_state(hit_points=12)
+    state = _hero_state(hero=_entity_system(hit_points=12))
     result = Dnd5ePlugin().resolve(
         _action("short_rest", hit_dice_spent=1, hit_die_faces=8),
         _context(state),
@@ -315,22 +394,38 @@ def test_short_rest_recovers_hit_points_via_hit_dice():
 
     assert result.status is ResolutionStatus.RESOLVED
     assert len(result.rolls) == 1
-    assert result.rolls[0].expression.startswith("1d8")
+    assert result.rolls[0].expression == "1d8+1"
     paths = {change.path for change in result.state_changes}
-    assert ("entities", "hero", "hit_points") in paths
-    assert ("entities", "hero", "resources", "hit_dice") in paths
+    assert ("entities", "hero", "system", "hit_points") in paths
+    assert ("entities", "hero", "system", "resources", "hit_dice") in paths
     hit_dice_change = next(
         change
         for change in result.state_changes
-        if change.path == ("entities", "hero", "resources", "hit_dice")
+        if change.path == ("entities", "hero", "system", "resources", "hit_dice")
     )
     assert hit_dice_change.value == 2
 
 
+def test_short_rest_adds_constitution_modifier_once_per_hit_die():
+    state = _hero_state(hero=_entity_system(hit_points=5))
+    result = Dnd5ePlugin().resolve(
+        _action("short_rest", hit_dice_spent=2, hit_die_faces=8),
+        _context(state),
+    )
+
+    assert result.status is ResolutionStatus.RESOLVED
+    # CON 12 -> +1, spent twice -> +2 on the pooled expression.
+    assert result.rolls[0].expression == "2d8+2"
+    hit_dice_change = next(
+        change
+        for change in result.state_changes
+        if change.path == ("entities", "hero", "system", "resources", "hit_dice")
+    )
+    assert hit_dice_change.value == 1
+
+
 def test_long_rest_restores_hit_points_and_half_hit_dice():
-    state = _hero_state(hit_points=5, resources={"hit_dice": 1})
-    # max hit dice implied by full rest recovery: restore to half of max (ceil)
-    # With max tracked via resources max or by restoring half of missing.
+    state = _hero_state(hero=_entity_system(hit_points=5, resources={"hit_dice": 1}))
     result = Dnd5ePlugin().resolve(
         _action("long_rest", max_hit_dice=3),
         _context(state),
@@ -340,13 +435,13 @@ def test_long_rest_restores_hit_points_and_half_hit_dice():
     hp_change = next(
         change
         for change in result.state_changes
-        if change.path == ("entities", "hero", "hit_points")
+        if change.path == ("entities", "hero", "system", "hit_points")
     )
     assert hp_change.value == 20
     hit_dice_change = next(
         change
         for change in result.state_changes
-        if change.path == ("entities", "hero", "resources", "hit_dice")
+        if change.path == ("entities", "hero", "system", "resources", "hit_dice")
     )
     # 2014: regain hit dice equal to half the character's total (minimum 1)
     assert hit_dice_change.value == 2
