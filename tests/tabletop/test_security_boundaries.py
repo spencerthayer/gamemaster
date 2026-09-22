@@ -581,6 +581,92 @@ def test_importer_rejects_bad_envelope_and_imports_facts_as_non_canon(
     assert row["knowledge_state"] == KnowledgeState.UNREVEALED.value
 
 
+def test_importer_rejects_one_proposal_while_sibling_still_imports(
+    import_conn,
+) -> None:
+    report = import_extraction(
+        import_conn,
+        ProposedExtraction(
+            job_id="job-1",
+            slice_index=0,
+            extractor_version=next(iter(KNOWN_EXTRACTOR_VERSIONS)),
+            entities=(
+                ProposedEntity(
+                    entity_id="mara",
+                    owner_scope="campaign",
+                    setting_id=None,
+                    campaign_id="campaign-1",
+                    overrides_id=None,
+                    entity_type="npc",
+                    name="Mara",
+                    system_state={},
+                    metadata={},
+                ),
+                ProposedEntity(
+                    entity_id="fragment",
+                    owner_scope="campaign",
+                    setting_id=None,
+                    campaign_id="campaign-1",
+                    overrides_id=None,
+                    entity_type="npc",
+                    name="lives in the...",
+                    system_state={},
+                    metadata={},
+                ),
+            ),
+            facts=(
+                ProposedFact(
+                    fact_id="fact-ok",
+                    fact_scope="campaign",
+                    setting_id=None,
+                    campaign_id="campaign-1",
+                    subject_id="mara",
+                    predicate="lives_in",
+                    value="Greyhaven",
+                    source_document_id="document-1",
+                    source_chunk_id="chunk-1",
+                ),
+                ProposedFact(
+                    fact_id="fact-refused",
+                    fact_scope="campaign",
+                    setting_id=None,
+                    campaign_id="campaign-1",
+                    subject_id="unknown",
+                    predicate="is",
+                    value="placeholder",
+                    source_document_id="document-1",
+                    source_chunk_id="chunk-1",
+                ),
+            ),
+        ),
+    )
+
+    assert report.accepted_ids == ("mara", "fact-ok")
+    reasons = {item.proposal_id: item.reason for item in report.rejected}
+    assert set(reasons) == {"fragment", "fact-refused"}
+    assert reasons["fragment"]
+    assert reasons["fact-refused"]
+    assert "fragment" in reasons["fragment"].lower() or "name" in reasons["fragment"].lower()
+    assert "subject" in reasons["fact-refused"].lower()
+
+    rows = import_conn.execute(
+        "SELECT fact_id FROM facts ORDER BY fact_id"
+    ).fetchall()
+    assert [row["fact_id"] for row in rows] == ["fact-ok"]
+    entity = import_conn.execute(
+        "SELECT entity_id FROM entities WHERE entity_id = ?",
+        ("mara",),
+    ).fetchone()
+    assert entity is not None
+    assert (
+        import_conn.execute(
+            "SELECT 1 FROM entities WHERE entity_id = ?",
+            ("fragment",),
+        ).fetchone()
+        is None
+    )
+
+
 def test_importer_module_graph_contains_no_credential_or_network_module() -> None:
     module_path = _REPO_ROOT / "tabletop" / "documents" / "importer.py"
     tops = _toplevel_imports(module_path)
