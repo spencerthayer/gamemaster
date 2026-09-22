@@ -83,6 +83,67 @@ def test_migrate_second_call_applies_nothing(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_migrate_applies_sql_with_semicolons_in_string_literals(tmp_path: Path) -> None:
+    mig_dir = tmp_path / "migrations"
+    mig_dir.mkdir()
+    (mig_dir / "001_notes.sql").write_text(
+        "CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT NOT NULL);\n"
+        "INSERT INTO notes (id, text) VALUES (1, 'a;b;c');\n"
+    )
+
+    conn = connect(tmp_path / "test.db")
+    try:
+        assert migrate(conn, directory=mig_dir) == ("001_notes.sql",)
+        row = conn.execute("SELECT text FROM notes WHERE id = 1").fetchone()
+        assert row["text"] == "a;b;c"
+    finally:
+        conn.close()
+
+
+def test_migrate_applies_sql_with_trigger_body(tmp_path: Path) -> None:
+    mig_dir = tmp_path / "migrations"
+    mig_dir.mkdir()
+    (mig_dir / "001_trigger.sql").write_text(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, val INTEGER NOT NULL);\n"
+        "CREATE TRIGGER items_guard\n"
+        "BEFORE INSERT ON items\n"
+        "BEGIN\n"
+        "  SELECT RAISE(ABORT, 'bad') WHERE NEW.val <= 0;\n"
+        "END;\n"
+    )
+
+    conn = connect(tmp_path / "test.db")
+    try:
+        assert migrate(conn, directory=mig_dir) == ("001_trigger.sql",)
+        conn.execute("INSERT INTO items (id, val) VALUES (1, 1)")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO items (id, val) VALUES (2, 0)")
+    finally:
+        conn.close()
+
+
+class _AbortTransaction(BaseException):
+    """Test-only BaseException that is not a subclass of Exception."""
+
+
+def test_transaction_rolls_back_on_base_exception(tmp_path: Path) -> None:
+    conn = connect(tmp_path / "test.db")
+    try:
+        with pytest.raises(_AbortTransaction):
+            with transaction(conn):
+                conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                conn.execute("INSERT INTO t (id) VALUES (1)")
+                raise _AbortTransaction()
+
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("SELECT 1 FROM t")
+
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("ROLLBACK")
+    finally:
+        conn.close()
+
+
 def test_migrate_checksum_mismatch_raises(tmp_path: Path) -> None:
     mig_dir = tmp_path / "migrations"
     mig_dir.mkdir()

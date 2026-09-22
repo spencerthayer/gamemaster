@@ -40,9 +40,35 @@ def transaction(conn: sqlite3.Connection) -> Iterator[None]:
     try:
         yield
         conn.execute("COMMIT")
-    except Exception:
+    except BaseException:
         conn.execute("ROLLBACK")
         raise
+
+
+def _execute_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
+    buffer = ""
+    for line in sql.splitlines(keepends=True):
+        buffer += line
+        while buffer.strip():
+            if not sqlite3.complete_statement(buffer):
+                break
+            semicolon_index = buffer.find(";")
+            while semicolon_index >= 0:
+                statement = buffer[: semicolon_index + 1]
+                if sqlite3.complete_statement(statement):
+                    stripped = statement.strip()
+                    if stripped:
+                        conn.execute(stripped)
+                    buffer = buffer[semicolon_index + 1 :]
+                    break
+                semicolon_index = buffer.find(";", semicolon_index + 1)
+            else:
+                break
+    remainder = buffer.strip()
+    if remainder:
+        if not sqlite3.complete_statement(remainder):
+            raise StorageError("migration SQL ends with an incomplete statement")
+        conn.execute(remainder)
 
 
 def migrate(
@@ -58,29 +84,28 @@ def migrate(
     for path in sorted(directory.glob("*.sql")):
         filename = path.name
         checksum = hashlib.sha256(path.read_bytes()).hexdigest()
-        row = conn.execute(
-            "SELECT checksum FROM schema_migrations WHERE filename = ?",
-            (filename,),
-        ).fetchone()
-
-        if row is not None:
-            if row["checksum"] != checksum:
-                raise StorageError(
-                    f"migration {filename!r} was modified after it was applied"
-                )
-            continue
-
         sql = path.read_text()
+        did_apply = False
         with transaction(conn):
-            for statement in sql.split(";"):
-                stripped = statement.strip()
-                if stripped:
-                    conn.execute(stripped)
-            conn.execute(
-                "INSERT INTO schema_migrations (filename, checksum, applied_at) "
-                "VALUES (?, ?, ?)",
-                (filename, checksum, datetime.now(timezone.utc).isoformat()),
-            )
-        applied.append(filename)
+            row = conn.execute(
+                "SELECT checksum FROM schema_migrations WHERE filename = ?",
+                (filename,),
+            ).fetchone()
+
+            if row is not None:
+                if row["checksum"] != checksum:
+                    raise StorageError(
+                        f"migration {filename!r} was modified after it was applied"
+                    )
+            else:
+                _execute_migration_sql(conn, sql)
+                conn.execute(
+                    "INSERT INTO schema_migrations (filename, checksum, applied_at) "
+                    "VALUES (?, ?, ?)",
+                    (filename, checksum, datetime.now(timezone.utc).isoformat()),
+                )
+                did_apply = True
+        if did_apply:
+            applied.append(filename)
 
     return tuple(applied)
