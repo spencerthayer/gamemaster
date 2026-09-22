@@ -294,6 +294,7 @@ later source purge remove independently owned campaign canon.
 | `0012_event_schema_version.sql` | `events.event_schema_version`, default 0 |
 | `0013_one_open_session.sql` | one open session per campaign |
 | `0014_setting_events.sql` | append-only `setting_events` |
+| `0015_turn_receipts.sql` | diagnostic `turn_receipts`, not campaign canon |
 
 ## Event history
 

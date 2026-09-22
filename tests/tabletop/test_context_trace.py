@@ -9,7 +9,7 @@ from tabletop.orchestration.context import ContextSource, build_context, Context
 
 class _Source:
     def read(self, source, request):
-        if source is ContextSource.SETTING_FACTS:
+        if source is ContextSource.SYSTEM_INFO:
             return ("short fact", "x" * 400)
         return ()
 

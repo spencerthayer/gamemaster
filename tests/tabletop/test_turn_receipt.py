@@ -12,6 +12,7 @@ from tabletop.campaign.store import CampaignStore
 from tabletop.orchestration.turn import play_turn
 from tabletop.plugins.registry import PluginRegistry
 from tabletop.storage.sqlite import connect, migrate
+from systems.freeform import FreeformPlugin
 
 
 def test_play_turn_writes_a_deletable_receipt(tmp_path: Path) -> None:
@@ -25,8 +26,6 @@ def test_play_turn_writes_a_deletable_receipt(tmp_path: Path) -> None:
         parameters={"difficulty": 10, "expression": "1d6"},
     )
     registry = PluginRegistry()
-    from systems.freeform import FreeformPlugin
-
     registry.register(FreeformPlugin())
     play_turn(
         registry,
