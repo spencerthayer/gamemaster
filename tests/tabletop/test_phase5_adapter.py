@@ -171,6 +171,19 @@ def test_entrypoint_makes_existing_tabletop_state_writable_before_privilege_drop
     assert entrypoint.index(mkdir) < entrypoint.index(chown) < first_privilege_drop
 
 
+def test_entrypoint_creates_tabletop_data_before_privilege_drop():
+    entrypoint = _ENTRYPOINT_PATH.read_text()
+    mkdir = 'mkdir -p -- "$TABLETOP_DATA_DIRECTORY"'
+    chown = 'chown 65534:65534 -- "$TABLETOP_DATA_DIRECTORY"'
+    first_privilege_drop = min(
+        entrypoint.index("su www-data"),
+        entrypoint.index("su nobody"),
+    )
+
+    assert "TABLETOP_DATA_DIRECTORY=/PeTTa/repos/Omega/tabletop/data" in entrypoint
+    assert entrypoint.index(mkdir) < entrypoint.index(chown) < first_privilege_drop
+
+
 def test_from_environment_creates_and_migrates_configured_database(tmp_path):
     (tmp_path / "systems").mkdir()
     database_path = tmp_path / "state" / "tabletop.sqlite3"

@@ -39,6 +39,13 @@ if [[ -n "${TABLETOP_DATABASE_PATH:-}" ]]; then
   chown -R 65534:65534 -- "$TABLETOP_STATE_DIRECTORY"
 fi
 
+# policy.yaml grants write access here. Landlock rejects a missing path,
+# and autotests do not set TABLETOP_DATABASE_PATH, so create the directory
+# before the agent applies the policy.
+TABLETOP_DATA_DIRECTORY=/PeTTa/repos/Omega/tabletop/data
+mkdir -p -- "$TABLETOP_DATA_DIRECTORY"
+chown 65534:65534 -- "$TABLETOP_DATA_DIRECTORY"
+
 # Landlock cannot grant access to Docker Desktop bind mounts. Copy the
 # read-only plugin and library trees, and the campaigns tree, onto the
 # container filesystem before the agent applies the policy.
