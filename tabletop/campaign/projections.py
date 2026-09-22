@@ -65,6 +65,11 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
             raise ValueError("campaign projection cannot mix campaign ids")
         campaign_id = event.campaign_id
         sequence = event.sequence
+        if event.event_schema_version not in (0, 1):
+            raise ValueError(
+                "unsupported event schema generation: "
+                f"{event.event_schema_version}"
+            )
         try:
             event_type = EventType(event.event_type)
         except ValueError as exc:
@@ -117,6 +122,8 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                         value=_optional_string(event.payload, "value"),
                         visibility=_optional_string(event.payload, "visibility"),
                     )
+            case EventType.QUEST_MUTATED:
+                campaign_system = _apply_quest_mutated(event, campaign_system)
             case (
                 EventType.RULING_RECORDED
                 | EventType.RULING_PROMOTED
@@ -124,11 +131,15 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                 | EventType.SCENE_CLOSED
                 | EventType.SESSION_STARTED
                 | EventType.SESSION_ENDED
-                | EventType.QUEST_MUTATED
             ):
                 pass
             case _:
                 assert_never(event_type)
+
+    if not isinstance(campaign_system, dict):
+        campaign_system = {}
+    raw_threads = campaign_system.get("open_threads", ())
+    open_threads = tuple(raw_threads) if isinstance(raw_threads, list) else ()
 
     return CampaignProjection(
         campaign_id=campaign_id,
@@ -139,6 +150,29 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
         open_threads=tuple(open_threads),
         campaign_system=copy.deepcopy(campaign_system),
     )
+
+
+def _apply_quest_mutated(event: PersistedEvent, campaign_system: Any) -> Any:
+    quest_id = event.payload.get("quest_id")
+    quest = event.payload.get("quest")
+    if not isinstance(quest_id, str) or not quest_id:
+        raise ValueError("quest.mutated requires a non-empty quest_id")
+    if not isinstance(quest, dict):
+        raise ValueError("quest.mutated requires a quest object")
+    change = StateChange(
+        operation=StateOperation.SET,
+        path=("campaign", "system", "quests", quest_id),
+        value=dict(quest),
+    )
+    campaign_system, _entities, _scenes = _apply_state_change(
+        change,
+        campaign_id=event.campaign_id,
+        campaign_system=campaign_system,
+        entities={},
+        scenes={},
+        scene_id=None,
+    )
+    return campaign_system
 
 
 def _require_fact_id(payload: Mapping[str, Any]) -> str:

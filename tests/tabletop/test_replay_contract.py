@@ -8,11 +8,18 @@ writes them. A new skill that does must add a row to ``WRITERS``.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from tabletop.api.resolution import StateOperation
-from tabletop.campaign.event_store import EventType, PersistedEvent
+from tabletop.api.workspace import Workspace
+from tabletop.campaign.event_store import EventStore, EventType, PersistedEvent
 from tabletop.campaign.projections import project_campaign
+from tabletop.campaign.store import CampaignStore
+from tabletop.runtime import TabletopRuntime
+from tabletop.storage.sqlite import connect, migrate
 
 REPLAY_REQUIRED = frozenset(
     {
@@ -258,6 +265,40 @@ def test_orphan_dependent_events_follow_the_declared_policy() -> None:
         orphan = event(event_type, {"ruling_id": "missing", "session_id": "missing"})
         with pytest.raises(ValueError):
             project_campaign((orphan,))
+
+
+def test_quest_replay_matches_sqlite(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "quests.db")
+    migrate(connection)
+    CampaignStore(connection).create_campaign("campaign-1", "Owned", "freeform")
+    runtime = TabletopRuntime(
+        tmp_path,
+        campaign_roots=[],
+        plugin_roots=[],
+        connection=connection,
+        workspace=Workspace.CAMPAIGN,
+        active_campaign="campaign-1",
+    )
+    assert runtime.mutate_quest(
+        json.dumps({"quest_id": "lantern", "title": "Find the lantern"})
+    )["ok"]
+    assert runtime.mutate_quest(
+        json.dumps({"quest_id": "lantern", "title": "Find the brass lantern"})
+    )["ok"]
+    assert runtime.mutate_quest(
+        json.dumps({"quest_id": "gate", "title": "Open the gate"})
+    )["ok"]
+    row = connection.execute(
+        "SELECT system_state FROM campaigns WHERE campaign_id = ?",
+        ("campaign-1",),
+    ).fetchone()
+    stored = json.loads(row["system_state"])["quests"]
+    projection = project_campaign(EventStore(connection).read("campaign-1"))
+    assert projection.campaign_system["quests"] == stored
+    assert projection.open_threads == tuple(
+        projection.campaign_system.get("open_threads", ())
+    )
+    connection.close()
 
 
 def test_model_facing_writers_are_in_the_matrix() -> None:
