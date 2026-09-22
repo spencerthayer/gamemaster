@@ -20,7 +20,7 @@ from tabletop.api.plugin import (
 from tabletop.api.resolution import Resolution, ResolutionContext, ResolutionStatus
 from tabletop.api.visibility import Viewpoint, parse_scope
 from tabletop.api.workspace import Workspace
-from tabletop.campaign.event_store import promote_fact
+from tabletop.campaign.event_store import EventStore, promote_fact
 from tabletop.campaign.invariants import promote, reveal
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.store import CampaignStore
@@ -29,9 +29,8 @@ from tabletop.documents.importer import ImportEnvelopeError, import_extraction
 from tabletop.documents.jobs import start_or_resume_job
 from tabletop.documents.provenance import purge_document, purge_facts_for_document
 from tabletop.documents.shape import DocumentShape, detect_shape
-from tabletop.orchestration.adjudication import adjudication_request
 from tabletop.orchestration.context import ContextEntry, compact
-from tabletop.orchestration.turn import resolve_action
+from tabletop.orchestration.turn import play_turn, resolve_action
 from tabletop.plugins.registry import PluginRegistry
 from tabletop.retrieval.models import (
     RetrievalNamespace,
@@ -197,6 +196,29 @@ class _ResolvablePlugin(GameSystemPlugin):
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         self.calls.append(action)
         return Resolution(outcome={"total": 17}, explanation="The plugin resolved it.")
+
+
+class _NonResolvedPlugin(GameSystemPlugin):
+    def __init__(self, status: ResolutionStatus) -> None:
+        self.status = status
+
+    @property
+    def info(self) -> GameSystemInfo:
+        return GameSystemInfo(
+            id=f"non-resolved-{self.status.value}",
+            name=f"Non-resolved {self.status.value}",
+            api_version=TABLETOP_PLUGIN_API_VERSION,
+        )
+
+    def capabilities(self) -> frozenset[Capability]:
+        return frozenset({Capability.ACTION_RESOLUTION})
+
+    def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
+        return Resolution(
+            outcome={},
+            status=self.status,
+            explanation=f"{self.status.value} has no mechanical result.",
+        )
 
 
 def test_01_confirming_a_fact_does_not_reveal_it() -> None:
@@ -468,7 +490,11 @@ def test_12_setting_workspace_exposes_no_campaign_operations() -> None:
         "read-campaign-secret",
         "current-campaign",
         "query-campaign",
+        "query-rules",
         "resolve-action",
+        "roll",
+        "get-entity",
+        "get-relationships",
         "record-ruling",
     }
 
@@ -491,25 +517,35 @@ def test_13_resolvable_action_cannot_bypass_the_active_plugin() -> None:
     assert result.outcome == {"total": 17}
 
 
-def test_14_unsupported_and_unresolved_adjudicate_without_mechanical_numbers() -> None:
+def test_14_unsupported_and_unresolved_adjudicate_without_mechanical_numbers(
+    conn: sqlite3.Connection,
+) -> None:
     action = GameAction(actor=EntityRef(id="mara"), action_type="check")
-    context = ResolutionContext(campaign_id="campaign-1", system_id="test")
 
     for status in (ResolutionStatus.UNSUPPORTED, ResolutionStatus.UNRESOLVED):
+        plugin = _NonResolvedPlugin(status)
+        registry = PluginRegistry()
+        registry.register(plugin)
         explanation = f"{status.value} has no mechanical result."
-        resolution = Resolution(
-            outcome={},
-            status=status,
-            explanation=explanation,
+        result = play_turn(
+            registry,
+            conn,
+            action,
+            campaign_id="campaign-1",
+            system_id=plugin.info.id,
         )
-        request = adjudication_request(resolution, action, context)
 
-        assert request.status is status
-        assert request.detail == explanation
-        assert resolution.outcome == {}
-        assert resolution.rolls == ()
-        assert resolution.state_changes == ()
-        assert resolution.events == ()
+        assert result.resolution.status is status
+        assert result.adjudication is not None
+        assert result.adjudication.status is status
+        assert result.adjudication.detail == explanation
+        assert result.event is None
+        assert result.resolution.outcome == {}
+        assert result.resolution.rolls == ()
+        assert result.resolution.state_changes == ()
+        assert result.resolution.events == ()
+        assert CampaignStore(conn).get_campaign("campaign-1")["system_state"] == {}
+        assert EventStore(conn).read("campaign-1") == []
         with pytest.raises(InvalidResolutionError):
             Resolution(
                 outcome={"llm_authored_total": 17},
