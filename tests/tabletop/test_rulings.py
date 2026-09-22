@@ -136,7 +136,7 @@ def test_proposed_ruling_promotes_without_revealing(conn: sqlite3.Connection) ->
     assert store.get(proposed.ruling_id) == promoted
     assert [event.event_type for event in EventStore(conn).read("campaign-1")] == [
         EventType.RULING_RECORDED.value,
-        EventType.FACT_PROMOTED.value,
+        EventType.RULING_PROMOTED.value,
     ]
 
 

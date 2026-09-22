@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 import pytest
@@ -343,14 +344,19 @@ def test_retry_resumes_after_projection_or_retrieval_failure(
     assert retrieval_calls == (
         0 if failed_step is EndSessionStep.REGENERATE_PROJECTIONS else 1
     )
+    after_events = _rows(connection, "SELECT * FROM events ORDER BY sequence")
     assert {
         "agendas": _rows(
             connection,
             "SELECT entity_id, system_state FROM entities WHERE entity_type = 'npc'",
         ),
         "rulings": _rows(connection, "SELECT * FROM rulings"),
-        "events": _rows(connection, "SELECT * FROM events ORDER BY sequence"),
-    } == before
+    } == {
+        "agendas": before["agendas"],
+        "rulings": before["rulings"],
+    }
+    assert after_events[:-1] == before["events"]
+    assert after_events[-1]["event_type"] == "session.ended"
 
 
 def test_end_session_preserves_agendas_clocks_rulings_and_events(
@@ -387,7 +393,12 @@ def test_end_session_preserves_agendas_clocks_rulings_and_events(
         "rulings": _rows(connection, "SELECT * FROM rulings"),
         "events": _rows(connection, "SELECT * FROM events ORDER BY sequence"),
     }
-    assert after == before
+    assert after["agendas"] == before["agendas"]
+    assert after["clocks"] == before["clocks"]
+    assert after["rulings"] == before["rulings"]
+    assert after["events"][:-1] == before["events"]
+    assert after["events"][-1]["event_type"] == "session.ended"
+    assert json.loads(after["events"][-1]["payload"]) == {"session_id": "session-1"}
 
 
 def test_event_range_uses_session_sequence_numbers_not_timestamps(

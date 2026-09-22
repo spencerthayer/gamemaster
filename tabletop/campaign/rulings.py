@@ -140,6 +140,54 @@ def ruling_from_adjudication(
     )
 
 
+def ruling_from_mapping(payload: Mapping[str, Any]) -> Ruling:
+    """Build a ``Ruling`` from a JSON-compatible mapping."""
+
+    raw_references = payload.get("source_references") or ()
+    if not isinstance(raw_references, (list, tuple)):
+        raise TypeError("source_references must be a list")
+    references = tuple(
+        RuleReference(**reference) if isinstance(reference, Mapping) else reference
+        for reference in raw_references
+    )
+    return Ruling(
+        ruling_id=str(payload.get("ruling_id", "")).strip(),
+        campaign_id=str(payload.get("campaign_id", "")).strip(),
+        system_id=str(payload.get("system_id", "")).strip(),
+        question=str(payload.get("question", "")).strip(),
+        decision=str(payload.get("decision", "")).strip(),
+        scope=str(payload.get("scope", "")).strip(),
+        source_references=references,
+        session_id=(
+            None
+            if payload.get("session_id") is None
+            else str(payload.get("session_id")).strip() or None
+        ),
+        created_at=str(payload.get("created_at", "")).strip(),
+        supersedes=(
+            None
+            if payload.get("supersedes") is None
+            else str(payload.get("supersedes")).strip() or None
+        ),
+        canon_state=CanonState(
+            str(payload.get("canon_state") or CanonState.PROPOSED.value)
+        ),
+        knowledge_state=KnowledgeState(
+            str(payload.get("knowledge_state") or KnowledgeState.UNREVEALED.value)
+        ),
+        originating_action=(
+            None
+            if payload.get("originating_action") is None
+            else dict(payload["originating_action"])
+        ),
+        originating_context=(
+            None
+            if payload.get("originating_context") is None
+            else dict(payload["originating_context"])
+        ),
+    )
+
+
 class RulingStore:
     """SQLite persistence and lifecycle operations for campaign rulings."""
 
@@ -232,7 +280,7 @@ class RulingStore:
                 self.conn,
                 ruling.campaign_id,
                 GameEvent(
-                    event_type=EventType.FACT_PROMOTED.value,
+                    event_type=EventType.RULING_PROMOTED.value,
                     payload={"ruling_id": ruling_id},
                 ),
                 session_id=ruling.session_id,
@@ -315,7 +363,7 @@ def _retrieved_ruling(ruling: Ruling) -> RetrievedChunk:
             section=ruling.scope,
             page=None,
             source_path="",
-            refetch_tool="get_ruling",
+            refetch_tool=None,
         ),
     )
 

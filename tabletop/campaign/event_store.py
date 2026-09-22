@@ -40,6 +40,7 @@ class EventType(str, Enum):
     CANON_CONTRADICTION_DETECTED = "canon.contradiction_detected"
     ACTION_RESOLVED = "action.resolved"
     RULING_RECORDED = "ruling.recorded"
+    RULING_PROMOTED = "ruling.promoted"
     SCENE_OPENED = "scene.opened"
     SCENE_CLOSED = "scene.closed"
     SESSION_STARTED = "session.started"
@@ -63,6 +64,7 @@ def event_domain(event_type: EventType) -> str:
         case (
             EventType.ACTION_RESOLVED
             | EventType.RULING_RECORDED
+            | EventType.RULING_PROMOTED
             | EventType.SCENE_OPENED
             | EventType.SCENE_CLOSED
             | EventType.SESSION_STARTED

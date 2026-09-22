@@ -10,7 +10,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping, assert_never
 
-from tabletop.campaign.event_store import EventStore
+from tabletop.api.events import GameEvent
+from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.projections import (
     CampaignProjection,
     project_campaign,
@@ -209,6 +210,17 @@ class SessionLifecycle:
                         step_number,
                     ),
                 )
+                if cursor.rowcount == 1 and session.ended_at is not None:
+                    EventStore(self._connection).append_in_transaction(
+                        self._connection,
+                        session.campaign_id,
+                        GameEvent(
+                            event_type=EventType.SESSION_ENDED.value,
+                            payload={"session_id": session.session_id},
+                        ),
+                        session_id=session.session_id,
+                        occurred_at=session.ended_at,
+                    )
             else:
                 cursor = self._connection.execute(
                     "UPDATE sessions SET checklist_step = ? "

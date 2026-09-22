@@ -247,6 +247,51 @@ def test_player_context_drops_non_fact_records_from_fact_sources() -> None:
     assert all("untyped setting fact" not in entry.content for entry in context.entries)
 
 
+def test_player_context_drops_opaque_records_with_hidden_visibility() -> None:
+    source = RecordingSource(
+        {
+            ContextSource.RELATIONSHIPS: (
+                {
+                    "relationship_id": "hidden-edge",
+                    "visibility": "GM",
+                    "summary": "The guide is a traitor",
+                },
+                {
+                    "relationship_id": "public-edge",
+                    "visibility": "PUBLIC",
+                    "summary": "The guide trusts the party",
+                },
+            ),
+        }
+    )
+
+    context = build_context(_request(source, viewpoint="CHARACTER:hero"))
+    content = "\n".join(entry.content for entry in context.entries)
+
+    assert "traitor" not in content
+    assert "trusts the party" in content
+
+
+def test_fact_entries_do_not_name_unregistered_refetch_tools() -> None:
+    source = RecordingSource(
+        {
+            ContextSource.FACTS: (
+                _fact(
+                    "public-fact",
+                    scope=FactScope.CAMPAIGN,
+                    value="Visible",
+                    visibility="PUBLIC",
+                ),
+            )
+        }
+    )
+
+    context = build_context(_request(source, viewpoint="CHARACTER:hero"))
+
+    assert context.entries
+    assert all(entry.refetch_tool is None for entry in context.entries)
+
+
 def test_same_priority_uses_record_timestamp_before_collection_order() -> None:
     source = RecordingSource(
         {

@@ -38,15 +38,15 @@ class SourceReference:
     section: str
     page: int | None
     source_path: str
-    refetch_tool: str = "get_document_chunk"
+    refetch_tool: str | None = "get_document_chunk"
 
     def __post_init__(self) -> None:
         if not self.chunk_id:
             raise ValueError("chunk_id must be non-empty")
         if not self.document_id:
             raise ValueError("document_id must be non-empty")
-        if not self.refetch_tool:
-            raise ValueError("refetch_tool must be non-empty")
+        if self.refetch_tool is not None and not self.refetch_tool.strip():
+            raise ValueError("refetch_tool must be non-empty when provided")
 
     @property
     def refetch_args(self) -> Mapping[str, str]:

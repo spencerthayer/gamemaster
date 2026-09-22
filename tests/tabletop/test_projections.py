@@ -259,7 +259,7 @@ def test_fact_lifecycle_and_purge_update_projection_facts(conn) -> None:
     assert "fact-1" in after_purge.facts
 
 
-def test_replay_accepts_ruling_scoped_fact_promoted_event(conn) -> None:
+def test_replay_accepts_ruling_promoted_event(conn) -> None:
     store = RulingStore(conn)
     ruling = store.record(
         Ruling(
@@ -282,6 +282,29 @@ def test_replay_accepts_ruling_scoped_fact_promoted_event(conn) -> None:
     assert projection.campaign_id == "campaign-1"
     assert projection.sequence == 2
     assert projection.facts == {}
+    assert [event.event_type for event in EventStore(conn).read("campaign-1")] == [
+        EventType.RULING_RECORDED.value,
+        EventType.RULING_PROMOTED.value,
+    ]
+
+
+def test_fact_promoted_without_fact_id_is_rejected() -> None:
+    with pytest.raises(ValueError, match="fact_id"):
+        project_campaign(
+            (
+                PersistedEvent(
+                    campaign_id="campaign-1",
+                    sequence=1,
+                    event_type=EventType.FACT_PROMOTED.value,
+                    session_id=None,
+                    scene_id=None,
+                    actor_id=None,
+                    target_id=None,
+                    payload={"ruling_id": "ruling-1"},
+                    occurred_at="2026-09-22T00:00:00Z",
+                ),
+            )
+        )
 
 
 def test_contradiction_and_payloadless_play_events_are_recognized() -> None:

@@ -9,8 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from tabletop.campaign.invariants import check_fact_invariants
+from tabletop.api.events import GameEvent
+from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
+from tabletop.campaign.store import CampaignStore
 from tabletop.documents.extraction import (
     InvalidProposedExtractionError,
     KNOWN_EXTRACTOR_VERSIONS,
@@ -184,7 +186,7 @@ def _insert_fact(
     import_job_id: str,
     extraction_method: str,
     created_at: str,
-) -> None:
+) -> Fact:
     fact = Fact(
         fact_id=proposed.fact_id,
         fact_scope=FactScope(proposed.fact_scope),
@@ -205,35 +207,24 @@ def _insert_fact(
         source_ownership="attached",
         created_at=created_at,
     )
-    check_fact_invariants(fact)
-    conn.execute(
-        "INSERT INTO facts "
-        "(fact_id, fact_scope, setting_id, campaign_id, subject_id, predicate, "
-        "value, canon_state, knowledge_state, visibility, valid_from, "
-        "valid_until, source_document_id, source_chunk_id, import_job_id, "
-        "extraction_method, source_ownership, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            fact.fact_id,
-            fact.fact_scope.value,
-            fact.setting_id,
+    CampaignStore(conn).add_fact_in_transaction(fact)
+    if fact.campaign_id is not None:
+        EventStore(conn).append_in_transaction(
+            conn,
             fact.campaign_id,
-            fact.subject_id,
-            fact.predicate,
-            fact.value,
-            fact.canon_state.value,
-            fact.knowledge_state.value,
-            fact.visibility,
-            fact.valid_from,
-            fact.valid_until,
-            fact.source_document_id,
-            fact.source_chunk_id,
-            fact.import_job_id,
-            fact.extraction_method,
-            fact.source_ownership,
-            fact.created_at,
-        ),
-    )
+            GameEvent(
+                event_type=EventType.FACT_PROPOSED.value,
+                payload={
+                    "fact_id": fact.fact_id,
+                    "subject_id": fact.subject_id,
+                    "predicate": fact.predicate,
+                    "value": fact.value,
+                    "visibility": fact.visibility,
+                },
+            ),
+            occurred_at=created_at,
+        )
+    return fact
 
 
 def import_extraction(

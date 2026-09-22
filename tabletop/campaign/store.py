@@ -136,34 +136,40 @@ class CampaignStore:
     def add_fact(self, fact: Fact) -> None:
         check_fact_invariants(fact)
         with transaction(self.conn):
-            self.conn.execute(
-                "INSERT INTO facts "
-                "(fact_id, fact_scope, setting_id, campaign_id, subject_id, predicate, "
-                "value, canon_state, knowledge_state, visibility, valid_from, "
-                "valid_until, source_document_id, source_chunk_id, import_job_id, "
-                "extraction_method, source_ownership, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    fact.fact_id,
-                    fact.fact_scope.value,
-                    fact.setting_id,
-                    fact.campaign_id,
-                    fact.subject_id,
-                    fact.predicate,
-                    fact.value,
-                    fact.canon_state.value,
-                    fact.knowledge_state.value,
-                    fact.visibility,
-                    fact.valid_from,
-                    fact.valid_until,
-                    fact.source_document_id,
-                    fact.source_chunk_id,
-                    fact.import_job_id,
-                    fact.extraction_method,
-                    fact.source_ownership,
-                    fact.created_at,
-                ),
-            )
+            self.add_fact_in_transaction(fact)
+
+    def add_fact_in_transaction(self, fact: Fact) -> None:
+        """Insert one fact using a transaction already owned by the caller."""
+
+        check_fact_invariants(fact)
+        self.conn.execute(
+            "INSERT INTO facts "
+            "(fact_id, fact_scope, setting_id, campaign_id, subject_id, predicate, "
+            "value, canon_state, knowledge_state, visibility, valid_from, "
+            "valid_until, source_document_id, source_chunk_id, import_job_id, "
+            "extraction_method, source_ownership, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                fact.fact_id,
+                fact.fact_scope.value,
+                fact.setting_id,
+                fact.campaign_id,
+                fact.subject_id,
+                fact.predicate,
+                fact.value,
+                fact.canon_state.value,
+                fact.knowledge_state.value,
+                fact.visibility,
+                fact.valid_from,
+                fact.valid_until,
+                fact.source_document_id,
+                fact.source_chunk_id,
+                fact.import_job_id,
+                fact.extraction_method,
+                fact.source_ownership,
+                fact.created_at,
+            ),
+        )
 
     def get_facts(
         self, campaign_id: str, *, viewpoint: Viewpoint

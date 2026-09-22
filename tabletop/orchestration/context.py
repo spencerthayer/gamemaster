@@ -362,6 +362,8 @@ def _visible_precedence_records(
         if not isinstance(record, Fact):
             if source in {ContextSource.FACTS, ContextSource.SETTING_FACTS}:
                 continue
+            if not _record_visibility_allows(record, viewpoint):
+                continue
             passthrough.append((source, record))
             continue
         if not _fact_is_visible(record, viewpoint):
@@ -371,6 +373,20 @@ def _visible_precedence_records(
         if current is None or _fact_precedence(record) > _fact_precedence(current[1]):
             winners[key] = (source, record)
     return (*passthrough, *winners.values())
+
+
+def _record_visibility_allows(record: object, viewpoint: Viewpoint) -> bool:
+    """Drop records that carry a visibility field the viewpoint cannot see."""
+
+    visibility = _record_field(record, "visibility")
+    if visibility is None:
+        return True
+    if not isinstance(visibility, str) or not visibility.strip():
+        return False
+    try:
+        return can_see(viewpoint, parse_scope(visibility))
+    except VisibilityScopeError:
+        return False
 
 
 def _fact_is_visible(fact: Fact, viewpoint: Viewpoint) -> bool:
@@ -429,8 +445,8 @@ def _entry_from_record(
     if isinstance(record, Fact):
         subject = f"{record.subject_id} " if record.subject_id else ""
         content = f"{subject}{record.predicate}: {record.value}"
-        refetch_tool = "get-fact"
-        refetch_args = {"fact_id": record.fact_id}
+        refetch_tool = None
+        refetch_args = {}
     elif isinstance(record, RetrievedChunk):
         content = record.text
         refetch_tool = record.source.refetch_tool

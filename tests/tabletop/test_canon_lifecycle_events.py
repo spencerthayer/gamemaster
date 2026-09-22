@@ -273,6 +273,7 @@ def test_event_type_members_and_exhaustive_domain() -> None:
         "canon.contradiction_detected",
         "action.resolved",
         "ruling.recorded",
+        "ruling.promoted",
         "scene.opened",
         "scene.closed",
         "session.started",
