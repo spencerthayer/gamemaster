@@ -42,9 +42,12 @@ fi
 # Landlock cannot grant access to Docker Desktop bind mounts. Copy the
 # read-only plugin and library trees, and the campaigns tree, onto the
 # container filesystem before the agent applies the policy.
+# seal=1 leaves the copy root-owned and not writable by uid 65534.
+# Campaign copies stay owned by the runtime uid.
 copy_mount_into_image() {
   local stage="$1"
   local dest="$2"
+  local seal="${3:-0}"
   local staged
   if [[ -z "${stage}" || -z "${dest}" || "${stage}" == "${dest}" ]]; then
     return 0
@@ -58,12 +61,18 @@ copy_mount_into_image() {
   mkdir -p "${dest}"
   cp -a "${staged}"/. "${dest}/"
   rm -rf "${staged}"
-  chown -R 65534:65534 "${dest}"
+  if [[ "${seal}" == "1" ]]; then
+    chown -R root:root "${dest}"
+    find "${dest}" -type d -exec chmod 755 {} \;
+    find "${dest}" -type f -exec chmod 644 {} \;
+  else
+    chown -R 65534:65534 "${dest}"
+  fi
 }
 
-copy_mount_into_image "${TABLETOP_PLUGIN_MOUNT:-}" /PeTTa/repos/Omega/plugins
-copy_mount_into_image "${TABLETOP_LIBRARY_MOUNT:-}" /PeTTa/repos/Omega/library
-copy_mount_into_image "${TABLETOP_CAMPAIGNS_MOUNT:-}" /PeTTa/repos/Omega/campaigns
+copy_mount_into_image "${TABLETOP_PLUGIN_MOUNT:-}" /PeTTa/repos/Omega/plugins 1
+copy_mount_into_image "${TABLETOP_LIBRARY_MOUNT:-}" /PeTTa/repos/Omega/library 1
+copy_mount_into_image "${TABLETOP_CAMPAIGNS_MOUNT:-}" /PeTTa/repos/Omega/campaigns 0
 
 su www-data -s /bin/sh -c "sh /opt/nginx/nginx.sh"
 

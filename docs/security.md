@@ -92,9 +92,11 @@ mount is read-write at its mount point. Omega applies a Landlock policy
 before plugin load. That policy can allow a normal volume, and it denies
 Docker Desktop bind mounts even when those paths are listed. `entrypoint.sh`
 therefore copies the plugin, library, and campaigns mounts onto the
-container filesystem before the agent starts, and the runtime reads those
-copies. The tabletop state path stays a named volume and is listed as
-read-write in the Landlock policy.
+container filesystem before the agent starts. The plugin and library copies
+are then root-owned, with directories mode `755` and regular files mode
+`644`, so uid 65534 can read them and cannot modify them. The campaigns copy
+stays owned by uid 65534 and writable. The tabletop state path stays a named
+volume and is listed as read-write in the Landlock policy.
 
 The service does not mount `/var/run/docker.sock`. Do not add that mount:
 access to the Docker socket would give the process control over the Docker

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import textwrap
 import time
 from pathlib import Path
 
@@ -47,14 +48,55 @@ def _compose(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str
     )
 
 
+_SEAL_PROBE = textwrap.dedent(
+    """
+    import os
+    from pathlib import Path
+
+    assert os.geteuid() == 65534, os.geteuid()
+
+    def refuse(path: Path) -> None:
+        assert path.exists(), path
+        assert os.access(path, os.R_OK), path
+        assert not os.access(path, os.W_OK), path
+        try:
+            if path.is_dir():
+                (path / "uid65534-write-probe").write_text("nope")
+            else:
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write("nope")
+        except OSError:
+            return
+        raise SystemExit(f"write succeeded: {path}")
+
+    def allow(path: Path) -> None:
+        assert path.is_dir(), path
+        assert os.access(path, os.W_OK), path
+        probe = path / "uid65534-write-probe"
+        probe.write_text("ok", encoding="utf-8")
+        assert probe.read_text(encoding="utf-8") == "ok"
+        probe.unlink()
+
+    refuse(Path("/PeTTa/repos/Omega/plugins/tabletop/tabletop.metta"))
+    refuse(Path("/PeTTa/repos/Omega/plugins/tabletop"))
+    refuse(Path("/PeTTa/repos/Omega/library/raw/seal-probe.txt"))
+    refuse(Path("/PeTTa/repos/Omega/library"))
+    allow(Path("/PeTTa/repos/Omega/campaigns"))
+    """
+)
+
+
 def test_omega_loads_tabletop_and_shuts_down() -> None:
+    library_probe = _REPO / "library" / "raw" / "seal-probe.txt"
+    library_probe.parent.mkdir(parents=True, exist_ok=True)
+    library_probe.write_text("sealed\n", encoding="utf-8")
     env = _env()
     campaigns = _REPO / "campaigns"
     campaigns.mkdir(exist_ok=True)
-    _compose(env, "down", "--volumes")
-    up = _compose(env, "up", "-d", "--build")
-    assert up.returncode == 0, up.stderr
     try:
+        _compose(env, "down", "--volumes")
+        up = _compose(env, "up", "-d", "--build")
+        assert up.returncode == 0, up.stderr
         deadline = time.monotonic() + 90
         logs = ""
         while time.monotonic() < deadline:
@@ -148,7 +190,24 @@ def test_omega_loads_tabletop_and_shuts_down() -> None:
         assert skills.returncode == 0, skills.stderr
         assert "resolve-action" in skills.stdout
         assert "promote-ruling" in skills.stdout
+        sealed = subprocess.run(
+            [
+                "docker",
+                "exec",
+                "--user",
+                "65534:65534",
+                container_id,
+                "python3",
+                "-c",
+                _SEAL_PROBE,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert sealed.returncode == 0, sealed.stdout + sealed.stderr
     finally:
+        library_probe.unlink(missing_ok=True)
         stop = _compose(env, "stop")
         assert stop.returncode == 0, stop.stderr
         _compose(env, "down", "--volumes")
