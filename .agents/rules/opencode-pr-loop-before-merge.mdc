@@ -1,0 +1,50 @@
+---
+description: Require the opencode-pr-loop skill before an agent merges a PR. A clean DONE authorizes the merge; otherwise HITL is required.
+alwaysApply: true
+---
+
+# OpenCode PR loop before merge
+
+Before an agent merges a pull request in this repository, run the `opencode-pr-loop` skill to completion on that PR. Read the skill and follow it in full, including thread replies, suppressed findings, and the clean-review stop.
+
+## Review model
+
+Use OpenCode's default model for every `/codereview` in the loop: `opencode run "/codereview PR_URL auto-post"` with no `-m`. Record that as `REVIEW_MODEL` and reuse it for every iteration. Do not ask which model to use. Model choice does not need HITL approval.
+
+If the user already named a model in the request, use that model instead. If the selected model fails, stop and ask which model to switch to. Do not substitute another model silently.
+
+This rule is the standing merge grant for this repository. It narrows the global HITL merge rule only in the case below.
+
+## When the agent may merge
+
+Merge without a separate in-chat "merge it" when all of these hold:
+
+- This PR's `opencode-pr-loop` run posted `OpenCode-PR-Loop — DONE`.
+- That DONE cites a clean OpenCode review of the current head SHA: an explicit all-clear, or no new comments with zero unresolved OpenCode threads and zero untriaged suppressed findings.
+- PR checks pass, no reviewer has requested changes, and the user has not asked to hold the PR.
+- The base branch is not a production or release branch. Those merges still need an explicit in-chat approval.
+
+Merge with the strategy the repository expects. Leave auto-merge off.
+
+## When HITL is still required
+
+Wait for an explicit in-chat merge approval for this PR when any of these are true:
+
+- The loop has not been run on this PR.
+- The loop stopped before `DONE` (iteration cap, auth failure, unclear review, or another blocker).
+- The latest OpenCode review is not clean.
+- Commits landed after the SHA covered by the DONE review.
+
+Opening a PR, pushing, and waiting on CI stay allowed. Those steps do not authorize a merge. A DONE on a different PR does not carry over.
+
+## Examples
+
+```text
+# BAD — green CI, then gh pr merge, with the loop never run
+# BAD — loop hits the iteration cap, then gh pr merge
+# BAD — DONE on abc123, new commits land, then gh pr merge
+# BAD — pause the loop to ask which review model to use
+# GOOD — opencode run "/codereview PR_URL auto-post" with no -m, every iteration
+# GOOD — loop posts DONE on the current head, checks pass, then gh pr merge
+# GOOD — loop stops short of DONE; report that and wait for an explicit "merge it"
+```
