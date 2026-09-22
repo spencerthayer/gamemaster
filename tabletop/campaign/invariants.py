@@ -40,3 +40,8 @@ def reveal(fact: Fact) -> Fact:
     revealed = replace(fact, knowledge_state=KnowledgeState.KNOWN)
     check_fact_invariants(revealed)
     return revealed
+
+
+def detach(fact: Fact) -> Fact:
+    """Return the fact with purge ownership transferred away from its source."""
+    return replace(fact, source_ownership="detached")
