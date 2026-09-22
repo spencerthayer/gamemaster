@@ -65,6 +65,14 @@ before adding features.
 11. First draft runs locally and in Docker/Portainer.
 12. Prefer SQLite over external infrastructure.
 13. Prefer Python for the tabletop framework unless Omega requires MeTTa.
+14. Canon state, knowledge state, and visibility scope are three independent
+    axes. Model-created facts default to non-canon. Promotion to canon and
+    reveal to players are separate operations.
+15. Extraction and import are separate trust boundaries. Model output is
+    untrusted proposal data. The importer performs deterministic validation
+    and holds no model credentials and no network access where practical.
+16. Context compaction is refetch-based, not lossy summarization. A compacted
+    entry retains the tool name and arguments needed to reconstruct it.
 
 ## Omega integration notes (validated 2026-09-06)
 
@@ -91,6 +99,39 @@ Design decision for the tabletop plugin:
   imports. It is standalone-testable via pytest.
 - Game-system plugins (freeform, dnd5e) are Python packages in `systems/` loaded
   at runtime by the Python plugin registry. They never depend on Omega/MeTTa.
+
+## Amendments from whitepaper review (2026-09-21)
+
+Source: `whitepaper (1).md`, an external agent-platform whitepaper, not stored
+in this repo. Reviewed for transferable architecture, not code reuse. Its
+central stance matches this plan: the LLM is a proposer over authoritative
+stores, never the store itself.
+
+Three items are architecture-level upgrades rather than optional inspiration,
+because they address failure modes this design otherwise hits once campaigns
+grow large. They are recorded as constraints 14, 15, and 16 above:
+
+1. Proposed canon vs confirmed canon vs player knowledge (Phases 11, 12, 14, 23).
+2. Extractor and importer as separate trust boundaries (Phases 19, 31).
+3. Refetchable context compaction instead of lossy summarization (Phase 30).
+
+The remaining nine items fold into existing phases. No new phases are added.
+
+| Idea | Lands in |
+|---|---|
+| Provenance-linked reversible deletion | 11, 12, 19, 22 |
+| Deterministic document-shape detection before LLM extraction | 19 |
+| Resumable content-addressed ingestion jobs | 11, 19 |
+| Workspace access by capability, not prompt prohibition | 24, 30 |
+| Campaign overlays setting canon without rewriting it | 11, 20, 21 |
+| Contradiction detection as an advisory service | 30 |
+| Token-aware and content-aware context budgeting | 30 |
+| Task lane separate from quality/cost tier | 36 (post first draft) |
+| Typed advisory judges that cannot mutate canon | 36 (post first draft) |
+
+Rejected for now: duplicating a full model-routing implementation. Omega already
+abstracts providers. Only the lane/tier separation is kept, as a roadmap item, so
+the interface does not foreclose it.
 
 ## Phases and TODOs
 
@@ -319,6 +360,46 @@ Status: PENDING
 TODO: encode LLM vs plugin boundary in code and docs. When deterministic resolution
 cannot decide: `requires_ruling = True` with rule refs and context. No LLM fabrication.
 
+Clarified 2026-09-21. Phase 9 turns "LLM proposes, code validates, code resolves
+where deterministic, LLM adjudicates only genuine gaps" into an enforceable
+runtime contract. `requires_ruling` must not be merely advisory: where a
+deterministic capability exists, the orchestration layer cannot bypass it and
+manufacture a `Resolution`.
+
+Resolution status is a closed set, not a boolean:
+- `RESOLVED`: a deterministic result exists.
+- `RULING_REQUIRED`: the rules leave a genuine adjudication choice.
+- `UNRESOLVED`: the system knows the mechanic, but facts or rules in hand are
+  insufficient.
+- `UNSUPPORTED`: the active system or plugin cannot resolve this category at all.
+
+Flow:
+
+```
+GameAction
+    |
+    v
+active system implements ACTION_RESOLUTION?
+    |
+    +-- yes --> plugin.resolve()
+    |               |
+    |               +--> RESOLVED
+    |               +--> RULING_REQUIRED
+    |               +--> UNRESOLVED
+    |
+    +-- no ---> UNSUPPORTED
+                    |
+                    v
+              adjudication path
+```
+
+Core rule: a missing mechanic is not permission to invent a mechanic. All four
+states are explicit outcomes the orchestrator must handle. `UNSUPPORTED` and
+`UNRESOLVED` route to adjudication with rule references and context; neither
+licenses the LLM to produce mechanical numbers.
+
+This taxonomy is what Phase 25 prompt policy and Phase 30 orchestration enforce.
+
 ### Phase 10: Dice Engine
 Status: PENDING
 TODO: `tabletop/dice/{parser,roller}.py`. Support d20, 2d6, 3d6+2, 2d20kh1, 2d20kl1,
@@ -331,11 +412,59 @@ TODO: SQLite authoritative store. Tables: campaigns, sessions, scenes, entities,
 facts, relationships, events, rulings, documents, document_chunks (+ clocks,
 resources, visibility_grants, system_state as needed). Create `docs/campaign-model.md`.
 
+Amended 2026-09-21:
+- Setting-level canon and campaign-level overlay are separate scopes. A campaign
+  fact overrides a setting fact for that campaign only. Divergence never mutates
+  shared setting canon.
+- Facts carry canon state (`proposed` | `confirmed`) and knowledge state
+  (`unrevealed` | `known`) as independent columns, with visibility scope and
+  temporal validity as further independent axes.
+- Imported records carry reversible provenance: `source_document_id`,
+  `source_chunk_id`, `import_job_id`, `extraction_method`. Enough to trace a row
+  back to document, chunk, and ingest job, and to delete exactly the derived set.
+- Ingestion job persistence: `ingest_jobs` (job_id, document_hash, parser_version,
+  slice_strategy_version, status, total_slices, completed_slices, failed_slices,
+  estimated_cost, actual_cost, started_at, updated_at) and `ingest_slices`.
+
+Clarified 2026-09-21:
+- Facts carry an explicit `fact_scope` (`setting` | `campaign`) with matching
+  ownership identifiers `setting_id` and `campaign_id`. A campaign fact never
+  overwrites a setting fact at storage level. The overlay happens at query and
+  context-construction time, which is what makes the Phase 20 and 21 precedence
+  rules implementable.
+- Promotion and detachment are different operations on different fields.
+  Promotion changes canon state. Detachment changes provenance ownership.
+  Consequences:
+
+```
+imported + confirmed   still owned by the source document,
+                       removed when that source is purged
+imported + detached    independently owned campaign canon,
+                       survives source purge
+```
+
+  Promoting an imported proposal does not strip its provenance. Only explicit
+  detachment transfers ownership.
+
 ### Phase 12: Event-Sourced History
 Status: PENDING
 TODO: append-only immutable events with sequence, event_type, campaign_id, session_id,
 scene_id, actor_id, target_id, payload. Projections derive current state from events
 where practical. Inspectable.
+
+Amended 2026-09-21:
+- Canon promotion and player reveal are distinct event types. Promoting a fact
+  emits no reveal, and revealing emits no promotion.
+- Removal of imported records is provenance-aware: deleting a document removes
+  the records derived from it and leaves hand-authored or independently promoted
+  material intact.
+- Contradiction findings are advisory events. They record a candidate conflict
+  and never rewrite canon on their own.
+
+Clarified 2026-09-21: promotion and detachment are distinct event types, in
+addition to reveal. A provenance-aware document purge removes imported records
+that are still attached, including promoted ones, and leaves detached and
+hand-authored records intact.
 
 ### Phase 13: Human-Readable Campaign Projections
 Status: PENDING
@@ -348,6 +477,47 @@ Status: PENDING
 TODO: visibility scopes PUBLIC, PARTY, GM, CHARACTER:<id>, NPC:<id> (+ FACTION,
 GROUP). Facts carry explicit visibility. Context construction filters facts per
 active viewpoint. Tests early.
+
+Amended 2026-09-21: replace the single confirmed/visible distinction with four
+independent axes:
+- canon state: `proposed` | `confirmed`
+- knowledge state: `unrevealed` | `known`
+- visibility scope: PUBLIC | PARTY | GM | CHARACTER:<id> | NPC:<id> | FACTION | GROUP
+- temporal scope (world year, valid_from / valid_until)
+
+Lifecycle:
+
+```
+LLM extraction / inference
+        |
+        v
+    PROPOSED
+        |   GM promotes
+        v
+   CONFIRMED
+        |   GM reveals / players discover
+        v
+      KNOWN
+```
+
+Separating promotion from reveal separates what is true from who knows it. A
+confirmed fact must never become player-known as a side effect of confirmation.
+
+Clarified 2026-09-21: independent representation does not mean every Cartesian
+combination is semantically valid. Storage keeps the axes independent; a separate
+invariant layer rejects combinations that are nonsense.
+
+Default invariants for the canon/knowledge pair:
+
+| canon state | knowledge state | valid |
+|---|---|---|
+| CONFIRMED | UNREVEALED | yes |
+| CONFIRMED | KNOWN | yes |
+| PROPOSED | UNREVEALED | yes |
+| PROPOSED | KNOWN | no, by default |
+
+The last row is the invariant behind the Phase 33 regression test that revealing
+an unconfirmed proposed fact is rejected.
 
 ### Phase 15: Relationship Graph
 Status: PENDING
@@ -375,17 +545,103 @@ TODO: `DocumentIngestor` interface (supports()/ingest()). Markdown, txt, PDF fir
 Preserve source file, page, section, heading, doc id, content pack, system id,
 edition/version, visibility.
 
+Amended 2026-09-21. File format and document shape are different things. A PDF
+may hold structured rules, novel prose, adventure prose, tables, or reference
+entries. Pipeline:
+
+```
+raw document
+    |
+text extraction
+    |
+deterministic document-shape detection
+    |
+    +-- structured parser
+    +-- prose extractor
+    +-- reference/table parser
+    +-- unsupported / manual review
+    |
+model extraction where required
+    |
+ProposedExtraction records
+    |
+deterministic validator / importer
+    |
+pending canon (proposed)
+```
+
+Requirements:
+- Shape detection is deterministic (headings, dialogue quotes, speech verbs,
+  sentence structure). The LLM does not choose the ingestion route.
+- The model extractor never writes authoritative state. It emits
+  `ProposedExtraction` records bounded by closed entity/fact schemas.
+- The importer performs deterministic validation, holds no model credentials,
+  and requires no network access.
+- Malformed names, fragments, and rejected subjects are filtered deterministically
+  before import.
+- Long reads are durable resumable jobs, not request-scoped operations.
+- Resume identity is file content hash plus parser version plus slice strategy
+  version, so a file replaced under the same name cannot resume an incompatible
+  job.
+- Completed slices survive partial failure. Failed slices are reported explicitly.
+- Cost and slice estimates are available before expensive extraction where
+  practical.
+
+Clarified 2026-09-21:
+- Promotion of an imported proposal changes canon state only. Provenance
+  survives promotion. Detachment is a separate, explicit operation that transfers
+  ownership away from the source document.
+- Extracted provenance resolves to exact source-version identity, either stored
+  directly on the record or reachable through `import_job_id`:
+
+```
+fact
+ -> extraction
+ -> slice
+ -> ingest job
+ -> exact document hash
+ -> exact parser / extractor / slice-strategy version
+```
+
+  The system must be able to state not just "this came from book.pdf" but "this
+  came from SHA X, slice 47, extracted by version Y during job Z". That identity
+  is what makes reversible import and extraction debugging tractable months later.
+
 ### Phase 20: RAG Architecture
 Status: PENDING
 TODO: `Retriever.search(query, filters, limit)`. SQLite FTS5 + vector + metadata
 filtering. Namespaces for system/setting/adventure/campaign/rulings/character/npc.
 Create `docs/retrieval.md`.
 
+Amended 2026-09-21:
+- Setting and campaign are distinct retrieval namespaces. Campaign retrieval
+  overlays setting retrieval rather than merging into it.
+- Retrieval results preserve refetchable source references (tool plus arguments
+  sufficient to fetch the full record again).
+- Retrieval remains a lookup path, never the source of campaign truth.
+
 ### Phase 21: Retrieval Precedence
 Status: PENDING
 TODO: precedence: campaign rulings -> campaign house rules -> active system rules ->
 enabled supplements -> adventure-specific rules -> GM adjudication. Separate lore vs
 mechanics namespaces. Original source reference returnable.
+
+Amended 2026-09-21. Extended precedence order:
+
+```
+campaign rulings
+campaign house rules
+campaign-specific canon
+shared setting canon
+active system rules
+enabled supplements
+adventure-specific rules
+GM adjudication
+```
+
+Where campaign and setting facts conflict: the campaign fact wins for that
+campaign, the conflict is surfaced to the GM, and the shared setting is not
+automatically rewritten.
 
 ### Phase 22: Rule References
 Status: PENDING
@@ -394,17 +650,43 @@ Phase 8 `RuleReference` transport type (`source_id`, `title`, `section`,
 `page`, `document_path`, `chunk_id`). Deterministic resolutions return
 rule refs where available.
 
+Amended 2026-09-21: provenance fields sufficient for reversible deletion and
+audit: originating document, page/section, chunk/slice, ingest job, and
+parser/extractor version where relevant.
+
+Clarified 2026-09-21: rule-reference provenance resolves to the same
+source-version identity as Phase 19 (document hash, slice, ingest job, parser and
+extractor version), directly or through `import_job_id`.
+
 ### Phase 23: Campaign Rulings
 Status: PENDING
 TODO: first-class rulings (id, campaign_id, system_id, question, decision, scope,
 source refs, session, timestamp, supersedes). Searched before generic sourcebooks.
 Not modifications to base rules.
 
+Amended 2026-09-21: rulings participate in the canon lifecycle of Phase 14. A
+ruling may be recorded as proposed and promoted by the GM, and promotion is
+independent of whether the ruling is disclosed to players.
+
 ### Phase 24: Omega Skills
 Status: PENDING
 TODO: tabletop skills: current-campaign, current-scene, query-rules, query-campaign,
 resolve-action, roll, get-entity, get-relationships, record-ruling, end-session.
 Clear descriptions. No low-level DB ops exposed to LLM.
+
+Amended 2026-09-21: group skills by workspace capability instead of exposing
+every skill everywhere. Forbidden operations are absent from the tool surface,
+not merely prohibited by prompt text.
+
+```
+SETTING workspace
+  can:    query setting, edit setting, manage world entities, manage world history
+  cannot: read sessions, mutate quests, inspect party state, read campaign secrets
+
+CAMPAIGN workspace
+  inherits setting read access
+  plus session, party, thread, and campaign tools
+```
 
 ### Phase 25: Omega Prompt Extension
 Status: PENDING
@@ -446,12 +728,38 @@ TODO: context service assembling current scene, active entities, viewer-visible 
 recent events, relevant history, NPC agenda (GM side), relationships, system info,
 retrieved rules, campaign rulings. No full-file dumps into prompts.
 
+Amended 2026-09-21:
+- `ContextEntry` carries `content`, `token_cost`, `refetch_tool`, `refetch_args`,
+  `priority`, `compacted`, so compaction is deterministic.
+- Compaction is refetch-based, not summarization. An aged tool result becomes a
+  one-line stub naming the tool that can fetch it again, for example
+  `[Compacted entity record: Ithrazel. Refetch with get-entity("ithrazel").]`
+- Budget is computed, not hardcoded:
+  `model context size - prompt reserve - response reserve - session reserve =
+  retrieval/tool budget`, then allocated by priority. A single fixed tool-result
+  cap fails as soon as a large chapter and campaign history compete for it.
+- Newest and highest-priority material is retained first.
+- Setting/campaign precedence (Phase 21) is applied during context construction.
+- Contradiction detection runs before presenting claims about already-established
+  entities: retrieve adjacent canon, compare, then emit either no conflict or a
+  `ConflictCandidate` (existing fact, source, session, reason). Advisory only; it
+  never rewrites canon.
+- The workspace tool surface (Phase 24) bounds what the context builder may read.
+
 ### Phase 31: Security
 Status: PENDING
 TODO: `docs/security.md` (prompt injection from docs, sourcebooks as data, plugin
 trust boundaries, read-only mounts, no docker socket, constrained discovery, path
 traversal rejection, secrets outside content). Tests for path normalization and
 manifest validation.
+
+Amended 2026-09-21:
+- Extraction and authoritative import are separate trust boundaries.
+- Model-produced extraction is always untrusted proposal data.
+- The importer runs without model credentials and without network access where
+  practical.
+- Invalid or version-incompatible extraction cannot mutate canon directly.
+- Configured executable plugin roots stay distinct from document and content roots.
 
 ### Phase 32: Docker and Portainer
 Status: PENDING
@@ -463,6 +771,27 @@ dev paths. Provide `.env.example`.
 Status: PENDING
 TODO: tests for plugin discovery, visibility, events, dice, retrieval, resolution,
 documents. Contracts first, not D&D behavior.
+
+Amended 2026-09-21. Regression tests required for the new invariants:
+- Confirming a fact does not reveal it.
+- Revealing an unconfirmed proposed fact is rejected or handled explicitly.
+- Deleting an imported document removes only records derived from that document.
+- Campaign canon overrides setting canon without mutating the setting.
+- Deterministic shape detection routes prose away from structural parsing.
+- Malformed extraction cannot reach authoritative state.
+- An interrupted ingest resumes only when file hash and slicing strategy match.
+- Context compaction stubs can actually refetch their original data.
+- Setting-only workspaces do not expose campaign operations in their tool surface.
+
+Clarified 2026-09-21. Additional regression tests:
+- Promoting an imported fact preserves its provenance.
+- Purging a source document removes attached imported records including promoted
+  ones, and leaves detached records intact.
+- A proposed fact cannot be stored in the KNOWN knowledge state.
+- Orchestration cannot emit a `Resolution` for an action the active system
+  declares resolvable without calling the plugin.
+- `UNSUPPORTED` and `UNRESOLVED` both route to adjudication and neither yields
+  LLM-authored mechanical numbers.
 
 ### Phase 34: First Demonstration
 Status: PENDING
@@ -479,6 +808,17 @@ Status: PENDING
 TODO: `docs/roadmap.md` milestones 0-7 (research/architecture, runtime skeleton,
 persistence, documents/RAG, play loop, D&D 5e reference, GURPS validation,
 UI/channel improvements).
+
+Amended 2026-09-21. Post first-draft items, deliberately outside Phases 8-35:
+- Task lane (conversation, rules lookup, document extraction, scene drafting,
+  summarization, judgment) as an axis independent of quality tier, latency
+  preference, and cost preference. Collapsing the two axes causes misrouting.
+- Model availability and error-rate tracking.
+- Typed advisory judges with structured output and no authority to mutate state:
+  contradiction triage, visibility-leak candidates, canon promotion priority,
+  narration-policy violations.
+- Per-turn cost, token, and tool receipts.
+- Disconnect-safe long-running generation.
 
 ### Phase 37: Decision Log
 Status: PENDING
@@ -501,6 +841,11 @@ provenance preserved; rules retrieval filtered by namespace; generic dice resolv
 deterministically; unresolved action requests GM adjudication; Omega narrates
 returned resolution; session history persisted; small D&D 5e plugin proves APIs;
 tests cover major boundaries; Docker/Portainer documented; roadmap present.
+
+Added 2026-09-21: proposed facts require explicit promotion before becoming canon;
+promotion and reveal are separately auditable; deleting an ingested document
+removes exactly its derived records; an interrupted ingest resumes from a slice
+boundary; a compacted context entry can be refetched from its recorded tool call.
 
 ### Phase 40: Final Agent Report
 Status: PENDING
