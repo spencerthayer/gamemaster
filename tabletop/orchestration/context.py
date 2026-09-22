@@ -8,7 +8,7 @@ model tokenizer replace it later without changing collection or allocation.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
@@ -203,6 +203,55 @@ def allocate_entries(
         selected.append(entry)
         remaining -= entry.token_cost
     return tuple(selected)
+
+
+def compact(
+    entries: Sequence[ContextEntry],
+    budget: int,
+) -> tuple[ContextEntry, ...]:
+    """Replace aged entries with deterministic calls that can reload them."""
+
+    if budget < 0:
+        raise ValueError("budget cannot be negative")
+
+    result: list[ContextEntry | None] = list(entries)
+    used_tokens = sum(entry.token_cost for entry in entries)
+    candidates = sorted(
+        enumerate(entries),
+        key=lambda indexed: (
+            indexed[1].priority,
+            indexed[1].recency,
+            indexed[0],
+        ),
+    )
+    for index, entry in candidates:
+        if used_tokens <= budget:
+            break
+        if entry.compacted:
+            continue
+        if not entry.refetch_tool or not entry.refetch_tool.strip():
+            result[index] = None
+            used_tokens -= entry.token_cost
+            continue
+
+        arguments = ",".join(
+            json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            for _, value in sorted(entry.refetch_args.items())
+        )
+        content = (
+            f"[Compacted {entry.content}. "
+            f"Refetch with {entry.refetch_tool}({arguments}).]"
+        )
+        compacted = replace(
+            entry,
+            content=content,
+            token_cost=estimate_tokens(content),
+            compacted=True,
+        )
+        result[index] = compacted
+        used_tokens += compacted.token_cost - entry.token_cost
+
+    return tuple(entry for entry in result if entry is not None)
 
 
 def build_context(request: ContextRequest) -> Context:
