@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from tabletop.api.actions import GameAction
 from tabletop.api.capabilities import Capability
 from tabletop.api.errors import GameSystemError
 from tabletop.api.plugin import (
@@ -20,6 +21,7 @@ from tabletop.api.plugin import (
     GameSystemPlugin,
     ValidationResult,
 )
+from tabletop.api.resolution import Resolution, ResolutionContext
 
 _SYSTEM_ID = "dnd5e"
 
@@ -45,7 +47,7 @@ class Dnd5ePlugin(GameSystemPlugin):
         """Nothing implemented yet; D&D concepts are not advertised."""
         return frozenset()
 
-    def resolve(self, action: "GameAction", context: "ResolutionContext") -> "Resolution":
+    def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         raise GameSystemError(
             "dnd5e resolve() is implemented in Phase 27; no mechanics exist yet"
         )

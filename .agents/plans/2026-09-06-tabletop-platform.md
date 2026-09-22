@@ -1,6 +1,8 @@
 # Gamemaster: Omega-based Tabletop RPG Platform - Execution Plan
 
-Status: ACTIVE. Working branch: `tabletop-platform`.
+Status: ACTIVE.
+Integration branch: `main`.
+Development occurs on per-phase feature branches and merges through PRs.
 Bootstrap date: 2026-09-06. Full plan and TODO tracker in one file.
 
 ## Objective
@@ -78,7 +80,9 @@ before adding features.
 - MeTTa to Python bridge: `(py-call (module.func arg ...))`.
 - Python modules are exposed via `!(import! &self (library Omega ./path/mod.py))`
   (pattern from `lib_omega.metta`).
-- Upstream commit: `7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`, branch `main`.
+- Original Omega bootstrap commit: `7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`
+  (`UPSTREAM.md`). Current `main` may include later `upstream/main` merges
+  and tabletop PRs; do not require `HEAD` to equal the bootstrap commit.
 
 Design decision for the tabletop plugin:
 - `plugins/tabletop/tabletop.metta` is the thin Omega-facing glue (a MeTTa plugin,
@@ -259,7 +263,14 @@ non-executable content packs kept separate. No dynamic execution of untrusted
 uploaded docs.
 
 ### Phase 8: Universal Action and Resolution Models
-Status: PENDING
+Status: COMPLETE
+Done: `EntityRef`, `GameAction`, `ResolutionContext`, `Resolution`,
+`StateChange`, `RollResult`, `RuleReference` (transport), and `GameEvent`
+(proposed-event transport). Frozen dataclasses with defensive mapping
+copies. `GameSystemPlugin.resolve()` now uses the concrete types. Docs:
+`docs/action-resolution.md` plus `docs/plugin-api.md` resolution section.
+No mechanics, no dice engine, no persistence. `outcome` remains
+plugin-owned (no required success boolean).
 TODO: `GameAction`, `ResolutionContext`, `Resolution` dataclasses (per prompt).
 Core runtime asks plugin to resolve actions; core must not know meaning of AC,
 saving throw, hit location, spell slot, mana, refresh, sanity.
@@ -465,7 +476,9 @@ No placeholders presented as implemented.
 - [x] Phase 5: Omega adapter plugin
 - [x] Phase 6: Game-system plugin API
 - [x] Phase 7: Plugin discovery
-- [ ] Phase 8-10: Action/resolution models and dice engine
+- [x] Phase 8: Universal action and resolution models
+- [ ] Phase 9: Deterministic mechanics boundary
+- [ ] Phase 10: Dice engine
 - [ ] Phase 11-16: Campaign persistence, events, visibility, relationships, NPC
 - [ ] Phase 17-21: Content packs, document storage, ingestion, RAG
 - [ ] Phase 22-28: Rule refs, rulings, skills, prompt ext, freeform, dnd5e
@@ -475,9 +488,12 @@ No placeholders presented as implemented.
 ## Verification commands
 
 Upstream state:
-- `git remote -v` (expect `upstream`)
-- `git log -1 --oneline` (expect `7b060f5`)
-- `git branch --show-current` (expect `tabletop-platform`)
+- `git remote -v` (expect `upstream` plus the project `origin`)
+- Original Omega bootstrap commit remains
+  `7b060f5738ee7b8cf064c8b6282ed9fe07cf407f` in `UPSTREAM.md`. Current HEAD
+  is expected to have moved; do not require `git log -1` to equal `7b060f5`.
+- Implementation work uses a per-phase feature branch. Integration target
+  is `main`.
 
 Tests:
 - `python -m pytest tests/ -v`

@@ -79,11 +79,18 @@ instance, LLM clients, database connections, or the global runtime.
 
 ## Resolution
 
-`resolve(action, context)` is the generic resolution entry point.
-`GameAction`, `ResolutionContext`, and `Resolution` are owned by Phase 8 and
-referenced by forward annotation. A plugin that cannot resolve
-deterministically must yield to GM adjudication (Phase 9) rather than
-fabricate an outcome.
+`resolve(action: GameAction, context: ResolutionContext) -> Resolution` is
+the generic resolution entry point. The concrete types live in
+`tabletop/api/actions.py` and `tabletop/api/resolution.py`. See
+[action-resolution.md](action-resolution.md) for field ownership, ruling
+invariants, and the distinction between state changes and events.
+
+A plugin reads `ResolutionContext.state` and returns a `Resolution`. It
+does not mutate campaign persistence through the context. `outcome` is
+plugin-owned: the runtime does not require success, failure, damage, or
+margin keys. Dice are optional. A plugin that cannot resolve
+deterministically sets `requires_ruling=True` with a `ruling_question`
+(policy enforcement: Phase 9) rather than fabricate an outcome.
 
 ## Schemas
 
@@ -127,7 +134,8 @@ data-only artifacts and never execute. Ingested documents never execute.
 - **Dying Earth / social systems**: `social-conflict` is a first-class
   capability; a plugin may implement it without any combat capability.
 - **Diceless games**: a plugin advertising `frozenset()` (like freeform
-  today) satisfies the full contract; `resolve()` needs no dice.
+  today) satisfies the full contract; `resolve()` needs no dice. A valid
+  `Resolution` may have `rolls == ()`.
 - **Rules-light games**: schemas default to `{}` and validation defaults to
   accepting, so a plugin may carry almost no structured state.
 

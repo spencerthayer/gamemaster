@@ -2,9 +2,10 @@
 
 Expected invalid game state is reported through ``ValidationResult`` objects,
 never raised. These exceptions represent failures of the integration
-contract itself: bad configuration, missing capabilities, broken lifecycle.
-They carry only plain serializable fields so the Phase 5 adapter can encode
-them without knowing game concepts.
+contract itself: bad configuration, missing capabilities, broken lifecycle,
+or malformed action/resolution transport models. They carry only plain
+serializable fields so the Phase 5 adapter can encode them without knowing
+game concepts.
 """
 
 from __future__ import annotations
@@ -16,6 +17,18 @@ class GameSystemError(Exception):
     """Base class for game-system plugin integration failures."""
 
     code = "game_system_error"
+
+
+class InvalidActionError(GameSystemError):
+    """A GameAction or EntityRef failed structural validation."""
+
+    code = "invalid_action"
+
+
+class InvalidResolutionError(GameSystemError):
+    """A resolution transport model failed structural validation."""
+
+    code = "invalid_resolution"
 
 
 class UnsupportedCapabilityError(GameSystemError):
