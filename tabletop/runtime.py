@@ -40,7 +40,7 @@ from tabletop.orchestration.session import SessionLifecycle
 from tabletop.orchestration.turn import parse_game_action, play_turn
 from tabletop.plugins.discovery import discover_plugins, load_plugin
 from tabletop.plugins.registry import PluginRegistry
-from tabletop.retrieval.lexical import LexicalRetriever
+from tabletop.retrieval.lexical import LexicalRetriever, load_visible_chunk
 from tabletop.retrieval.models import RetrievalFilters, RetrievalNamespace
 from tabletop.storage.sqlite import connect as connect_database
 from tabletop.storage.sqlite import migrate, transaction
@@ -490,6 +490,32 @@ class TabletopRuntime:
                 data={"entity_id": entity_key, "campaign_id": campaign_id},
             )
         return self._ok("get-entity", {"entity": entity})
+
+    def get_chunk(self, chunk_id: str) -> dict[str, Any]:
+        """Reload one library chunk visible to the GM viewpoint."""
+
+        if self._connection is None:
+            return self._storage_required("get-chunk")
+        chunk_key = chunk_id.strip()
+        if not chunk_key:
+            return self._error(
+                "get-chunk",
+                "invalid_chunk_id",
+                "get-chunk requires a non-empty chunk id.",
+            )
+        chunk = load_visible_chunk(
+            self._connection,
+            chunk_key,
+            viewpoint=Viewpoint(scope=parse_scope("GM")),
+        )
+        if chunk is None:
+            return self._error(
+                "get-chunk",
+                "chunk_not_found",
+                "Chunk was not found.",
+                data={"chunk_id": chunk_key},
+            )
+        return self._ok("get-chunk", chunk)
 
     def get_fact(self, fact_id: str) -> dict[str, Any]:
         """Return one fact owned by the active campaign or its setting."""

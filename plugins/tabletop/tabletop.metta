@@ -48,6 +48,9 @@
      (add-skill record-world-history
        "Record a setting-scoped world history entry"
        (entry_in_quotes))
+     (add-skill get-chunk
+       "Reload one retrieved source chunk by its stable identifier"
+       (chunk_id_in_quotes))
      ()))
 
 (= (register-workspace-skills campaign)
@@ -61,6 +64,9 @@
      (add-skill query-world-history
        "Query setting-scoped world history and durable world facts"
        (query_in_quotes))
+     (add-skill get-chunk
+       "Reload one retrieved source chunk by its stable identifier"
+       (chunk_id_in_quotes))
      (add-skill read-session
        "Read one campaign session record by session identifier"
        (session_id_in_quotes))
@@ -131,6 +137,9 @@
 
 (= (record-world-history $entry)
    (py-call (omega_tabletop_adapter.record_world_history $entry)))
+
+(= (get-chunk $chunk-id)
+   (py-call (omega_tabletop_adapter.get_chunk $chunk-id)))
 
 (= (read-session $session-id)
    (py-call (omega_tabletop_adapter.read_session $session-id)))

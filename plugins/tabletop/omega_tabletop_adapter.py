@@ -242,6 +242,10 @@ def record_world_history(entry: Any) -> str:
     return _invoke("record_world_history", _text(entry))
 
 
+def get_chunk(chunk_id: Any) -> str:
+    return _invoke("get_chunk", _text(chunk_id))
+
+
 def read_session(session_id: Any) -> str:
     return _invoke("read_session", _text(session_id))
 

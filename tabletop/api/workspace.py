@@ -73,6 +73,12 @@ _SETTING_SKILLS: tuple[SkillSpec, ...] = (
         parameters=("entry_in_quotes",),
         runtime_method="record_world_history",
     ),
+    SkillSpec(
+        name="get-chunk",
+        description="Reload one retrieved source chunk by its stable identifier",
+        parameters=("chunk_id_in_quotes",),
+        runtime_method="get_chunk",
+    ),
 )
 
 # Campaign inherits setting *read* access only; setting mutation stays setting-only.
@@ -84,6 +90,7 @@ _SETTING_READ_SKILLS: tuple[SkillSpec, ...] = tuple(
         "query-setting",
         "get-world-entity",
         "query-world-history",
+        "get-chunk",
     }
 )
 
