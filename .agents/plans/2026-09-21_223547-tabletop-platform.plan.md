@@ -4,7 +4,7 @@ overview: 'Land the uncommitted Phase 9 mechanics boundary, then build the remai
 todos:
   - id: task-01-land-phase-9
     content: Verify the committed Phase 9 boundary and open its pull request
-    status: in_progress
+    status: completed
     dependencies: []
   - id: task-02-dice-parser
     content: Parse generic dice expressions into a frozen AST
@@ -385,7 +385,11 @@ These bind every task below. Where a task's prose and one of these disagree, the
 
 ## Current state
 
-`main` carries Phases 1 through 8. Branch `phase-9-mechanics-boundary` carries two commits, both local with no upstream tracking branch and no pull request yet: `a43e082` (the Phase 9 implementation) and `6841f35` (the corrections to this plan file). The Phase 9 PR ships both.
+`main` carries Phases 1 through 9, and `origin/main` has them. Phase 9 landed by direct push to `main`, not through a pull request: `a43e082` (the implementation) is an ancestor of `origin/main`, `gh pr list` shows no PR for `phase-9-mechanics-boundary`, and that branch (`499faec`) is now fully contained in `main`.
+
+Every merge gate reading "Phase 9 merged" is therefore satisfied. Task 01 is complete; its step 5 was overtaken by the direct push.
+
+Note the working convention this reveals: this repository has been taking work onto `main` directly. The branch-per-boundary workflow below is still the plan of record, and constraint 16 still forbids merging a PR without explicit approval, but an executing agent should expect `main` to move under it and should re-read `origin/main` at every Step 0 rather than trusting a stale gate.
 
 Implemented and merged:
 
@@ -616,9 +620,9 @@ Four roots start immediately and independently: task-01 (land Phase 9), task-02 
 
 ### Task 01: Verify the committed Phase 9 boundary and open its pull request
 
-**Objective:** Verify the Phase 9 implementation at `a43e082` and the plan corrections at `6841f35`, run the whole branch suite, push the current branch HEAD, and open the Phase 9 PR, so later tasks build on a merged `ResolutionStatus` contract.
+**Status: complete.** Phase 9 reached `origin/main` by direct push rather than by pull request, so steps 1 through 4 stand as the verification record and step 5 no longer applies. Steps are retained below as the record of what was checked.
 
-The branch now carries two commits, not one. The PR contains both.
+**Objective:** Verify the Phase 9 implementation at `a43e082` and the plan corrections that followed it, run the whole suite, and get the `ResolutionStatus` contract onto `main` for later tasks to build on.
 
 **Files (already committed in `a43e082`, read to verify):**
 - `tabletop/api/resolution.py`, `tabletop/api/plugin.py`, `tabletop/orchestration/turn.py`, `tabletop/orchestration/adjudication.py`
@@ -669,19 +673,18 @@ Expected: `a43e082` (Phase 9 implementation) and `6841f35` (plan corrections), t
 - `6841f35` followed on the same branch, carrying the corrections to this
   plan file. Verify the branch, not just `a43e082`.
 
-Remaining: step 5 only. The branch has no remote ref yet
-(`git ls-remote --heads origin phase-9-mechanics-boundary` returns nothing).
+Superseded on 2026-09-21: the branch was pushed and `main` took the work
+directly, so `a43e082` is now an ancestor of `origin/main` and no PR was
+opened.
 
-**Step 5: Push and open the PR**
+**Step 5: Superseded.** Phase 9 went to `origin/main` directly, so there is no PR to open. Confirm rather than repeat:
 
 ```bash
-git push -u origin phase-9-mechanics-boundary
-gh pr create --base main --head phase-9-mechanics-boundary \
-  --title "Phase 9: deterministic mechanics boundary" \
-  --body "Closed ResolutionStatus set, non-bypassable resolve_action guard, distinct adjudication framing per non-resolved status."
+git merge-base --is-ancestor a43e082 origin/main && echo "phase 9 is on origin/main"
+gh pr list --state all --head phase-9-mechanics-boundary   # empty: no PR was opened
 ```
 
-Then stop. Do not merge without explicit approval.
+The `phase-9-mechanics-boundary` branch is fully contained in `main` and can be deleted whenever convenient.
 
 ---
 
