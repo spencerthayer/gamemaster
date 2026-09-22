@@ -33,6 +33,7 @@ from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.relationships import query_edges
 from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
+from tabletop.campaign.setting_events import SettingEventStore, SettingEventType
 from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
 from tabletop.orchestration.session import SessionLifecycle
@@ -807,6 +808,17 @@ class TabletopRuntime:
                         "UPDATE settings SET name = ? WHERE setting_id = ?",
                         (name, setting_id),
                     )
+                SettingEventStore(self._connection).append_in_transaction(
+                    self._connection,
+                    setting_id,
+                    SettingEventType.SETTING_EDITED,
+                    {
+                        "setting_id": setting_id,
+                        "name": name,
+                        "created_at": created_at,
+                    },
+                    occurred_at=created_at,
+                )
         except sqlite3.IntegrityError as exc:
             return self._error("edit-setting", "setting_not_saved", str(exc))
         row = self._connection.execute(
@@ -926,6 +938,20 @@ class TabletopRuntime:
                             metadata,
                         ),
                     )
+                SettingEventStore(self._connection).append_in_transaction(
+                    self._connection,
+                    setting_id,
+                    SettingEventType.WORLD_ENTITY_UPSERTED,
+                    {
+                        "entity_id": entity_id,
+                        "setting_id": setting_id,
+                        "name": name,
+                        "entity_type": entity_type,
+                        "system_state": json.loads(system_state),
+                        "metadata": json.loads(metadata),
+                        "overrides_id": overrides_id,
+                    },
+                )
         except sqlite3.IntegrityError as exc:
             return self._error("upsert-world-entity", "entity_not_saved", str(exc))
         row = self._connection.execute(
@@ -1023,9 +1049,25 @@ class TabletopRuntime:
         )
         store = CampaignStore(self._connection)
         try:
-            # Setting facts have no campaign_id, so they do not write campaign events.
             with transaction(self._connection):
                 store.add_fact_in_transaction(fact)
+                SettingEventStore(self._connection).append_in_transaction(
+                    self._connection,
+                    setting_id,
+                    SettingEventType.WORLD_FACT_RECORDED,
+                    {
+                        "fact_id": fact.fact_id,
+                        "setting_id": setting_id,
+                        "subject_id": fact.subject_id,
+                        "predicate": fact.predicate,
+                        "value": fact.value,
+                        "canon_state": fact.canon_state.value,
+                        "knowledge_state": fact.knowledge_state.value,
+                        "visibility": fact.visibility,
+                        "created_at": fact.created_at,
+                    },
+                    occurred_at=fact.created_at,
+                )
         except (FactInvariantError, StorageError, sqlite3.IntegrityError, ValueError) as exc:
             return self._error("record-world-history", "history_not_recorded", str(exc))
         return self._ok(
