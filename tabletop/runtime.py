@@ -41,6 +41,10 @@ from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
 from tabletop.campaign.setting_events import SettingEventStore, SettingEventType
 from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
+from tabletop.orchestration.prompt_context import (
+    PromptContextSnapshot,
+    build_prompt_context_snapshot,
+)
 from tabletop.orchestration.session import SessionLifecycle
 from tabletop.orchestration.turn import parse_game_action, play_turn
 from tabletop.plugins.discovery import discover_plugins, load_plugin
@@ -108,6 +112,16 @@ class TabletopRuntime:
         """Active workspace capability surface. Fixed for this runtime instance."""
 
         return self._workspace
+
+    def prompt_context_snapshot(self) -> PromptContextSnapshot:
+        """Return the GM prompt snapshot for this process. Writes nothing."""
+
+        return build_prompt_context_snapshot(
+            self._connection,
+            workspace=self._workspace,
+            campaign_id=self.active_campaign,
+            setting_id=self._owned_setting_id(),
+        )
 
     def skill_registration_payload(self) -> dict[str, Any]:
         """Return the Omega skill registration list for this workspace only."""
