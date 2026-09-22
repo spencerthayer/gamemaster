@@ -9,7 +9,12 @@ import pytest
 
 from tabletop.api.entities import EntityRef
 from tabletop.api.events import GameEvent
-from tabletop.campaign.event_store import EventStore, PersistedEvent
+from tabletop.campaign.event_store import (
+    CURRENT_EVENT_SCHEMA_VERSION,
+    EventStore,
+    PersistedEvent,
+)
+from tabletop.campaign.projections import project_campaign
 from tabletop.campaign.store import CampaignStore
 from tabletop.storage.sqlite import connect, migrate, transaction
 
@@ -78,6 +83,7 @@ def test_append_in_transaction_uses_caller_owned_transaction(
         target_id="target-1",
         payload={"label": "transactional"},
         occurred_at="2026-09-22T01:00:00+00:00",
+        event_schema_version=1,
     )
 
 
@@ -119,3 +125,49 @@ def test_events_are_immutable_and_prevent_campaign_deletion(
         event_store.conn.execute(
             "DELETE FROM campaigns WHERE campaign_id = ?", ("campaign-1",)
         )
+
+
+def test_new_appends_store_schema_generation_1(event_store: EventStore) -> None:
+    persisted = event_store.append("campaign-1", _event("versioned"))
+    assert persisted.event_schema_version == CURRENT_EVENT_SCHEMA_VERSION == 1
+    assert "event_schema_version" not in GameEvent.__dataclass_fields__
+    reread = event_store.read("campaign-1")
+    assert reread[0].event_schema_version == 1
+
+
+def test_legacy_rows_stay_generation_0(event_store: EventStore) -> None:
+    event_store.conn.execute(
+        "INSERT INTO events "
+        "(campaign_id, sequence, event_type, payload, occurred_at, event_schema_version) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "campaign-1",
+            1,
+            "fact.proposed",
+            "{}",
+            "2026-09-22T00:00:00Z",
+            0,
+        ),
+    )
+    assert event_store.read("campaign-1")[0].event_schema_version == 0
+
+
+def test_unknown_schema_generation_is_rejected() -> None:
+    with pytest.raises(ValueError, match="schema generation"):
+        project_campaign(
+            (
+                PersistedEvent(
+                    campaign_id="campaign-1",
+                    sequence=1,
+                    event_type="canon.contradiction_detected",
+                    session_id=None,
+                    scene_id=None,
+                    actor_id=None,
+                    target_id=None,
+                    payload={},
+                    occurred_at="2026-09-22T00:00:00Z",
+                    event_schema_version=99,
+                ),
+            )
+        )
+

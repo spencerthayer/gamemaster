@@ -28,6 +28,9 @@ from tabletop.campaign.store import CampaignStore
 from tabletop.storage.sqlite import transaction
 
 
+CURRENT_EVENT_SCHEMA_VERSION = 1
+
+
 class EventType(str, Enum):
     """Closed set of campaign event type strings."""
 
@@ -115,6 +118,7 @@ class PersistedEvent:
     target_id: str | None
     payload: Mapping[str, Any]
     occurred_at: str
+    event_schema_version: int = 0
 
 
 class EventStore:
@@ -166,7 +170,8 @@ class EventStore:
         conn.execute(
             "INSERT INTO events "
             "(campaign_id, sequence, event_type, session_id, scene_id, actor_id, "
-            "target_id, payload, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "target_id, payload, occurred_at, event_schema_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 campaign_id,
                 sequence,
@@ -177,6 +182,7 @@ class EventStore:
                 None if event.target is None else event.target.id,
                 json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
                 occurred_at,
+                CURRENT_EVENT_SCHEMA_VERSION,
             ),
         )
         return PersistedEvent(
@@ -189,6 +195,7 @@ class EventStore:
             target_id=None if event.target is None else event.target.id,
             payload=payload,
             occurred_at=occurred_at,
+            event_schema_version=CURRENT_EVENT_SCHEMA_VERSION,
         )
 
     def read(
@@ -200,7 +207,8 @@ class EventStore:
     ) -> list[PersistedEvent]:
         sql = (
             "SELECT campaign_id, sequence, event_type, session_id, scene_id, "
-            "actor_id, target_id, payload, occurred_at FROM events "
+            "actor_id, target_id, payload, occurred_at, event_schema_version "
+            "FROM events "
             "WHERE campaign_id = ? AND sequence > ? ORDER BY sequence"
         )
         parameters: tuple[Any, ...] = (campaign_id, since)
@@ -358,4 +366,5 @@ def _event_from_row(row: sqlite3.Row) -> PersistedEvent:
         target_id=row["target_id"],
         payload=json.loads(row["payload"]),
         occurred_at=row["occurred_at"],
+        event_schema_version=int(row["event_schema_version"]),
     )
