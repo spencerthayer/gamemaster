@@ -91,6 +91,35 @@ Data supplied to a plugin for one resolve call. Not a service locator.
 Omega handle, LLM client, or retriever. The plugin reads this snapshot
 and returns requested changes on `Resolution`.
 
+The runtime exposes this canonical state tree:
+
+```text
+ResolutionContext.state
+{
+  "campaign": {
+    "system": { ... }          # campaign-level system-owned state
+  },
+  "entities": {
+    "<entity-id>": {
+      "system": { ... }        # entity system_state, plugin-owned
+      "metadata": { ... }      # generic metadata, core-owned shape
+    }
+  },
+  "scene": {
+    "system": { ... }          # active scene system-owned state
+  }
+}
+```
+
+A plugin `StateChange.path` must start with `campaign`, `entities`, or
+`scene`. The persistence adapter maps `("campaign", "system", ...)` to
+campaign system state, `("entities", "<entity-id>", "system", ...)` to
+that existing campaign entity's system state, and
+`("scene", "system", ...)` to the explicitly selected scene's system state.
+A plugin may write only under `system`. Metadata, ownership, provenance,
+canon, knowledge, and visibility are core-owned and cannot be changed
+through these paths. Plugins never see table or column names.
+
 ## StateChange
 
 A desired mutation. The runtime can apply generic operations without

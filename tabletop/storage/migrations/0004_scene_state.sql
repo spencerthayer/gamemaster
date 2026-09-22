@@ -1,0 +1,2 @@
+ALTER TABLE scenes
+ADD COLUMN system_state TEXT NOT NULL DEFAULT '{}';
