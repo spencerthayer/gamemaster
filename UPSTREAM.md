@@ -30,3 +30,8 @@ Omega-facing plugin.
 No Omega agent-loop, provider, channel, memory, or plugin-loader implementation
 is modified by Phase 5. The adapter uses Omega's existing plugin extension
 points.
+
+## Tabletop-only dependencies
+
+- `pypdf==6.19.0` extracts text from tabletop PDF source documents. It is a
+  tabletop addition, not an Omega requirement.
