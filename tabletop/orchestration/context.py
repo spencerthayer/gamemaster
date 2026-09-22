@@ -127,12 +127,22 @@ class ContextRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextDecision:
+    """Why one candidate was kept, compacted, or dropped."""
+
+    action: str
+    reason: str
+    estimated_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
 class Context:
     """Selected entries and the computed token accounting."""
 
     entries: tuple[ContextEntry, ...]
     budget: int
     used_tokens: int
+    trace: tuple[ContextDecision, ...] = ()
 
 
 def estimate_tokens(content: str) -> int:
@@ -333,10 +343,20 @@ def build_context(request: ContextRequest) -> Context:
         budget=budget,
         per_entry_ceiling=request.per_entry_ceiling,
     )
+    selected_ids = {id(entry) for entry in entries}
+    trace = tuple(
+        ContextDecision(
+            action="selected" if id(entry) in selected_ids else "dropped",
+            reason="within budget" if id(entry) in selected_ids else "over budget or ceiling",
+            estimated_tokens=entry.token_cost,
+        )
+        for entry in records
+    )
     return Context(
         entries=entries,
         budget=budget,
         used_tokens=sum(entry.token_cost for entry in entries),
+        trace=trace,
     )
 
 

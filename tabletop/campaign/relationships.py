@@ -214,6 +214,47 @@ def _visible_edges_clause(viewpoint: Viewpoint) -> tuple[str, tuple[str, ...]]:
     return f"visibility IN ({placeholders})", ordered_scopes
 
 
+def resolve_relationship_overlay(
+    conn: sqlite3.Connection,
+    *,
+    campaign_id: str,
+    setting_id: str | None,
+    entity_id: str,
+    as_of: str,
+    viewpoint: Viewpoint,
+) -> tuple[RelationshipEdge, ...]:
+    """Return campaign edges plus setting edges they do not supersede."""
+
+    campaign_edges = query_edges(
+        conn,
+        owner_scope="campaign",
+        entity_id=entity_id,
+        as_of=as_of,
+        viewpoint=viewpoint,
+        campaign_id=campaign_id,
+    )
+    if setting_id is None:
+        return campaign_edges
+    setting_edges = query_edges(
+        conn,
+        owner_scope="setting",
+        entity_id=entity_id,
+        as_of=as_of,
+        viewpoint=viewpoint,
+        setting_id=setting_id,
+    )
+    covered = {
+        (edge.source_id, edge.relationship_type, edge.target_id)
+        for edge in campaign_edges
+    }
+    extras = tuple(
+        edge
+        for edge in setting_edges
+        if (edge.source_id, edge.relationship_type, edge.target_id) not in covered
+    )
+    return campaign_edges + extras
+
+
 def _edge_from_row(row: sqlite3.Row) -> RelationshipEdge:
     return RelationshipEdge(
         relationship_id=row["relationship_id"],

@@ -27,7 +27,7 @@ from tabletop.api.errors import (
 )
 from tabletop.api.events import GameEvent
 from tabletop.api.resolution import StateChange, StateOperation
-from tabletop.api.visibility import Viewpoint, parse_scope
+from tabletop.api.visibility import gm_viewpoint
 from tabletop.api.workspace import Workspace, parse_workspace, skill_registration_entries
 from tabletop.campaign.event_store import (
     EventStore,
@@ -36,7 +36,7 @@ from tabletop.campaign.event_store import (
     reveal_fact as reveal_campaign_fact,
 )
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
-from tabletop.campaign.relationships import query_edges
+from tabletop.campaign.relationships import resolve_relationship_overlay
 from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
 from tabletop.campaign.setting_events import SettingEventStore, SettingEventType
 from tabletop.campaign.store import CampaignStore
@@ -360,7 +360,7 @@ class TabletopRuntime:
                 "Active campaign was not found.",
                 data={"campaign": campaign_id},
             )
-        viewpoint = Viewpoint(scope=parse_scope("GM"))
+        viewpoint = gm_viewpoint()
         needle = query.strip().lower()
         facts = store.get_facts(campaign_id, viewpoint=viewpoint)
         if needle:
@@ -511,7 +511,7 @@ class TabletopRuntime:
         chunk = load_visible_chunk(
             self._connection,
             chunk_key,
-            viewpoint=Viewpoint(scope=parse_scope("GM")),
+            viewpoint=gm_viewpoint(),
         )
         if chunk is None:
             return self._error(
@@ -581,13 +581,13 @@ class TabletopRuntime:
             )
         as_of = datetime.now(timezone.utc).date().isoformat()
         try:
-            edges = query_edges(
+            edges = resolve_relationship_overlay(
                 self._connection,
-                owner_scope="campaign",
+                campaign_id=campaign_id,
+                setting_id=self._owned_setting_id(),
                 entity_id=entity_key,
                 as_of=as_of,
-                viewpoint=Viewpoint(scope=parse_scope("GM")),
-                campaign_id=campaign_id,
+                viewpoint=gm_viewpoint(),
             )
         except (LookupError, ValueError) as exc:
             return self._error("get-relationships", "relationships_not_queried", str(exc))

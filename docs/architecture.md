@@ -25,6 +25,11 @@ Tabletop Runtime
    +-- Source Document Store
 ```
 
+The registered tabletop skill surface is GM-only. Campaign and setting
+workspaces expose GM operations. They do not accept a viewpoint, scope, or
+character argument. A player workspace would have to omit those operations
+rather than filter them.
+
 ## Who owns what
 
 | Layer | Owns | Must not |

@@ -1,53 +1,51 @@
 ---
 name: Gamemaster post-first-draft hardening
-overview: 'Close reconstruction, refetch, lifecycle, integration, and deployment gaps before expanding the platform.'
+overview: Close reconstruction, refetch, lifecycle, integration, and deployment gaps before expanding the platform.
 todos:
   - id: task-01-archive-historical-plans
     content: Mark the completed first-draft plans superseded and point them at this plan
-    status: pending
-    dependencies: []
+    status: completed
   - id: task-02-mutation-replay-contract
     content: Add a failing contract that maps every authoritative mutation to an event and a replay result
-    status: pending
-    dependencies: []
+    status: completed
   - id: task-02a-event-schema-version
     content: Add a persisted event schema generation before any payload is enriched
-    status: pending
+    status: completed
     dependencies:
       - task-02-mutation-replay-contract
   - id: task-03-replay-quest-state
     content: Replay quest.mutated into CampaignProjection and prove it matches stored quest state
-    status: pending
+    status: completed
     dependencies:
       - task-02a-event-schema-version
   - id: task-04-replay-ruling-state
     content: Replay ruling.recorded and ruling.promoted into the campaign projection
-    status: pending
+    status: completed
     dependencies:
       - task-03-replay-quest-state
   - id: task-05-session-start-and-replay
     content: Add start-session and replay session.started and session.ended into session state
-    status: pending
+    status: completed
     dependencies:
       - task-04-replay-ruling-state
   - id: task-06-setting-event-log
     content: Append immutable setting events for setting, world-entity, and world-history writes
-    status: pending
+    status: completed
     dependencies:
       - task-05-session-start-and-replay
   - id: task-07-replay-fact-lifecycle
     content: Carry enough fact payload to replay new campaign facts to the stored row
-    status: pending
+    status: completed
     dependencies:
       - task-06-setting-event-log
   - id: task-07a-replay-fidelity-and-model-doc
     content: Report replay fidelity per campaign and refresh the campaign model document
-    status: pending
+    status: completed
     dependencies:
       - task-07-replay-fact-lifecycle
   - id: task-08-chunk-refetch-route
     content: Register get-chunk and store it on lexical and vector source references
-    status: pending
+    status: in_progress
     dependencies:
       - task-07a-replay-fidelity-and-model-doc
   - id: task-09-compaction-refetch-roundtrip

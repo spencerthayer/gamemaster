@@ -174,17 +174,24 @@ class CampaignStore:
     def get_facts(
         self, campaign_id: str, *, viewpoint: Viewpoint
     ) -> list[Fact]:
+        if not isinstance(viewpoint, Viewpoint):
+            raise TypeError("get_facts requires an explicit Viewpoint")
         visibility_clause, visibility_params = visible_facts_clause(viewpoint)
+        campaign = self.get_campaign(campaign_id)
+        setting_id = None if campaign is None else campaign.get("setting_id")
         rows = self.conn.execute(
             "SELECT fact_id, fact_scope, setting_id, campaign_id, subject_id, "
             "predicate, value, canon_state, knowledge_state, visibility, valid_from, "
             "valid_until, source_document_id, source_chunk_id, import_job_id, "
             "extraction_method, source_ownership, created_at "
-            f"FROM facts WHERE campaign_id = ? AND ({visibility_clause}) "
+            "FROM facts WHERE ("
+            "(fact_scope = 'campaign' AND campaign_id = ?) OR "
+            "(fact_scope = 'setting' AND setting_id = ?)"
+            f") AND ({visibility_clause}) "
             "ORDER BY created_at, fact_id",
-            (campaign_id, *visibility_params),
+            (campaign_id, setting_id, *visibility_params),
         ).fetchall()
-        return [_fact_from_row(row) for row in rows]
+        return resolve_fact_overlay([_fact_from_row(row) for row in rows])
 
     def apply_state_changes(
         self,
@@ -286,6 +293,23 @@ class CampaignStore:
             )
         else:
             assert_never(target_kind)
+
+
+def resolve_fact_overlay(facts: list[Fact]) -> list[Fact]:
+    """Drop setting facts whose subject and predicate a campaign fact already states."""
+
+    campaign_keys = {
+        (fact.subject_id, fact.predicate)
+        for fact in facts
+        if fact.fact_scope is FactScope.CAMPAIGN
+    }
+    kept = [
+        fact
+        for fact in facts
+        if fact.fact_scope is FactScope.CAMPAIGN
+        or (fact.subject_id, fact.predicate) not in campaign_keys
+    ]
+    return sorted(kept, key=lambda fact: (fact.created_at, fact.fact_id))
 
 
 def _encode_json(value: Any) -> str:

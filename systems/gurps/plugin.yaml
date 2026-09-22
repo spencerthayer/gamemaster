@@ -1,0 +1,6 @@
+id: gurps
+name: GURPS Minimal Plugin
+api_version: tabletop/v1
+version: 0.1.0
+entrypoint: gurps:GurpsPlugin
+description: Minimal GURPS checks for roll-under, contests, defense, damage resistance, hit location, and fatigue.
