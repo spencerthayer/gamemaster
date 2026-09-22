@@ -1,0 +1,48 @@
+id: dnd5e-demo
+name: The Ruined Watchtower
+system_id: dnd5e
+rules_revision: 2014
+initial_state: {}
+entities:
+  hero:
+    name: Mara Venn
+    entity_type: character
+    system_state:
+      armor_class: 16
+      hit_points: 12
+      max_hit_points: 20
+      speed: 30
+      position:
+        x: 0
+        y: 0
+      conditions: []
+      abilities:
+        strength: 16
+        dexterity: 14
+        constitution: 12
+        intelligence: 10
+        wisdom: 10
+        charisma: 8
+      resources:
+        hit_dice: 2
+  goblin:
+    name: Watchtower Goblin
+    entity_type: npc
+    system_state:
+      armor_class: 13
+      hit_points: 7
+      max_hit_points: 7
+      speed: 30
+      position:
+        x: 5
+        y: 0
+      conditions: []
+      abilities:
+        strength: 8
+        dexterity: 14
+        constitution: 10
+        intelligence: 10
+        wisdom: 8
+        charisma: 8
+      resources:
+        hit_dice: 1
