@@ -23,13 +23,19 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 def test_builtin_systems_load_through_generic_pipeline():
     runtime = TabletopRuntime(_REPO_ROOT, workspace=Workspace.CAMPAIGN)
     systems = {record["id"]: record for record in runtime.systems()}
+    freeform_capabilities = [
+        "action-resolution",
+        "dice",
+        "opposed-resolution",
+        "resource-tracking",
+    ]
     assert set(systems) == {"freeform", "dnd5e"}
     assert systems["freeform"]["name"] == "Freeform Reference System"
     assert systems["freeform"]["version"] == "0.1.0"
     assert systems["freeform"]["api_version"] == "tabletop/v1"
-    assert systems["freeform"]["capabilities"] == ["dice"]
+    assert systems["freeform"]["capabilities"] == freeform_capabilities
     assert systems["dnd5e"]["capabilities"] == []
-    assert runtime.system_capabilities("freeform") == ["dice"]
+    assert runtime.system_capabilities("freeform") == freeform_capabilities
 
 
 def test_builtin_systems_are_registered_not_hardcoded():

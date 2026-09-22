@@ -127,11 +127,18 @@ def test_minimal_plugin_instantiates_and_lifecycle_defaults_are_safe():
     plugin.shutdown()
 
 
-def test_freeform_plugin_conforms_and_advertises_dice():
+def test_freeform_plugin_conforms_and_advertises_implemented_capabilities():
     plugin = FreeformPlugin()
     assert plugin.info.id == "freeform"
     assert plugin.info.api_version == TABLETOP_PLUGIN_API_VERSION
-    assert plugin.capabilities() == frozenset({Capability.DICE})
+    assert plugin.capabilities() == frozenset(
+        {
+            Capability.DICE,
+            Capability.ACTION_RESOLUTION,
+            Capability.OPPOSED_RESOLUTION,
+            Capability.RESOURCE_TRACKING,
+        }
+    )
     assert plugin.character_schema() == {}
     assert plugin.state_schema() == {}
     assert plugin.rule_namespaces() == frozenset()

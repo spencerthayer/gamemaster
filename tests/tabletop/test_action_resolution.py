@@ -472,9 +472,9 @@ def test_plugin_resolve_can_be_called_and_returns_resolution():
     assert result.rolls == ()
 
 
-def test_freeform_advertises_dice_but_not_action_resolution():
+def test_freeform_advertises_dice_and_action_resolution():
     plugin = FreeformPlugin()
-    assert not plugin.supports(Capability.ACTION_RESOLUTION)
+    assert plugin.supports(Capability.ACTION_RESOLUTION)
     assert plugin.supports(Capability.DICE)
 
 
