@@ -2,15 +2,18 @@
 
 import importlib.util
 import json
+import re
+import sqlite3
 from pathlib import Path
 
 import yaml
 
 from tabletop.api.workspace import Workspace
-from tabletop.runtime import TabletopRuntime
+from tabletop.runtime import DATABASE_PATH_ENV_VAR, TabletopRuntime
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADAPTER_PATH = _REPO_ROOT / "plugins" / "tabletop" / "omega_tabletop_adapter.py"
+_ENTRYPOINT_PATH = _REPO_ROOT / "entrypoint.sh"
 _SKILLS = {
     "current-campaign",
     "current-scene",
@@ -136,3 +139,43 @@ def test_plugin_config_uses_metta_loader():
             "location": "{REPO}/plugins/tabletop",
         }
     ]
+
+
+def test_entrypoint_preserves_tabletop_runtime_environment():
+    entrypoint = _ENTRYPOINT_PATH.read_text()
+    match = re.search(r'SAFE_VARS="(?P<vars>.*?)"\n\n', entrypoint, re.DOTALL)
+
+    assert match is not None
+    allowlist = set(match.group("vars").replace("\\\n", "").split())
+    assert {
+        "TABLETOP_WORKSPACE",
+        "TABLETOP_CAMPAIGN",
+        "TABLETOP_CAMPAIGN_PATHS",
+        "TABLETOP_PLUGIN_PATH",
+        "TABLETOP_DATABASE_PATH",
+    } <= allowlist
+
+
+def test_from_environment_creates_and_migrates_configured_database(tmp_path):
+    (tmp_path / "systems").mkdir()
+    database_path = tmp_path / "state" / "tabletop.sqlite3"
+
+    runtime = TabletopRuntime.from_environment(
+        tmp_path,
+        environ={
+            "TABLETOP_WORKSPACE": "campaign",
+            DATABASE_PATH_ENV_VAR: str(database_path),
+        },
+    )
+
+    assert database_path.is_file()
+    assert runtime.query_setting("") == {
+        "ok": True,
+        "operation": "query-setting",
+        "data": {"settings": [], "query": ""},
+    }
+    with sqlite3.connect(database_path) as conn:
+        migration_count = conn.execute(
+            "SELECT COUNT(*) FROM schema_migrations"
+        ).fetchone()[0]
+    assert migration_count > 0

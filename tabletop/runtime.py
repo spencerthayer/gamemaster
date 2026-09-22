@@ -26,11 +26,14 @@ from tabletop.orchestration.session import SessionLifecycle
 from tabletop.orchestration.turn import parse_game_action, play_turn
 from tabletop.plugins.discovery import discover_plugins, load_plugin
 from tabletop.plugins.registry import PluginRegistry
+from tabletop.storage.sqlite import connect as connect_database
+from tabletop.storage.sqlite import migrate
 
 PLUGIN_PATH_ENV_VAR = "TABLETOP_PLUGIN_PATH"
 CAMPAIGN_PATHS_ENV_VAR = "TABLETOP_CAMPAIGN_PATHS"
 CAMPAIGN_ENV_VAR = "TABLETOP_CAMPAIGN"
 WORKSPACE_ENV_VAR = "TABLETOP_WORKSPACE"
+DATABASE_PATH_ENV_VAR = "TABLETOP_DATABASE_PATH"
 
 
 class TabletopRuntime:
@@ -123,13 +126,30 @@ class TabletopRuntime:
         env_plugin_roots = cls._paths_from_env(env.get(PLUGIN_PATH_ENV_VAR), defaults=())
         plugin_roots = tuple(dict.fromkeys((*env_plugin_roots, root / "systems")))
         active_campaign = env.get(CAMPAIGN_ENV_VAR) or None
-        return cls(
-            root,
-            workspace=workspace,
-            campaign_roots=campaign_roots,
-            plugin_roots=plugin_roots,
-            active_campaign=active_campaign,
-        )
+        connection = None
+        database_path_value = env.get(DATABASE_PATH_ENV_VAR)
+        if database_path_value:
+            database_path = Path(database_path_value).expanduser()
+            database_path.parent.mkdir(parents=True, exist_ok=True)
+            connection = connect_database(database_path)
+            try:
+                migrate(connection)
+            except BaseException:
+                connection.close()
+                raise
+        try:
+            return cls(
+                root,
+                workspace=workspace,
+                campaign_roots=campaign_roots,
+                plugin_roots=plugin_roots,
+                active_campaign=active_campaign,
+                connection=connection,
+            )
+        except BaseException:
+            if connection is not None:
+                connection.close()
+            raise
 
     @staticmethod
     def _paths_from_env(value: str | None, *, defaults: tuple[Path, ...]) -> tuple[Path, ...]:
