@@ -10,6 +10,7 @@ from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.store import CampaignStore
 from tabletop.documents.provenance import (
+    purge_document,
     purge_facts_for_document,
     purge_facts_for_document_in_transaction,
 )
@@ -149,3 +150,115 @@ def test_purge_groups_events_by_campaign_and_skips_null_campaign(conn) -> None:
     assert EventStore(conn).read("campaign-2")[0].payload == {
         "fact_ids": ["campaign-2-fact"]
     }
+
+
+def _seed_documents(conn) -> None:
+    for document_id, content_hash in (
+        ("document-1", "hash-document-1"),
+        ("document-2", "hash-document-2"),
+    ):
+        conn.execute(
+            "INSERT INTO documents "
+            "(document_id, content_hash, source_path, title, document_shape, "
+            "content_pack_id, system_id, visibility, ingested_at) "
+            "VALUES (?, ?, ?, ?, 'prose', NULL, NULL, 'GM', ?)",
+            (
+                document_id,
+                content_hash,
+                f"/tmp/{document_id}.md",
+                document_id,
+                "2026-09-22T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO document_chunks "
+            "(chunk_id, document_id, ordinal, heading_path, page, text, "
+            "content_hash, content_pack_id, system_id, visibility) "
+            "VALUES (?, ?, 0, ?, NULL, ?, ?, NULL, NULL, 'GM')",
+            (
+                f"{document_id}-chunk-0",
+                document_id,
+                '["Root"]',
+                f"text for {document_id}",
+                f"chunk-{content_hash}",
+            ),
+        )
+
+
+def test_purge_document_removes_attached_facts_chunks_and_document(conn) -> None:
+    _seed_documents(conn)
+    store = CampaignStore(conn)
+    store.add_fact(_campaign_fact("imported-attached"))
+    store.add_fact(
+        _campaign_fact(
+            "imported-detached",
+            canon_state=CanonState.CONFIRMED,
+            source_ownership="detached",
+        )
+    )
+    store.add_fact(_campaign_fact("other-document", document_id="document-2"))
+
+    removed = purge_document(conn, "document-1")
+
+    assert removed == ["imported-attached"]
+    assert _fact_ids(conn) == ["imported-detached", "other-document"]
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE document_id = ?",
+            ("document-1",),
+        ).fetchone()["n"]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM document_chunks WHERE document_id = ?",
+            ("document-1",),
+        ).fetchone()["n"]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE document_id = ?",
+            ("document-2",),
+        ).fetchone()["n"]
+        == 1
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM document_chunks WHERE document_id = ?",
+            ("document-2",),
+        ).fetchone()["n"]
+        == 1
+    )
+
+    events = EventStore(conn).read("campaign-1")
+    assert [event.event_type for event in events] == [
+        EventType.PROVENANCE_PURGED.value,
+        EventType.DOCUMENT_PURGED.value,
+    ]
+    assert events[0].payload == {"fact_ids": removed}
+    assert events[1].payload == {"fact_ids": removed, "document_id": "document-1"}
+
+
+def test_purge_document_is_one_transaction_and_rolls_back_document(conn) -> None:
+    _seed_documents(conn)
+    CampaignStore(conn).add_fact(_campaign_fact("caller-owned"))
+    conn.execute(
+        "CREATE TEMP TRIGGER fail_document_delete "
+        "BEFORE DELETE ON documents BEGIN "
+        "SELECT RAISE(ABORT, 'document delete failed'); "
+        "END"
+    )
+
+    with pytest.raises(Exception, match="document delete failed"):
+        purge_document(conn, "document-1")
+
+    assert _fact_ids(conn) == ["caller-owned"]
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE document_id = ?",
+            ("document-1",),
+        ).fetchone()["n"]
+        == 1
+    )
+    assert EventStore(conn).read("campaign-1") == []

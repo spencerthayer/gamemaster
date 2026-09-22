@@ -19,6 +19,10 @@ class InvalidProposedExtractionError(ValueError):
     """Raised when proposed extraction data violates its transport schema."""
 
 
+# Closed set of extractor versions the import gate may accept.
+KNOWN_EXTRACTOR_VERSIONS: frozenset[str] = frozenset({"extractor-1"})
+
+
 def _reject_unknown_fields(
     value: Mapping[str, Any],
     model_type: type[Any],

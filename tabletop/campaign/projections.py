@@ -102,6 +102,8 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
             case EventType.PROVENANCE_PURGED:
                 for fact_id in event.payload.get("fact_ids", ()):
                     facts.pop(str(fact_id), None)
+            case EventType.DOCUMENT_PURGED:
+                pass
             case EventType.CANON_CONTRADICTION_DETECTED:
                 pass
             case EventType.FACT_PROPOSED:

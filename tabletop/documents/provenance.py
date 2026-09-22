@@ -59,3 +59,56 @@ def purge_facts_for_document(
 
     with transaction(conn):
         return purge_facts_for_document_in_transaction(conn, document_id)
+
+
+def purge_document(conn: sqlite3.Connection, document_id: str) -> list[str]:
+    """Purge attached facts, chunks, and the document row in one transaction.
+
+    Composition::
+
+        purge_document(conn, document_id)          # opens the one transaction
+            |
+            +-- purge_facts_for_document_in_transaction(...)   # task 14 primitive
+            +-- delete document_chunks rows
+            +-- delete documents row
+            +-- append document.purged naming the removed fact ids
+            |
+            single transaction
+    """
+
+    with transaction(conn):
+        campaign_rows = conn.execute(
+            "SELECT DISTINCT campaign_id FROM facts "
+            "WHERE source_document_id = ? AND source_ownership = 'attached' "
+            "AND campaign_id IS NOT NULL "
+            "ORDER BY campaign_id",
+            (document_id,),
+        ).fetchall()
+        campaign_ids = [row["campaign_id"] for row in campaign_rows]
+
+        removed_ids = purge_facts_for_document_in_transaction(conn, document_id)
+
+        conn.execute(
+            "DELETE FROM document_chunks WHERE document_id = ?",
+            (document_id,),
+        )
+        conn.execute(
+            "DELETE FROM documents WHERE document_id = ?",
+            (document_id,),
+        )
+
+        event_store = EventStore(conn)
+        for campaign_id in campaign_ids:
+            event_store.append_in_transaction(
+                conn,
+                campaign_id,
+                GameEvent(
+                    event_type=EventType.DOCUMENT_PURGED.value,
+                    payload={
+                        "fact_ids": removed_ids,
+                        "document_id": document_id,
+                    },
+                ),
+            )
+
+        return removed_ids

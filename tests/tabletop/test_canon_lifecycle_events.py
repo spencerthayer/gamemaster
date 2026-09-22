@@ -269,6 +269,7 @@ def test_event_type_members_and_exhaustive_domain() -> None:
         "fact.revealed",
         "fact.detached",
         "provenance.purged",
+        "document.purged",
         "canon.contradiction_detected",
         "action.resolved",
         "ruling.recorded",

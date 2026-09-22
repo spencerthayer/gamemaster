@@ -36,6 +36,7 @@ class EventType(str, Enum):
     FACT_REVEALED = "fact.revealed"
     FACT_DETACHED = "fact.detached"
     PROVENANCE_PURGED = "provenance.purged"
+    DOCUMENT_PURGED = "document.purged"
     CANON_CONTRADICTION_DETECTED = "canon.contradiction_detected"
     ACTION_RESOLVED = "action.resolved"
     RULING_RECORDED = "ruling.recorded"
@@ -57,7 +58,7 @@ def event_domain(event_type: EventType) -> str:
             | EventType.CANON_CONTRADICTION_DETECTED
         ):
             return "canon"
-        case EventType.PROVENANCE_PURGED:
+        case EventType.PROVENANCE_PURGED | EventType.DOCUMENT_PURGED:
             return "provenance"
         case (
             EventType.ACTION_RESOLVED

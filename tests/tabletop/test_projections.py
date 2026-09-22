@@ -336,6 +336,17 @@ def test_contradiction_and_payloadless_play_events_are_recognized() -> None:
             payload={},
             occurred_at="2026-09-22T00:00:06Z",
         ),
+        PersistedEvent(
+            campaign_id="campaign-1",
+            sequence=8,
+            event_type=EventType.DOCUMENT_PURGED.value,
+            session_id=None,
+            scene_id=None,
+            actor_id=None,
+            target_id=None,
+            payload={"fact_ids": [], "document_id": "doc-1"},
+            occurred_at="2026-09-22T00:00:07Z",
+        ),
     )
 
     projection = project_campaign(events)
