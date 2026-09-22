@@ -4,7 +4,7 @@ overview: 'Land the uncommitted Phase 9 mechanics boundary, then build the remai
 todos:
   - id: task-01-land-phase-9
     content: Verify the committed Phase 9 boundary and open its pull request
-    status: pending
+    status: in_progress
     dependencies: []
   - id: task-02-dice-parser
     content: Parse generic dice expressions into a frozen AST
@@ -377,7 +377,7 @@ Implemented and merged:
 - `tabletop/runtime.py`, `plugins/tabletop/` (MeTTa glue plus `omega_tabletop_adapter.py`), `systems/freeform/`, `systems/dnd5e/`
 - Docs: `architecture.md`, `plugin-api.md`, `action-resolution.md`, `research/`
 
-Phase 9 in commit `a43e082`: `ResolutionStatus` as a closed four-member set in `tabletop/api/resolution.py` with `requires_ruling` derived from it, the non-bypassable `resolve_action` guard in `tabletop/orchestration/turn.py`, `AdjudicationRequest` and `AdjudicationResult` in `tabletop/orchestration/adjudication.py`, 21 tests in `tests/tabletop/test_mechanics_boundary.py`, and doc updates to `action-resolution.md`, `architecture.md`, and `plugin-api.md`.
+Phase 9 in commit `a43e082`: `ResolutionStatus` as a closed four-member set in `tabletop/api/resolution.py` with `requires_ruling` derived from it, the non-bypassable `resolve_action` guard in `tabletop/orchestration/turn.py`, `AdjudicationRequest` and `AdjudicationResult` in `tabletop/orchestration/adjudication.py`, 25 tests in `tests/tabletop/test_mechanics_boundary.py`, and doc updates to `action-resolution.md`, `architecture.md`, and `plugin-api.md`.
 
 Still stub docstrings only: `tabletop/api/visibility.py`, `tabletop/campaign/*`, `tabletop/dice/*`, `tabletop/storage/sqlite.py`, `tabletop/documents/*`, `tabletop/retrieval/*`, `tabletop/orchestration/{context,session}.py`.
 
@@ -386,6 +386,8 @@ Owed docs: `campaign-model.md`, `retrieval.md`, `security.md`, `gurps-validation
 ## Working agreements
 
 **Use Python 3.11.** The system interpreter at `/usr/bin/python3` is 3.9.6 and fails collection, because the runtime uses `typing.assert_never` and PEP 604 unions at runtime. Every command below uses `python3.11`.
+
+Confirmed 2026-09-21: `python3.11` resolves to `/opt/homebrew/bin/python3.11` (3.11.16) with `pytest` and `PyYAML` importable, so the commands below run as written.
 
 Baseline on the current working tree:
 
@@ -600,7 +602,7 @@ python3.11 -m pytest tests/tabletop/test_mechanics_boundary.py -q
 python3.11 -m pytest tests/ -q
 ```
 
-Expected: 21 passed for the first, 248 passed for the second.
+Expected: 25 passed for the first, 248 passed for the second.
 
 **Step 4: Confirm the commit contains nothing unintended**
 
@@ -610,6 +612,22 @@ git status --short
 ```
 
 Expected: the ten paths above plus the plan-file update, and no `research/`, PDF, `.env`, or `.sqlite` entry. The working tree is clean apart from this plan file.
+
+**Verified 2026-09-21.** Steps 1 through 4 pass against the working tree:
+
+- `ResolutionStatus` has exactly the four members, `requires_ruling` is a
+  property rather than a field, and `__post_init__` enforces the per-status
+  rules as described.
+- `resolve_action` has no branch that constructs a result from orchestration
+  data. `UNSUPPORTED` is returned only for a system lacking the capability.
+- `pytest tests/tabletop/test_mechanics_boundary.py -q` gives 25 passed;
+  `pytest tests/ -q` gives 248 passed.
+- `a43e082` touches ten paths: the nine listed above plus
+  `.agents/plans/2026-09-06-tabletop-platform.md`. No `research/`, PDF,
+  `.env`, or `.sqlite` entry. The working tree is clean.
+
+Remaining: step 5 only. The branch has no remote ref yet
+(`git ls-remote --heads origin phase-9-mechanics-boundary` returns nothing).
 
 **Step 5: Push and open the PR**
 
