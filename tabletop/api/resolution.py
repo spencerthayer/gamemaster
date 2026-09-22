@@ -7,6 +7,11 @@ mutate authoritative campaign persistence through the context.
 
 ``outcome`` is owned by the game-system plugin. The generic runtime does
 not require success, failure, damage, or margin keys.
+
+``ResolutionStatus`` (Phase 9) is the closed set of ways a resolve call can
+end. It is deliberately separate from ``outcome``: status is the runtime's
+business, outcome is the plugin's. A status other than ``RESOLVED`` is never
+permission to invent a mechanical result.
 """
 
 from __future__ import annotations
@@ -175,6 +180,44 @@ class RollResult:
         }
 
 
+class ResolutionStatus(str, Enum):
+    """How a resolve call ended. Closed set, not a boolean.
+
+    ``RESOLVED``
+        A deterministic mechanical result exists.
+    ``RULING_REQUIRED``
+        Enough information exists, but the rules intentionally leave a
+        judgment call to the GM.
+    ``UNRESOLVED``
+        The system implements this mechanic, but required facts, rules, or
+        data are missing.
+    ``UNSUPPORTED``
+        This plugin does not implement the mechanic at all.
+
+    The three non-resolved states may all reach the same adjudication
+    interface, but they are different problems and must not be presented to
+    the GM identically. None of them licenses fabricated mechanical values.
+    """
+
+    RESOLVED = "resolved"
+    RULING_REQUIRED = "ruling-required"
+    UNRESOLVED = "unresolved"
+    UNSUPPORTED = "unsupported"
+
+
+def _coerce_resolution_status(value: "ResolutionStatus | str") -> "ResolutionStatus":
+    if isinstance(value, ResolutionStatus):
+        return value
+    if isinstance(value, str):
+        try:
+            return ResolutionStatus(value)
+        except ValueError:
+            pass
+    raise InvalidResolutionError(
+        f"status must be one of {[s.value for s in ResolutionStatus]}, got {value!r}"
+    )
+
+
 @dataclass(frozen=True)
 class Resolution:
     """Structured mechanical outcome of ``GameSystemPlugin.resolve``.
@@ -183,16 +226,28 @@ class Resolution:
     not require keys such as success, failure, damage, or margin.
     ``explanation`` is a human-readable account of the resolver's
     mechanical decision, not scene narration, LLM prose, or dialogue.
-    ``requires_ruling`` True requires a non-empty ``ruling_question``;
-    False forbids one.
+
+    ``status`` (Phase 9) carries the policy invariants, and
+    ``requires_ruling`` is derived from it so the two can never disagree:
+
+    - ``RULING_REQUIRED`` requires a non-empty ``ruling_question``; every
+      other status forbids one.
+    - ``UNRESOLVED`` and ``UNSUPPORTED`` carry no mechanical result: empty
+      ``outcome``, no rolls, no state changes, no events. They require an
+      ``explanation`` so the GM learns what is actually missing.
+      ``rule_references`` stay allowed, since pointing at the relevant rule
+      is the useful part.
+    - ``RULING_REQUIRED`` may carry rolls and outcome data, but must not
+      request state changes or propose events: nothing is settled until the
+      GM rules.
     """
 
     outcome: Mapping[str, Any]
+    status: ResolutionStatus = ResolutionStatus.RESOLVED
     rolls: tuple[RollResult, ...] = ()
     state_changes: tuple[StateChange, ...] = ()
     rule_references: tuple[RuleReference, ...] = ()
     events: tuple[GameEvent, ...] = ()
-    requires_ruling: bool = False
     ruling_question: str | None = None
     explanation: str | None = None
 
@@ -229,21 +284,58 @@ class Resolution:
             "events",
             freeze_tuple(self.events, GameEvent, "events", InvalidResolutionError),
         )
-        if not isinstance(self.requires_ruling, bool):
-            raise InvalidResolutionError("requires_ruling must be a bool")
-        if self.requires_ruling:
-            require_non_empty_str(
-                self.ruling_question, "ruling_question", InvalidResolutionError
-            )
-        elif self.ruling_question is not None:
-            raise InvalidResolutionError(
-                "ruling_question must be None when requires_ruling is False"
-            )
+        object.__setattr__(self, "status", _coerce_resolution_status(self.status))
         optional_non_empty_str(self.explanation, "explanation", InvalidResolutionError)
+        match self.status:
+            case ResolutionStatus.RESOLVED:
+                self._forbid_ruling_question()
+            case ResolutionStatus.RULING_REQUIRED:
+                require_non_empty_str(
+                    self.ruling_question, "ruling_question", InvalidResolutionError
+                )
+                self._forbid_fields(
+                    ("state_changes", "events"),
+                    "nothing is settled until the GM rules",
+                )
+            case ResolutionStatus.UNRESOLVED | ResolutionStatus.UNSUPPORTED:
+                self._forbid_ruling_question()
+                self._forbid_fields(
+                    ("rolls", "state_changes", "events"),
+                    "a non-resolved status carries no mechanical result",
+                )
+                if self.outcome:
+                    raise InvalidResolutionError(
+                        f"{self.status.value} resolutions must have an empty outcome: "
+                        "a non-resolved status carries no mechanical result"
+                    )
+                require_non_empty_str(
+                    self.explanation, "explanation", InvalidResolutionError
+                )
+            case _:
+                assert_never(self.status)
+
+    @property
+    def requires_ruling(self) -> bool:
+        """True only for ``RULING_REQUIRED``. Derived, never stored."""
+        return self.status is ResolutionStatus.RULING_REQUIRED
+
+    def _forbid_ruling_question(self) -> None:
+        if self.ruling_question is not None:
+            raise InvalidResolutionError(
+                "ruling_question is only valid when status is ruling-required"
+            )
+
+    def _forbid_fields(self, names: tuple[str, ...], reason: str) -> None:
+        for name in names:
+            if getattr(self, name):
+                raise InvalidResolutionError(
+                    f"{self.status.value} resolutions must not carry {name}: {reason}"
+                )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "outcome": to_jsonable(self.outcome),
+            "status": self.status.value,
             "rolls": [roll.to_dict() for roll in self.rolls],
             "state_changes": [change.to_dict() for change in self.state_changes],
             "rule_references": [ref.to_dict() for ref in self.rule_references],

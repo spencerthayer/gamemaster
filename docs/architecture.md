@@ -53,9 +53,13 @@ Tabletop Runtime
    locations, spell slots, mana, refresh, and sanity are meanings attached by
    plugins, not primitives of the core.
 4. **Deterministic mechanics are never skipped.** When a mechanic is known, the
-   plugin resolves it. If the plugin cannot decide, the runtime returns
-   `requires_ruling = True` with rule references and context. The LLM is never
-   allowed to fabricate an outcome that a plugin could have resolved.
+   plugin resolves it. A system advertising `ACTION_RESOLUTION` is always
+   called: `tabletop.orchestration.turn.resolve_action` is the only supported
+   path to a mechanical result and manufactures none of its own. When the
+   plugin cannot decide it returns `RULING_REQUIRED`, `UNRESOLVED`, or
+   `UNSUPPORTED` with rule references and context. The LLM is never allowed to
+   fabricate an outcome that a plugin could have resolved, and a missing
+   mechanic is not permission to invent one.
 5. **Campaign truth does not depend on vector-memory recall.** Facts live in a
    structured SQLite store fed by an append-only event log. Retrieval (lexical
    and vector) only helps the agent find material; it never defines truth.

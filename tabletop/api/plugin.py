@@ -134,8 +134,13 @@ class GameSystemPlugin(ABC):
         that describes outcome, optional rolls, desired state changes, and
         proposed events. They do not mutate authoritative campaign
         persistence through the context. When a plugin cannot decide
-        deterministically it must set ``requires_ruling`` rather than
-        fabricate an outcome (policy enforcement: Phase 9).
+        deterministically it must return a non-``RESOLVED``
+        ``ResolutionStatus`` rather than fabricate an outcome:
+        ``RULING_REQUIRED`` when the rules leave a judgment call,
+        ``UNRESOLVED`` when required facts are missing, ``UNSUPPORTED``
+        when this plugin does not implement the mechanic. The orchestrator
+        (``tabletop.orchestration.turn``) is the only supported path to a
+        mechanical result for a system advertising ``ACTION_RESOLUTION``.
         """
 
     def supports(self, capability: Capability) -> bool:

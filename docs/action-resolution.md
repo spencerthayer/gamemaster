@@ -169,9 +169,34 @@ Structured mechanical result of `resolve()`.
 | `state_changes` | Desired mutations; not yet applied persistence. |
 | `rule_references` | Transport citations. |
 | `events` | Proposed events. |
-| `requires_ruling` | True when the plugin cannot decide. |
-| `ruling_question` | Required and non-empty iff `requires_ruling` is True; otherwise None. |
-| `explanation` | Optional human-readable account of the mechanical decision. |
+| `status` | `ResolutionStatus`; defaults to `RESOLVED`. |
+| `ruling_question` | Required and non-empty iff `status` is `RULING_REQUIRED`; otherwise None. |
+| `explanation` | Human-readable account of the mechanical decision. Required for `UNRESOLVED` and `UNSUPPORTED`. |
+| `requires_ruling` | Derived property, True only for `RULING_REQUIRED`. Not a field. |
+
+### ResolutionStatus (Phase 9)
+
+A resolve call ends in exactly one of four states. The distinction matters
+because all three non-resolved states reach the GM, and they are different
+problems.
+
+| Status | Meaning | Presented as |
+|---|---|---|
+| `RESOLVED` | A deterministic mechanical result exists. | the outcome |
+| `RULING_REQUIRED` | Enough information exists; the rules leave a judgment call. | "The rules leave this to GM judgment." |
+| `UNRESOLVED` | The mechanic exists; facts, rules, or data are missing. | "Required information is missing." |
+| `UNSUPPORTED` | This plugin does not implement the mechanic. | "This system plugin does not implement this." |
+
+Invariants enforced by the dataclass:
+
+- `RULING_REQUIRED` needs a `ruling_question`; every other status forbids one.
+- `UNRESOLVED` and `UNSUPPORTED` carry no mechanical result: empty `outcome`,
+  no rolls, no state changes, no events. They require an `explanation`.
+  `rule_references` stay allowed.
+- `RULING_REQUIRED` may carry rolls and outcome data, but no state changes and
+  no events: nothing is settled until the GM rules.
+
+A missing mechanic is not permission to invent a mechanic.
 
 `explanation` is not scene narration, LLM prose, or character dialogue.
 Example: `"Roll total 14 meets target 12."` Not: `"Your sword bites into
@@ -185,8 +210,26 @@ the cultist."`
 
 Multi-stage mechanics belong in `outcome` (for example
 `status: awaiting-response`). There is no generic `defense_required`
-field. `requires_ruling` is for genuine GM adjudication, not for the next
+field. `RULING_REQUIRED` is for genuine GM adjudication, not for the next
 mechanical step a player or plugin still owns.
+
+## The orchestration guard (Phase 9)
+
+`tabletop.orchestration.turn.resolve_action(registry, action, context)` is
+the only supported path to a mechanical result. It looks up the system named
+by `context.system_id`, returns `UNSUPPORTED` when that system does not
+advertise `Capability.ACTION_RESOLUTION`, and otherwise calls the plugin and
+returns its `Resolution` unchanged. It contains no branch that produces a
+mechanical result itself. An unknown system id raises `PluginNotFoundError`
+(a configuration failure, not a game outcome); a plugin returning a
+non-`Resolution` raises `InvalidResolutionError`.
+
+`tabletop.orchestration.adjudication` carries the non-resolved cases across
+the boundary: `requires_adjudication()`, `adjudication_request()` building an
+`AdjudicationRequest` (status, action, context, detail, rule references, and
+a status-specific `headline`), and `AdjudicationResult`, whose `resolution`
+must be `RESOLVED` because a ruling ends the question. Phase 9 establishes
+when adjudication is reachable; it does not perform adjudication.
 
 ## Immutability and serialization
 

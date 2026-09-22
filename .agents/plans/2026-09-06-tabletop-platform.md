@@ -356,7 +356,43 @@ Core runtime asks plugin to resolve actions; core must not know meaning of AC,
 saving throw, hit location, spell slot, mana, refresh, sanity.
 
 ### Phase 9: Deterministic Mechanics Boundary
-Status: PENDING
+Status: COMPLETE on branch `phase-9-mechanics-boundary`, not yet merged.
+
+Done:
+- `ResolutionStatus` in `tabletop/api/resolution.py`: RESOLVED,
+  RULING_REQUIRED, UNRESOLVED, UNSUPPORTED. String-backed, coerced from its
+  wire value, rejects anything else.
+- `Resolution.status` replaces the stored `requires_ruling` flag;
+  `requires_ruling` is now a derived read-only property, so the two can
+  never disagree.
+- Invariants in `__post_init__`: only RULING_REQUIRED carries a
+  `ruling_question`; UNRESOLVED and UNSUPPORTED carry empty `outcome`, no
+  rolls, no state changes, no events, and require an `explanation`;
+  RULING_REQUIRED may carry rolls and outcome but no state changes and no
+  events. `rule_references` allowed in every state.
+- `tabletop/orchestration/turn.py`: `resolve_action(registry, action,
+  context)`. Returns UNSUPPORTED when the system lacks
+  `Capability.ACTION_RESOLUTION`, otherwise calls the plugin and returns its
+  `Resolution` unchanged. No branch produces a mechanical result.
+  `PluginNotFoundError` propagates (configuration failure, not a game
+  outcome); a non-`Resolution` return raises `InvalidResolutionError`.
+- `tabletop/orchestration/adjudication.py`: `requires_adjudication()`,
+  `adjudication_request()`, `AdjudicationRequest` (status, action, context,
+  detail, rule references, status-specific `headline`), `AdjudicationResult`
+  (non-empty decision; any attached resolution must be RESOLVED). No LLM
+  call, no prompt, no ruling persistence: Phase 9 establishes when
+  adjudication is reachable, not how it is performed.
+- Docs: `docs/action-resolution.md` status table, invariants, and
+  orchestration-guard section; `docs/plugin-api.md` resolve contract;
+  `docs/architecture.md` rule 4.
+- Tests: `tests/tabletop/test_mechanics_boundary.py` (26 tests) plus the
+  Phase 8 suite migrated to `status`. Full suite 248 passed on Python 3.14.
+
+Not in scope, deliberately: the LLM adjudicator itself, ruling persistence
+(Phase 23), and wiring `TabletopRuntime.resolve_action` to the orchestrator,
+which needs campaign state from Phase 11 to build a real
+`ResolutionContext`.
+
 TODO: encode LLM vs plugin boundary in code and docs. When deterministic resolution
 cannot decide: `requires_ruling = True` with rule refs and context. No LLM fabrication.
 
@@ -877,7 +913,7 @@ No placeholders presented as implemented.
 - [x] Phase 6: Game-system plugin API
 - [x] Phase 7: Plugin discovery
 - [x] Phase 8: Universal action and resolution models
-- [ ] Phase 9: Deterministic mechanics boundary
+- [x] Phase 9: Deterministic mechanics boundary
 - [ ] Phase 10: Dice engine
 - [ ] Phase 11-16: Campaign persistence, events, visibility, relationships, NPC
 - [ ] Phase 17-21: Content packs, document storage, ingestion, RAG

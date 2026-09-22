@@ -89,8 +89,13 @@ A plugin reads `ResolutionContext.state` and returns a `Resolution`. It
 does not mutate campaign persistence through the context. `outcome` is
 plugin-owned: the runtime does not require success, failure, damage, or
 margin keys. Dice are optional. A plugin that cannot resolve
-deterministically sets `requires_ruling=True` with a `ruling_question`
-(policy enforcement: Phase 9) rather than fabricate an outcome.
+deterministically returns a non-`RESOLVED` `ResolutionStatus` rather than
+fabricate an outcome: `RULING_REQUIRED` with a `ruling_question` when the
+rules leave a judgment call, `UNRESOLVED` with an `explanation` when required
+facts are missing, `UNSUPPORTED` when the plugin does not implement the
+mechanic. Callers reach plugins through
+`tabletop.orchestration.turn.resolve_action`, which cannot bypass a plugin
+that advertises `ACTION_RESOLUTION`.
 
 ## Schemas
 

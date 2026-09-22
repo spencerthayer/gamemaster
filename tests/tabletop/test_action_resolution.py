@@ -22,6 +22,7 @@ from tabletop.api.plugin import (
 from tabletop.api.resolution import (
     Resolution,
     ResolutionContext,
+    ResolutionStatus,
     RollResult,
     StateChange,
     StateOperation,
@@ -376,16 +377,18 @@ def test_resolution_accepts_multiple_rolls_changes_refs_and_events():
 def test_resolution_ruling_required_needs_a_question():
     ruling = Resolution(
         outcome={"status": "ambiguous"},
-        requires_ruling=True,
+        status=ResolutionStatus.RULING_REQUIRED,
         ruling_question="Does the gatekeeper accept flattery as payment?",
     )
     assert ruling.requires_ruling is True
     with pytest.raises(InvalidResolutionError):
-        Resolution(outcome={}, requires_ruling=True, ruling_question=None)
+        Resolution(outcome={}, status=ResolutionStatus.RULING_REQUIRED)
     with pytest.raises(InvalidResolutionError):
-        Resolution(outcome={}, requires_ruling=True, ruling_question="")
+        Resolution(
+            outcome={}, status=ResolutionStatus.RULING_REQUIRED, ruling_question=""
+        )
     with pytest.raises(InvalidResolutionError):
-        Resolution(outcome={}, requires_ruling=False, ruling_question="why?")
+        Resolution(outcome={}, ruling_question="why?")
 
 
 def test_resolution_outcome_mutation_does_not_rewrite_constructed_result():
@@ -453,7 +456,7 @@ class WavePlugin(GameSystemPlugin):
             return Resolution(outcome={"acknowledged": True})
         return Resolution(
             outcome={"status": "unknown-action"},
-            requires_ruling=True,
+            status=ResolutionStatus.RULING_REQUIRED,
             ruling_question="What does this action mean in play?",
         )
 
