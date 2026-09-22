@@ -69,7 +69,7 @@ todos:
       - task-12-event-store
       - task-08-canon-invariants
   - id: task-14-provenance-purge
-    content: Purge a source document by provenance ownership only
+    content: Purge provenance-owned fact records for a source document id
     status: pending
     dependencies:
       - task-13-canon-event-types
@@ -145,11 +145,13 @@ todos:
     dependencies:
       - task-26-resumable-jobs
   - id: task-28-deterministic-importer
-    content: Validate and import proposals without model credentials or network
+    content: Validate and import proposals, then compose the document purge service
     status: pending
     dependencies:
       - task-27-proposed-extraction
       - task-07-facts-schema
+      - task-14-provenance-purge
+      - task-24-ingestor-text
   - id: task-29-retriever-fts5
     content: Add the retriever interface and FTS5 lexical search with namespaces
     status: pending
@@ -292,7 +294,7 @@ todos:
     dependencies:
       - task-39-gurps-validation-doc
   - id: task-52-decision-log
-    content: Record ADRs 0001 through 0008 in docs/decisions
+    content: Record ADRs 0001 through 0010 in docs/decisions
     status: pending
     dependencies:
       - task-44-turn-loop
@@ -383,7 +385,7 @@ These bind every task below. Where a task's prose and one of these disagree, the
 
 ## Current state
 
-`main` carries Phases 1 through 8. Branch `phase-9-mechanics-boundary` carries Phase 9 as commit `a43e082`, committed locally with no upstream tracking branch and no pull request yet.
+`main` carries Phases 1 through 8. Branch `phase-9-mechanics-boundary` carries two commits, both local with no upstream tracking branch and no pull request yet: `a43e082` (the Phase 9 implementation) and `6841f35` (the corrections to this plan file). The Phase 9 PR ships both.
 
 Implemented and merged:
 
@@ -396,7 +398,7 @@ Phase 9 in commit `a43e082`: `ResolutionStatus` as a closed four-member set in `
 
 Still stub docstrings only: `tabletop/api/visibility.py`, `tabletop/campaign/*`, `tabletop/dice/*`, `tabletop/storage/sqlite.py`, `tabletop/documents/*`, `tabletop/retrieval/*`, `tabletop/orchestration/{context,session}.py`.
 
-Owed docs: `campaign-model.md`, `retrieval.md`, `security.md`, `gurps-validation.md`, `roadmap.md`, `docs/decisions/` ADRs 0001 through 0008.
+Owed docs: `campaign-model.md`, `retrieval.md`, `security.md`, `gurps-validation.md`, `roadmap.md`, `docs/decisions/` ADRs 0001 through 0010.
 
 ## Working agreements
 
@@ -464,7 +466,7 @@ flowchart TD
   task_11_campaign_model_doc["⬜ task-11-campaign-model-doc | Write docs/campaign-model.md describing the authoritative schema"]
   task_12_event_store["⬜ task-12-event-store | Add the append-only event log with a monotonic per-campaign sequence"]
   task_13_canon_event_types["⬜ task-13-canon-event-types | Separate promotion, reveal, detachment, and contradiction event types"]
-  task_14_provenance_purge["⬜ task-14-provenance-purge | Purge a source document by provenance ownership only"]
+  task_14_provenance_purge["⬜ task-14-provenance-purge | Purge provenance-owned fact records for a source document id"]
   task_15_projections["⬜ task-15-projections | Derive current campaign state from the event log"]
   task_16_file_projections["⬜ task-16-file-projections | Write the human-readable campaign directory projection"]
   task_17_visibility_scopes["⬜ task-17-visibility-scopes | Parse and compare visibility scopes without game semantics"]
@@ -478,7 +480,7 @@ flowchart TD
   task_25_ingestor_pdf["⬜ task-25-ingestor-pdf | Extract PDF text into the same chunk and provenance pipeline"]
   task_26_resumable_jobs["⬜ task-26-resumable-jobs | Resume interrupted ingestion only on matching content and version identity"]
   task_27_proposed_extraction["⬜ task-27-proposed-extraction | Bound model extraction to closed ProposedExtraction schemas"]
-  task_28_deterministic_importer["⬜ task-28-deterministic-importer | Validate and import proposals without model credentials or network"]
+  task_28_deterministic_importer["⬜ task-28-deterministic-importer | Validate and import proposals, then compose the document purge service"]
   task_29_retriever_fts5["⬜ task-29-retriever-fts5 | Add the retriever interface and FTS5 lexical search with namespaces"]
   task_30_vector_degrade_ladder["⬜ task-30-vector-degrade-ladder | Add vector search with a dimension invariant and a degrade cascade"]
   task_31_retrieval_doc["⬜ task-31-retrieval-doc | Write docs/retrieval.md covering namespaces and the degrade ladder"]
@@ -502,7 +504,7 @@ flowchart TD
   task_49_dnd5e_demo["⬜ task-49-dnd5e-demo | Run the D&D 5e combat demonstration end to end"]
   task_50_readme["⬜ task-50-readme | Rewrite the project README without over-claiming maturity"]
   task_51_roadmap_doc["⬜ task-51-roadmap-doc | Write docs/roadmap.md with milestones and post first-draft items"]
-  task_52_decision_log["⬜ task-52-decision-log | Record ADRs 0001 through 0008 in docs/decisions"]
+  task_52_decision_log["⬜ task-52-decision-log | Record ADRs 0001 through 0010 in docs/decisions"]
   task_53_git_hygiene["⬜ task-53-git-hygiene | Audit the tree for research clones, sourcebooks, secrets, and databases"]
   task_54_definition_of_done["⬜ task-54-definition-of-done | Verify every first-draft definition of done item against the build"]
   task_55_final_report["⬜ task-55-final-report | Write the final agent report with honest limitations and next steps"]
@@ -543,6 +545,8 @@ flowchart TD
   task_26_resumable_jobs --> task_27_proposed_extraction
   task_27_proposed_extraction --> task_28_deterministic_importer
   task_07_facts_schema --> task_28_deterministic_importer
+  task_14_provenance_purge --> task_28_deterministic_importer
+  task_24_ingestor_text --> task_28_deterministic_importer
   task_24_ingestor_text --> task_29_retriever_fts5
   task_29_retriever_fts5 --> task_30_vector_degrade_ladder
   task_30_vector_degrade_ladder --> task_31_retrieval_doc
@@ -612,7 +616,9 @@ Four roots start immediately and independently: task-01 (land Phase 9), task-02 
 
 ### Task 01: Verify the committed Phase 9 boundary and open its pull request
 
-**Objective:** Review commit `a43e082`, push the branch, and open its PR, so later tasks build on a merged `ResolutionStatus` contract.
+**Objective:** Verify the Phase 9 implementation at `a43e082` and the plan corrections at `6841f35`, run the whole branch suite, push the current branch HEAD, and open the Phase 9 PR, so later tasks build on a merged `ResolutionStatus` contract.
+
+The branch now carries two commits, not one. The PR contains both.
 
 **Files (already committed in `a43e082`, read to verify):**
 - `tabletop/api/resolution.py`, `tabletop/api/plugin.py`, `tabletop/orchestration/turn.py`, `tabletop/orchestration/adjudication.py`
@@ -636,14 +642,17 @@ python3.11 -m pytest tests/ -q
 
 Expected: 25 passed for the first, 248 passed for the second.
 
-**Step 4: Confirm the commit contains nothing unintended**
+**Step 4: Confirm the branch contains nothing unintended**
+
+Review the whole branch, not one commit, since the PR ships everything between `main` and `HEAD`:
 
 ```bash
-git show --stat a43e082
+git log --oneline main..HEAD
+git diff --stat main...HEAD
 git status --short
 ```
 
-Expected: the ten paths above plus the plan-file update, and no `research/`, PDF, `.env`, or `.sqlite` entry. The working tree is clean apart from this plan file.
+Expected: `a43e082` (Phase 9 implementation) and `6841f35` (plan corrections), the ten paths from `a43e082` plus this plan file, and no `research/`, PDF, `.env`, `.sqlite`, vector data, or model cache entry. The working tree is clean.
 
 **Verified 2026-09-21.** Steps 1 through 4 pass against the working tree:
 
@@ -657,6 +666,8 @@ Expected: the ten paths above plus the plan-file update, and no `research/`, PDF
 - `a43e082` touches ten paths: the nine listed above plus
   `.agents/plans/2026-09-06-tabletop-platform.md`. No `research/`, PDF,
   `.env`, or `.sqlite` entry. The working tree is clean.
+- `6841f35` followed on the same branch, carrying the corrections to this
+  plan file. Verify the branch, not just `a43e082`.
 
 Remaining: step 5 only. The branch has no remote ref yet
 (`git ls-remote --heads origin phase-9-mechanics-boundary` returns nothing).
@@ -877,6 +888,19 @@ git commit -m "feat: roll dice expressions with a seedable rng"
 - Modify: `systems/freeform/__init__.py`
 - Create: `tests/tabletop/test_dice_runtime.py`
 
+**Step 0: Take the merged Phase 9 onto this branch first**
+
+Tasks 02 and 03 ran in parallel with the Phase 9 PR, so this branch does not contain Phase 9 even after it merges into `main`. Opening the Phase 10 PR from a base that never incorporated Phase 9 is the failure this step prevents.
+
+```bash
+git status --short          # must be clean
+git fetch origin
+git rebase origin/main      # brings merged Phase 9 onto phase-10-dice-engine
+python3.11 -m pytest tests/ -q
+```
+
+Expected: the rebase is clean (the two boundaries touch different files) and the suite passes with both the Phase 9 and Phase 10 tests present. Only then implement this task.
+
 **Step 1: Write the failing test**
 
 Assert that `TabletopRuntime.roll("2d6+1")` returns `{"ok": True, "operation": "roll", "data": {...}}` where `data` holds the `RollResult.to_dict()` payload; that a malformed expression returns `ok: False` with error code `dice_expression_error` rather than raising; that the whole envelope survives `json.dumps`; and that `freeform` now reports `dice` in `capabilities()`.
@@ -1025,13 +1049,17 @@ CREATE TABLE entities (
   name         TEXT NOT NULL,
   system_state TEXT NOT NULL DEFAULT '{}',
   metadata     TEXT NOT NULL DEFAULT '{}',
-  PRIMARY KEY (owner_scope, COALESCE(setting_id, campaign_id), entity_id),
   CHECK (
     (owner_scope = 'setting'  AND setting_id  IS NOT NULL AND campaign_id IS NULL)
     OR
     (owner_scope = 'campaign' AND campaign_id IS NOT NULL)
   )
 );
+
+CREATE UNIQUE INDEX uq_entities_setting ON entities(setting_id, entity_id)
+  WHERE owner_scope = 'setting';
+CREATE UNIQUE INDEX uq_entities_campaign ON entities(campaign_id, entity_id)
+  WHERE owner_scope = 'campaign';
 
 CREATE INDEX idx_scenes_campaign ON scenes(campaign_id);
 CREATE INDEX idx_entities_campaign_type ON entities(campaign_id, entity_type);
@@ -1043,6 +1071,8 @@ CREATE INDEX idx_entities_setting_type ON entities(setting_id, entity_type);
 **Ownership scope, not campaign-only.** Deities, factions, regions, cultures, and world NPCs belong to a setting and outlive any one campaign. Scoping entities to a campaign would force the setting workspace in task 35 to invent a fake campaign in order to own anything, which is the collapse execution invariant 3 forbids. `owner_scope` plus the two nullable owner ids is the same ownership model the facts table uses in task 07, and `overrides_id` lets a campaign entity specialize the setting entity it shadows without editing it.
 
 A campaign scoped entity may also carry `setting_id`, recording which setting it overlays. Overlay resolution is a query-time decision, exactly as for facts.
+
+**No expression in the key.** SQLite rejects `PRIMARY KEY (owner_scope, COALESCE(setting_id, campaign_id), entity_id)` with `expressions prohibited in PRIMARY KEY and UNIQUE constraints` (verified on SQLite 3.53.4), so uniqueness per owner comes from two partial unique indexes instead. They give the same guarantee and let the same `entity_id` exist once per owner.
 
 **Step 3: Run to green and commit**
 
@@ -1389,7 +1419,35 @@ Assert that promoting a fact appends exactly one `fact.promoted` event and no `f
 
 **Step 2: Implement**
 
-Add an `EventType` string enum with at least `fact.proposed`, `fact.promoted`, `fact.revealed`, `fact.detached`, `canon.contradiction_detected`, plus the play events `action.resolved`, `ruling.recorded`, `scene.opened`, `scene.closed`, `session.started`, `session.ended`. Use an exhaustive `match` with an `assert_never` default anywhere the runtime branches on it, matching the pattern already used in `tabletop/api/resolution.py`.
+Add an `EventType` string enum with at least `fact.proposed`, `fact.promoted`, `fact.revealed`, `fact.detached`, `provenance.purged`, `canon.contradiction_detected`, plus the play events `action.resolved`, `ruling.recorded`, `scene.opened`, `scene.closed`, `session.started`, `session.ended`.
+
+**Define `action.resolved`'s payload here, before task 15 depends on it.** Replay can only rebuild `system_state` if the event carries the exact changes that were applied, so the payload is the serialized resolution:
+
+```
+action.resolved payload:
+  action           GameAction.to_dict()
+  status           ResolutionStatus value
+  outcome          plugin-owned mapping
+  rolls            RollResult.to_dict() list
+  state_changes    StateChange.to_dict() list, the exact list applied
+  rule_references  RuleReference.to_dict() list
+```
+
+The atomic unit is then unambiguous:
+
+```
+plugin Resolution
+      |
+      v
+append action.resolved carrying those StateChange values
+      +
+apply those same StateChange values
+      |
+      v
+single transaction
+```
+
+Without this stated now, task 15 either invents a second `state.changed` event model or discovers late that `action.resolved` cannot rebuild state. There is no separate state-change event: the applied list lives in `action.resolved`. Use an exhaustive `match` with an `assert_never` default anywhere the runtime branches on it, matching the pattern already used in `tabletop/api/resolution.py`.
 
 Each lifecycle helper opens one `transaction(conn)` and calls `append_in_transaction` from task 12 inside it, so a promotion cannot commit without its event and vice versa, and no nested `BEGIN` is issued.
 
@@ -1404,9 +1462,11 @@ git commit -m "feat: separate promotion, reveal, detachment, and contradiction e
 
 ---
 
-### Task 14: Purge a source document by provenance ownership only
+### Task 14: Purge provenance-owned fact records for a source document id
 
-**Objective:** Make deleting an ingested document remove exactly the records still owned by it, and nothing else.
+**Objective:** Establish provenance ownership semantics and their event now, on facts alone, so the rule is tested long before the document tables exist.
+
+**Scope note.** `documents` and `document_chunks` are created in task 24, in a later boundary. This task therefore purges **facts only**, keyed on `source_document_id`, and takes that id as an opaque string. Task 28 composes the full document purge service once the document tables exist. Splitting it this way keeps the ownership rule testable in this boundary instead of deferring it five tasks.
 
 **Files:**
 - Modify: `tabletop/documents/provenance.py`
@@ -1414,11 +1474,13 @@ git commit -m "feat: separate promotion, reveal, detachment, and contradiction e
 
 **Step 1: Write the failing test**
 
-Build a fixture with five facts against one document: imported and proposed, imported and confirmed, imported and confirmed then detached, hand-authored with no provenance, and imported from a second document. Assert `purge_document(conn, document_id)` removes the first two, keeps the detached one, keeps the hand-authored one, keeps the other document's fact, and appends one `document.purged` event naming the removed fact ids. Assert that promotion alone never protects a row, which is the distinction between task 08 promotion and task 13 detachment.
+Build a fixture with five facts against one document id: imported and proposed, imported and confirmed, imported and confirmed then detached, hand-authored with no provenance, and imported from a second document id. Assert `purge_facts_for_document(conn, document_id)` removes the first two, keeps the detached one, keeps the hand-authored one, keeps the other document's fact, and appends one `provenance.purged` event naming the removed fact ids. Assert that promotion alone never protects a row, which is the distinction between task 08 promotion and task 13 detachment. Assert the function touches no document or chunk table, since neither exists yet.
 
 **Step 2: Implement**
 
-`purge_document` selects `fact_id` where `source_document_id = ?` and `source_ownership = 'attached'`, deletes those rows, deletes the document and chunk rows, and appends the purge event, all in one transaction. Return the removed ids so callers can report what happened rather than claiming a silent success.
+`purge_facts_for_document(conn, document_id)` selects `fact_id` where `source_document_id = ?` and `source_ownership = 'attached'`, deletes those rows, and appends `provenance.purged` through `append_in_transaction`, all in one caller-owned transaction. Return the removed ids so callers can report what happened rather than claiming a silent success.
+
+Add `provenance.purged` to the task 13 `EventType` enum. `document.purged` arrives with the document purge service in task 28.
 
 **Step 3: Run to green and commit**
 
@@ -1585,7 +1647,18 @@ Assert an edge stores `owner_scope`, `setting_id` or `campaign_id`, `source`, `r
 
 Relationships carry the same ownership model as facts and entities: `owner_scope` in `setting` or `campaign`, the two nullable owner ids, and the same `CHECK`. Without it the setting workspace in task 35 cannot own world history, which execution invariant 3 forbids.
 
-`PRIMARY KEY (owner_scope, COALESCE(setting_id, campaign_id), source_id, relationship_type, target_id, valid_from)` so re-establishing a relationship later is a new row, plus indexes on `(campaign_id, source_id)`, `(campaign_id, target_id)`, and `(setting_id, source_id)`. `close_edge` and `supersede_edge` are separate functions with separate tests; collapsing them loses the distinction between a relationship ending and a relationship changing.
+Uniqueness uses partial unique indexes, not an expression key, for the reason given in task 06:
+
+```sql
+CREATE UNIQUE INDEX uq_rel_setting
+  ON relationships(setting_id, source_id, relationship_type, target_id, valid_from)
+  WHERE owner_scope = 'setting';
+CREATE UNIQUE INDEX uq_rel_campaign
+  ON relationships(campaign_id, source_id, relationship_type, target_id, valid_from)
+  WHERE owner_scope = 'campaign';
+```
+
+Including `valid_from` means re-establishing a relationship later is a new row. Add plain indexes on `(campaign_id, source_id)`, `(campaign_id, target_id)`, and `(setting_id, source_id)`. `close_edge` and `supersede_edge` are separate functions with separate tests; collapsing them loses the distinction between a relationship ending and a relationship changing.
 
 **Step 3: Run to green and commit**
 
@@ -1870,12 +1943,30 @@ Assert the importer writes facts at `canon_state='proposed'` and `knowledge_stat
 
 `import_extraction(conn, extraction) -> ImportReport` validates the envelope first and raises on envelope failure, then filters individual proposals, then inserts the survivors inside one transaction, calling `check_fact_invariants` per row. The report lists accepted ids, rejected proposals, and the reason for each rejection, so a bad extraction is debuggable without re-running the model.
 
-**Step 3: Run to green, open the phase PR, stop for approval**
+**Step 3: Compose the document purge service**
+
+The document tables exist from task 24 and the fact-level rule exists from task 14, so the full purge can finally be assembled here:
+
+```
+purge_document(conn, document_id)
+    |
+    +-- purge_facts_for_document(...)   # task 14, attached rows only
+    +-- delete document_chunks rows
+    +-- delete documents row
+    +-- append document.purged naming the removed fact ids
+    |
+    single transaction
+```
+
+Assert a detached fact survives the whole service; that chunks and the document row are gone; that a second document's rows are untouched; and that `document.purged` carries the same ids `purge_facts_for_document` returned.
+
+**Step 4: Run to green, open the phase PR, stop for approval**
 
 ```bash
 python3.11 -m pytest tests/tabletop -q
-git add tabletop/documents/importer.py tests/tabletop/test_importer.py
-git commit -m "feat: gate authoritative import behind deterministic validation"
+git add tabletop/documents/importer.py tabletop/documents/provenance.py \
+  tests/tabletop/test_importer.py tests/tabletop/test_provenance_purge.py
+git commit -m "feat: gate authoritative import and compose the document purge service"
 git push -u origin phase-18-19-ingestion
 gh pr create --base main --title "Phases 18 and 19: ingestion, jobs, import boundary" \
   --body "Markdown and PDF ingestion, heading-aware chunking, resumable content-addressed jobs, extraction and import trust boundaries."
