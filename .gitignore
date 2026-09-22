@@ -58,3 +58,4 @@ Autotests/logs/
 # logs
 logs/*.log
 logs/*.log.*
+.agents/.DS_Store
