@@ -1,197 +1,268 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Gamemaster: a platform-agnostic tabletop RPG game-master runtime built on SingularityNET Omega. The hero shows Omega at the base providing cognition and tools, then the Tabletop Runtime for orchestration, game-system plugins for mechanics, content packs for rules and world material, and campaign state as the source of truth.">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Gamemaster architecture, with Omega below the tabletop runtime, game-system plugins, content packs, and campaign state.">
 </p>
 
-Gamemaster is a platform-agnostic tabletop RPG game-master platform. It is not
-a D&D chatbot. It is a modular runtime where cognition, mechanics, rules, and
-world state are separate layers that can each be swapped, replaced, or
-validated on their own.
+# Gamemaster
 
-Built on top of [SingularityNET Omega](https://github.com/singnet/Omega),
-Gamemaster adds a tabletop orchestration layer above Omega's agent runtime.
-Omega keeps doing what it does best, cognition, tools, model interaction, and
-channels. The Tabletop Runtime owns everything else: campaign orchestration,
-persistence, knowledge boundaries, and continuity.
+Gamemaster is an early tabletop role-playing game runtime built on
+[SingularityNET Omega](https://github.com/singnet/Omega). It separates the
+agent loop from game mechanics, source material, and campaign state. The
+repository contains a working first draft of that separation, not a finished
+game-master product.
 
-## Why Omega
+## Why Omega is the foundation
 
-Omega is a neural-symbolic agent framework built on the Hyperon AGI stack. It
-already provides the hardest parts of a game-master agent:
+Omega already supplies the agent loop, model-provider integration, channels,
+memory, tools, and plugin loading. Gamemaster adds one Omega-facing adapter in
+`plugins/tabletop/` and keeps tabletop code in a separate Python runtime. This
+lets the project add campaign behavior without replacing Omega's core loop.
 
-- a continuous agent loop with tool use and skill dispatch
-- LLM provider and channel integrations
-- reasoning and memory layers
-- a plugin API for extending skills and the prompt
-
-Rather than rebuild any of that, Gamemaster treats it as the foundation and
-works above it.
-
-## The boundary that holds it together
-
-| Layer | Owns |
-|---|---|
-| **Omega** | cognition, tools, model interaction, channels |
-| **Tabletop Runtime** | campaign orchestration, persistence, knowledge boundaries |
-| **Game System Plugin** | mechanics and system-specific schemas |
-| **Content Pack** | rules, settings, adventures, lore |
-| **Campaign** | authoritative world state and history |
-| **LLM** | intent interpretation, narration, ambiguous adjudication |
-
-The rule that keeps the layers from collapsing: the LLM may interpret intent,
-narrate outcomes, and adjudicate genuinely ambiguous situations, but it never
-silently replaces deterministic mechanics. When a mechanic is known, a
-game-system plugin resolves it. When a resolution cannot be decided, the
-runtime returns a request for the GM to rule, with rule references attached,
-instead of letting the model invent an outcome.
-
-## Architecture
+## Layers
 
 ```text
-Player / GM
-   |
-Omega channel / provider / runtime
-   |
-omega-tabletop adapter
-   |
-Tabletop Runtime
-   |
-   +-- Game System Plugins    capabilities-based mechanics
-   +-- Content Packs          rules, settings, adventures (non-executable)
-   +-- Campaign Store         SQLite, authoritative state
-   +-- Rules / RAG            retrieval with provenance
-   +-- Event Log              append-only sourced history
-   +-- Visibility Engine      who may know which fact
-   +-- Relationship Graph     typed edges over SQLite
-   +-- Source Document Store  original files kept separate from RAG
+Player or GM
+    |
+Omega channels, providers, memory, and tools
+    |
+plugins/tabletop adapter
+    |
+tabletop runtime
+    |-- workspace-scoped skills and turn orchestration
+    |-- SQLite campaign state and append-only events
+    |-- visibility, relationships, rulings, and sessions
+    |-- document ingestion and retrieval
+    |
+    +-- game-system plugins in systems/
+    +-- data-only content packs
 ```
 
-Design constraints that shape the code:
+The generic API uses actions, entities, resolutions, events, and visibility
+scopes. System-specific concepts stay inside game-system plugins. A mechanic
+advertised by the active plugin is resolved through that plugin. Unsupported
+or unresolved mechanics produce an adjudication result without invented
+mechanical numbers.
 
-- Omega-facing code is thin. One plugin (`plugins/tabletop`) is the only
-  integration point, and it translates Omega skill calls into Tabletop Runtime
-  calls.
-- Game-system plugins never depend on Omega or MeTTa. They speak a
-  platform-agnostic Python API.
-- The tabletop API is not D&D-shaped. It uses generic concepts: entities,
-  actions, resolution, visibility, events. Armor class, saving throws, spell
-  slots, and sanity are meanings that game-system plugins attach, not concepts
-  the core knows.
-- Campaign truth does not depend on vector-memory recall. Facts live in a
-  structured store and append-only event history; retrieval only helps the
-  agent find material.
+Each process has one workspace, selected at startup with
+`TABLETOP_WORKSPACE=setting` or `TABLETOP_WORKSPACE=campaign`. The workspace
+cannot be changed on a running process. Use separate processes when both
+surfaces are needed at the same time.
 
-## Status
+See [docs/architecture.md](docs/architecture.md) for the detailed boundaries.
 
-Early first draft. The upstream Omega bootstrap is committed on the
-`tabletop-platform` branch, prior art has been researched and recorded, and the
-execution plan with milestones and decisions is in
-[.agents/plans/2026-09-06-tabletop-platform.md](.agents/plans/2026-09-06-tabletop-platform.md).
-The tabletop runtime and plugin APIs are under construction.
+## Game-system plugins
 
-Working today:
+Game-system plugins are trusted Python code. Each plugin has a strict
+`plugin.yaml`, implements the `tabletop/v1` API, and advertises only the
+capabilities it implements. Built-in and configured external plugins use the
+same discovery and loading path. Plugins load at startup, so changes require a
+restart.
 
-- Omega runs unchanged as the foundation (see Quick start).
-- Architecture: [docs/architecture.md](docs/architecture.md).
-- Prior-art research: [docs/research/prior-art.md](docs/research/prior-art.md).
-- Project and upstream provenance: [UPSTREAM.md](UPSTREAM.md).
+The repository includes:
 
-Not yet implemented (see Roadmap):
+- `freeform`, a small generic reference system for checks, opposed checks,
+  dice, and resource tracking.
+- `dnd5e`, a partial D&D 5e reference implementation for the 2014 revision.
+  It covers selected checks, attacks, damage, basic conditions, initiative,
+  movement, and rests. It does not provide full 5e support. Spells, classes,
+  feats, monster stat blocks, multiclassing, and other mechanics remain out of
+  scope.
 
-- game-system plugin API and the freeform reference system
-- campaign persistence, event sourcing, visibility, relationships
-- document ingestion and rules retrieval
-- the Omega tabletop adapter plugin and skills
+The 5e demo under `examples/campaigns/dnd5e-demo/` is an automated reference
+flow, not a complete playable rules implementation.
+
+## Content packs
+
+Content packs describe rules, settings, adventures, campaign seeds, or
+supplements. Their manifests are data only. The loader rejects executable
+entrypoints, unknown fields, unsafe YAML object tags, and GM-only paths that
+escape the pack directory.
+
+Content-pack loading currently validates metadata and trust boundaries. It
+does not install dependencies or turn an arbitrary pack into a ready campaign.
+
+## Persistence
+
+Campaign data is stored in SQLite. The schema covers campaigns, entities,
+facts, documents, relationships, sessions, rulings, retrieval records, and
+append-only event history. State changes and their event records are applied
+in one transaction during the tested turn flow.
+
+SQLite is the authority for campaign state. Human-readable campaign files are
+projections and source material, not a second writable source of truth.
+
+## Documents and retrieval
+
+Markdown and text-layer PDFs can be ingested into provenance-bearing chunks.
+PDF extraction preserves page numbers when text is present. Scanned or
+image-only PDFs have no OCR path in this draft. They are marked unsupported
+and need manual review.
+
+Retrieval has isolated namespaces and source references. Lexical search uses
+SQLite FTS5. Vector search is optional. When configured, it checks the
+embedding model and dimension and falls back to lexical search when the
+semantic tier is unavailable or incompatible. The current vector backend
+stores vectors in SQLite and computes similarity in Python, so it is intended
+for small corpora.
+
+Retrieval is never campaign truth. A retrieved campaign chunk is still a
+search result. Authoritative state remains in the structured campaign store
+and event history.
+
+## Current maturity
+
+This is a first draft for development and architecture validation.
+
+Implemented and covered by tests:
+
+- the Omega adapter and workspace-scoped skill registration
+- capability-based plugin loading and two reference plugins
+- SQLite campaign state, append-only events, sessions, visibility,
+  relationships, rulings, and provenance
+- Markdown and PDF text-layer ingestion
+- lexical retrieval and an optional vector-to-lexical cascade
+- freeform and partial 2014 5e end-to-end demonstration tests
+- a Compose definition for one Omega process with persistent state
+
+Important limits:
+
+- there is no complete game system
+- scanned PDFs need manual review
+- plugins are trusted code and require a restart after changes
+- one workspace runs per process
+- the Compose stack is a deployment starting point, not a hardened
+  multi-tenant service
 
 ## Quick start
 
-Gamemaster runs on top of Omega. The fastest way to see the foundation run is
-to start Omega itself: see the upstream
-[Omega README](https://github.com/singnet/Omega#readme) for installation. The
-short path is:
+Python 3.11 is required for the tabletop test suite. From the repository root:
 
 ```bash
-git clone https://github.com/trueagi-io/PeTTa
-cd PeTTa
-mkdir -p repos
-git clone https://github.com/singnet/Omega.git repos/Omega
-git clone https://github.com/patham9/petta_lib_chromadb.git repos/petta_lib_chromadb
-cp repos/Omega/run.metta ./
-python3 -m venv ./.venv
-source ./.venv/bin/activate
-python3 -m pip install -r ./repos/Omega/requirements.txt
-export ANTHROPIC_API_KEY=<your-key>   # or OPENAI_API_KEY
-sh run.sh run.metta provider=Anthropic
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pytest tests/tabletop -q
 ```
 
-The tabletop plugin is registered through Omega's `config/plugins.yaml` using
-Omega's own plugin API. When the runtime is ready, adding it to that file is
-the only integration step needed.
+Run the focused demonstrations with:
 
-## Creating a game-system plugin
-
-Game systems are capability-based. A plugin declares what it can do; the
-runtime offers it those actions and nothing more. The initial capability set
-includes `dice`, `action-resolution`, `opposed-resolution`, `turn-order`,
-`damage`, `conditions`, and similar. A system that does not want hit points or
-classes simply does not advertise those capabilities.
-
-The intended plugin shape (API under construction in `tabletop/api/`):
-
-```python
-class GameSystemPlugin:
-    id: str
-    api_version: str
-
-    def capabilities(self) -> set[str]: ...
-    def resolve(self, action, context): ...
-    def character_schema(self): ...
-    def rule_namespaces(self): ...
+```bash
+python -m pytest \
+  tests/tabletop/test_demo_freeform.py \
+  tests/tabletop/test_demo_dnd5e.py \
+  -q
 ```
 
-See the full contract, manifest format, capability negotiation, and lifecycle
-in the plugin API documentation (target: `docs/plugin-api.md` in the runtime
-phase). Plugins live under
-`systems/` (or a mounted `/tabletop/plugins/` directory in containers) and are
-discovered at runtime without rebuilding Omega.
+These commands exercise the runtime directly. Running an interactive Omega
+channel also requires provider and channel configuration from the
+[Omega documentation](https://github.com/singnet/Omega#readme).
 
-## Creating a content pack
+## Docker Compose and Portainer
 
-Content packs are data, never code. They ship rules, settings, adventures, and
-campaign seeds as markdown, text, or PDF, with a manifest declaring their
-system compatibility and any GM-only material:
+Copy the environment template, review every value, create the bind-mount
+directories if needed, then start the stack:
+
+```bash
+cp .env.example .env
+mkdir -p library campaigns
+docker compose config
+docker compose up --build
+```
+
+At minimum, replace `OMEGA_AUTH_SECRET`, choose the provider and channel, and
+set the provider credential such as `ASI_API_KEY`. The Compose file defines
+one Omega service. Named volumes persist Omega memory and tabletop SQLite
+state. Plugin and library mounts are read-only. The campaigns mount is
+read-write. The stack does not mount the Docker socket.
+
+For Portainer:
+
+1. Create a Git-backed stack from this repository.
+2. Copy the values from `.env.example` into the stack environment.
+3. Replace the example secret and provider settings.
+4. Make the host paths named by `TABLETOP_PLUGIN_HOST_PATH`,
+   `TABLETOP_LIBRARY_HOST_PATH`, and `TABLETOP_CAMPAIGNS_HOST_PATH` available
+   to the Docker host.
+5. Deploy the stack.
+
+Relative bind paths resolve from the stack directory. Portainer and Docker
+host path behavior varies by installation, so use absolute host paths if the
+relative defaults do not resolve as expected.
+
+## Write a game-system plugin
+
+Create one directory under a configured plugin root:
+
+```text
+my-system/
+|-- plugin.yaml
+`-- my_system/
+    |-- __init__.py
+    `-- plugin.py
+```
+
+Use a manifest like:
+
+```yaml
+id: my-system
+name: My System
+api_version: tabletop/v1
+version: 0.1.0
+entrypoint: my_system.plugin:MySystemPlugin
+description: Selected mechanics for My System
+```
+
+Subclass `tabletop.api.plugin.GameSystemPlugin`. Implement `info`,
+`capabilities()`, and `resolve()` for the mechanics the plugin supports.
+Return `UNSUPPORTED`, `UNRESOLVED`, or `RULING_REQUIRED` when code cannot
+produce a deterministic result. Do not advertise unfinished capabilities.
+
+Set `TABLETOP_PLUGIN_PATH` to the parent directory. Multiple roots use the
+operating system path separator. Restart the process after adding or changing
+a plugin. Full details are in [docs/plugin-api.md](docs/plugin-api.md).
+
+## Write a content pack
+
+Create a directory with `content-pack.yaml` and the source files:
 
 ```yaml
 id: example-adventure
-kind: adventure          # rules | setting | adventure | campaign-seed | supplement
-compatible_systems: [dnd5e-2014]
-sources:
-  - adventure.md
+name: Example Adventure
+pack_type: adventure
+system_id: freeform
+version: 0.1.0
 gm_only:
   - secrets.md
   - npc-agendas.md
 ```
 
-Original source files stay available for direct inspection. RAG representations
-are built from them separately and never replace the originals.
+Valid `pack_type` values are `rules`, `setting`, `adventure`,
+`campaign-seed`, and `supplement`. Keep every `gm_only` path relative to the
+pack directory. Do not add an `entrypoint`. Content packs cannot execute code.
+See `examples/campaigns/freeform-demo/content-pack/` for a small example.
 
-## Security
+## Security warning
 
-Sourcebooks and uploaded documents are treated as data, not instructions.
-Game-system plugins are executable code and must be explicitly trusted; content
-packs never execute code. A full security note lands in `docs/security.md` with
-the runtime and container work.
+Treat every ingested document as untrusted text. A sourcebook, PDF, note, or
+retrieved chunk can contain prompt-injection instructions. Never treat that
+text as a policy, tool command, visibility grant, or campaign-state update.
+Review extracted proposals before promotion to canon.
+
+Only mount trusted game-system plugins because plugin Python executes in the
+runtime process. Keep credentials out of plugins, content packs, document
+libraries, and campaign files. See [docs/security.md](docs/security.md) for
+the trust boundaries and deployment requirements.
 
 ## Roadmap
 
-The milestones are tracked in `docs/roadmap.md` (written with the first draft):
-runtime skeleton, persistence and visibility, documents and RAG, the play loop,
-a D&D 5e reference system, a GURPS cross-validation, and channel/UI
-improvements.
+Planned work and deferred items belong in
+[docs/roadmap.md](docs/roadmap.md). That document may not exist on branches
+created before the roadmap task lands.
 
-## Upstream Omega
+## Upstream attribution
 
-This repository is a layer over
-[SingularityNET Omega](https://github.com/singnet/Omega), Apache-2.0. Upstream
-history is preserved in the `upstream` remote; the exact bootstrap commit is
-recorded in [UPSTREAM.md](UPSTREAM.md). Gamemaster is itself Apache-2.0; see
-[LICENSE](LICENSE).
+Gamemaster was bootstrapped from
+[SingularityNET Omega](https://github.com/singnet/Omega) commit
+`7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`. The upstream repository and local
+integration changes are recorded in [UPSTREAM.md](UPSTREAM.md).
+
+Omega and Gamemaster are licensed under Apache-2.0. See [LICENSE](LICENSE).
