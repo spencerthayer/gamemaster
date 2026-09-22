@@ -10,6 +10,7 @@ import pytest
 from tabletop.api.actions import GameAction
 from tabletop.api.entities import EntityRef
 from tabletop.api.resolution import Resolution, StateChange, StateOperation
+from tabletop.api.rules import RuleReference
 from tabletop.api.visibility import Viewpoint, parse_scope
 from tabletop.campaign.event_store import (
     EventStore,
@@ -22,6 +23,7 @@ from tabletop.campaign.event_store import (
 )
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.projections import CampaignProjection, project_campaign
+from tabletop.campaign.rulings import Ruling, RulingStore
 from tabletop.campaign.store import CampaignStore
 from tabletop.documents.provenance import purge_facts_for_document
 from tabletop.storage.sqlite import connect, migrate
@@ -255,6 +257,31 @@ def test_fact_lifecycle_and_purge_update_projection_facts(conn) -> None:
     after_purge = project_campaign(EventStore(conn).read("campaign-1"))
     assert "imported-fact" not in after_purge.facts
     assert "fact-1" in after_purge.facts
+
+
+def test_replay_accepts_ruling_scoped_fact_promoted_event(conn) -> None:
+    store = RulingStore(conn)
+    ruling = store.record(
+        Ruling(
+            ruling_id="ruling-1",
+            campaign_id="campaign-1",
+            system_id="test",
+            question="How does grappling work?",
+            decision="Grappling consumes a full action.",
+            scope="grappling",
+            source_references=(RuleReference(source_id="core-rules"),),
+            session_id=None,
+            created_at="2026-09-22T00:00:00Z",
+            canon_state=CanonState.PROPOSED,
+        )
+    )
+    store.promote(ruling.ruling_id)
+
+    projection = project_campaign(EventStore(conn).read("campaign-1"))
+
+    assert projection.campaign_id == "campaign-1"
+    assert projection.sequence == 2
+    assert projection.facts == {}
 
 
 def test_contradiction_and_payloadless_play_events_are_recognized() -> None:

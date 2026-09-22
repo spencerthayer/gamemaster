@@ -258,6 +258,12 @@ class RulingStore:
             "FROM rulings "
             "WHERE campaign_id = ? AND canon_state = 'confirmed' "
             "AND (? IS NULL OR system_id = ?) "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM rulings AS successor "
+            "WHERE successor.supersedes = rulings.ruling_id "
+            "AND successor.campaign_id = rulings.campaign_id "
+            "AND successor.canon_state = 'confirmed'"
+            ") "
             "AND (question LIKE ? OR decision LIKE ? OR scope LIKE ?) "
             "ORDER BY created_at DESC, ruling_id LIMIT ?",
             (

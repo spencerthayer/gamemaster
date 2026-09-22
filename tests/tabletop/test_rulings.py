@@ -163,6 +163,21 @@ def test_superseding_ruling_links_without_deleting_old_record(
     assert store.get(replacement.ruling_id) == replacement
 
 
+def test_search_hides_ruling_with_confirmed_successor(
+    conn: sqlite3.Connection,
+) -> None:
+    store = RulingStore(conn)
+    old = store.record(_ruling())
+    replacement = store.record(
+        _ruling(ruling_id="ruling-2", supersedes=old.ruling_id)
+    )
+
+    results = store.search("grappling", "campaign-1")
+
+    assert results == (replacement,)
+    assert store.get(old.ruling_id) == old
+
+
 def test_adjudication_result_preserves_originating_action_and_context(
     conn: sqlite3.Connection,
 ) -> None:

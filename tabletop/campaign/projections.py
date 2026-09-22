@@ -79,12 +79,17 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     scenes=scenes,
                 )
             case EventType.FACT_PROMOTED:
-                fact_id = _require_fact_id(event.payload)
-                facts[fact_id] = _update_fact(
-                    facts.get(fact_id),
-                    fact_id,
-                    canon_state=CanonState.CONFIRMED,
-                )
+                raw_fact_id = event.payload.get("fact_id")
+                if isinstance(raw_fact_id, str) and raw_fact_id:
+                    facts[raw_fact_id] = _update_fact(
+                        facts.get(raw_fact_id),
+                        raw_fact_id,
+                        canon_state=CanonState.CONFIRMED,
+                    )
+                else:
+                    ruling_id = event.payload.get("ruling_id")
+                    if not isinstance(ruling_id, str) or not ruling_id:
+                        _require_fact_id(event.payload)
             case EventType.FACT_REVEALED:
                 fact_id = _require_fact_id(event.payload)
                 facts[fact_id] = _update_fact(
