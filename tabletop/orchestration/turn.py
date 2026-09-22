@@ -4,7 +4,7 @@ Drives one turn: action intake, deterministic resolution via the active
 system plugin, event emission, and response assembly. The LLM proposes
 intent; the runtime and plugins resolve mechanics.
 
-Phase 9 fills in the resolution step and its guard. Event emission and
+Phase 9 filled in the resolution step and its guard. Event emission and
 response assembly stay with Phases 12 and 30.
 
 The guard is the point of this module: when the active system advertises
@@ -12,14 +12,33 @@ The guard is the point of this module: when the active system advertises
 plugin, and it returns the plugin's ``Resolution`` unchanged. There is no
 branch here that manufactures a mechanical result, and callers have no
 other supported path to one.
+
+:func:`play_turn` is the surrounding loop. It builds a
+``ResolutionContext`` from the campaign store, resolves only through
+:func:`resolve_action`, persists a ``RESOLVED`` result atomically via
+``apply_resolved_action``, and routes every non-resolved status to
+adjudication with status-specific framing and no state writes.
 """
 
 from __future__ import annotations
 
+import json
+import sqlite3
+from dataclasses import dataclass
+from typing import Any, Mapping
+
 from tabletop.api.actions import GameAction
 from tabletop.api.capabilities import Capability
+from tabletop.api.entities import EntityRef
 from tabletop.api.errors import InvalidResolutionError
 from tabletop.api.resolution import Resolution, ResolutionContext, ResolutionStatus
+from tabletop.campaign.event_store import PersistedEvent, apply_resolved_action
+from tabletop.campaign.store import CampaignStore
+from tabletop.orchestration.adjudication import (
+    AdjudicationRequest,
+    adjudication_request,
+    requires_adjudication,
+)
 from tabletop.plugins.registry import PluginRegistry
 
 
@@ -54,3 +73,212 @@ def resolve_action(
             f"{type(resolution).__name__}, expected Resolution"
         )
     return resolution
+
+
+@dataclass(frozen=True)
+class TurnResult:
+    """Assembled outcome of one play turn through the resolution guard."""
+
+    action: GameAction
+    context: ResolutionContext
+    resolution: Resolution
+    narration: str
+    event: PersistedEvent | None = None
+    adjudication: AdjudicationRequest | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "action": self.action.to_dict(),
+            "context": self.context.to_dict(),
+            "resolution": self.resolution.to_dict(),
+            "narration": self.narration,
+            "event": None
+            if self.event is None
+            else {
+                "campaign_id": self.event.campaign_id,
+                "sequence": self.event.sequence,
+                "event_type": self.event.event_type,
+                "session_id": self.event.session_id,
+                "scene_id": self.event.scene_id,
+                "actor_id": self.event.actor_id,
+                "target_id": self.event.target_id,
+                "payload": dict(self.event.payload),
+                "occurred_at": self.event.occurred_at,
+            },
+            "adjudication": None
+            if self.adjudication is None
+            else {
+                "status": self.adjudication.status.value,
+                "headline": self.adjudication.headline,
+                "detail": self.adjudication.detail,
+                "rule_references": [
+                    ref.to_dict() for ref in self.adjudication.rule_references
+                ],
+            },
+        }
+        return payload
+
+
+def play_turn(
+    registry: PluginRegistry,
+    conn: sqlite3.Connection,
+    action: GameAction,
+    *,
+    campaign_id: str,
+    system_id: str,
+    scene_id: str | None = None,
+) -> TurnResult:
+    """Run one play turn through the resolution guard.
+
+    Builds plugin-visible context from the campaign store, resolves only via
+    :func:`resolve_action`, then either persists state and the
+    ``action.resolved`` event atomically or routes to adjudication without
+    writing state.
+    """
+    context = build_resolution_context(
+        conn,
+        campaign_id=campaign_id,
+        system_id=system_id,
+        scene_id=scene_id,
+    )
+    resolution = resolve_action(registry, action, context)
+    narration = assemble_narration(resolution)
+
+    if requires_adjudication(resolution):
+        return TurnResult(
+            action=action,
+            context=context,
+            resolution=resolution,
+            narration=narration,
+            event=None,
+            adjudication=adjudication_request(resolution, action, context),
+        )
+
+    event = apply_resolved_action(
+        conn,
+        campaign_id,
+        action,
+        resolution,
+        scene_id=scene_id,
+    )
+    return TurnResult(
+        action=action,
+        context=context,
+        resolution=resolution,
+        narration=narration,
+        event=event,
+        adjudication=None,
+    )
+
+
+def build_resolution_context(
+    conn: sqlite3.Connection,
+    *,
+    campaign_id: str,
+    system_id: str,
+    scene_id: str | None = None,
+) -> ResolutionContext:
+    """Assemble the plugin-visible state snapshot for one resolve call."""
+
+    store = CampaignStore(conn)
+    campaign = store.get_campaign(campaign_id)
+    if campaign is None:
+        raise InvalidResolutionError(f"campaign {campaign_id!r} does not exist")
+
+    entities: dict[str, Any] = {}
+    rows = conn.execute(
+        "SELECT entity_id, system_state FROM entities "
+        "WHERE owner_scope = 'campaign' AND campaign_id = ? "
+        "ORDER BY entity_id",
+        (campaign_id,),
+    ).fetchall()
+    for row in rows:
+        entities[row["entity_id"]] = {
+            "system": json.loads(row["system_state"]),
+        }
+
+    state: dict[str, Any] = {
+        "campaign": {"system": dict(campaign["system_state"])},
+        "entities": entities,
+    }
+    if scene_id is not None:
+        scene_row = conn.execute(
+            "SELECT system_state FROM scenes "
+            "WHERE campaign_id = ? AND scene_id = ?",
+            (campaign_id, scene_id),
+        ).fetchone()
+        if scene_row is not None:
+            state["scene"] = {"system": json.loads(scene_row["system_state"])}
+
+    return ResolutionContext(
+        campaign_id=campaign_id,
+        system_id=system_id,
+        scene_id=scene_id,
+        state=state,
+    )
+
+
+def assemble_narration(resolution: Resolution) -> str:
+    """Build turn narration from the plugin resolution, never replacing it."""
+
+    if resolution.explanation:
+        return resolution.explanation
+    if resolution.ruling_question:
+        return resolution.ruling_question
+    return ""
+
+
+def parse_game_action(payload: Mapping[str, Any]) -> GameAction:
+    """Parse a JSON-compatible action mapping into a ``GameAction``."""
+
+    if not isinstance(payload, Mapping):
+        raise InvalidResolutionError("action payload must be an object")
+    raw_actor = payload.get("actor")
+    if not isinstance(raw_actor, Mapping):
+        raise InvalidResolutionError("action.actor must be an object")
+    actor_id = raw_actor.get("id")
+    if not isinstance(actor_id, str) or not actor_id.strip():
+        raise InvalidResolutionError("action.actor.id must be a non-empty string")
+    actor = EntityRef(
+        id=actor_id,
+        entity_type=raw_actor.get("entity_type")
+        if isinstance(raw_actor.get("entity_type"), str)
+        else None,
+    )
+    action_type = payload.get("action_type")
+    if not isinstance(action_type, str):
+        raise InvalidResolutionError("action.action_type must be a string")
+
+    targets: list[EntityRef] = []
+    raw_targets = payload.get("targets", ())
+    if raw_targets is None:
+        raw_targets = ()
+    if not isinstance(raw_targets, (list, tuple)):
+        raise InvalidResolutionError("action.targets must be a list")
+    for item in raw_targets:
+        if not isinstance(item, Mapping):
+            raise InvalidResolutionError("each action target must be an object")
+        target_id = item.get("id")
+        if not isinstance(target_id, str) or not target_id.strip():
+            raise InvalidResolutionError("action target id must be a non-empty string")
+        targets.append(
+            EntityRef(
+                id=target_id,
+                entity_type=item.get("entity_type")
+                if isinstance(item.get("entity_type"), str)
+                else None,
+            )
+        )
+
+    parameters = payload.get("parameters", {})
+    if parameters is None:
+        parameters = {}
+    if not isinstance(parameters, Mapping):
+        raise InvalidResolutionError("action.parameters must be an object")
+
+    return GameAction(
+        actor=actor,
+        action_type=action_type,
+        targets=tuple(targets),
+        parameters=dict(parameters),
+    )

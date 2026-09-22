@@ -17,11 +17,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from tabletop.api.errors import DiceExpressionError
+from tabletop.api.errors import DiceExpressionError, InvalidActionError, InvalidResolutionError
 from tabletop.api.workspace import Workspace, parse_workspace, skill_registration_entries
 from tabletop.campaign.rulings import Ruling, RulingStore
+from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
 from tabletop.orchestration.session import SessionLifecycle
+from tabletop.orchestration.turn import parse_game_action, play_turn
 from tabletop.plugins.discovery import discover_plugins, load_plugin
 from tabletop.plugins.registry import PluginRegistry
 
@@ -263,7 +265,56 @@ class TabletopRuntime:
         return self._unavailable("query-campaign", phase=20, input_data={"query": query})
 
     def resolve_action(self, action: str) -> dict[str, Any]:
-        return self._unavailable("resolve-action", phase=8, input_data={"action": action})
+        """Resolve one structured action through the play-turn guard."""
+        if self._connection is None:
+            return self._storage_required("resolve-action")
+        campaign_id = self.active_campaign
+        if not campaign_id:
+            return self._error(
+                "resolve-action",
+                "campaign_not_configured",
+                "resolve-action requires an active campaign.",
+            )
+        try:
+            payload = json.loads(action) if action.strip() else {}
+        except json.JSONDecodeError as exc:
+            return self._error("resolve-action", "invalid_action", str(exc))
+        if not isinstance(payload, dict):
+            return self._error(
+                "resolve-action",
+                "invalid_action",
+                "resolve-action expects a JSON object.",
+            )
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        if campaign is None:
+            return self._error(
+                "resolve-action",
+                "campaign_not_found",
+                "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        scene_id = payload.get("scene_id")
+        if scene_id is not None and (
+            not isinstance(scene_id, str) or not scene_id.strip()
+        ):
+            return self._error(
+                "resolve-action",
+                "invalid_action",
+                "scene_id must be a non-empty string when provided.",
+            )
+        try:
+            game_action = parse_game_action(payload)
+            result = play_turn(
+                self._registry,
+                self._connection,
+                game_action,
+                campaign_id=campaign_id,
+                system_id=campaign["system_id"],
+                scene_id=scene_id,
+            )
+        except (InvalidActionError, InvalidResolutionError, LookupError, ValueError) as exc:
+            return self._error("resolve-action", "action_not_resolved", str(exc))
+        return self._ok("resolve-action", result.to_dict())
 
     def roll(self, expression: str) -> dict[str, Any]:
         try:
