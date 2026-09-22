@@ -43,9 +43,11 @@ image-only PDFs require manual review because OCR has not landed.
 **Landed as a tested runtime flow.** The orchestration path builds context,
 delegates known mechanics to the active system plugin, returns unresolved work
 for adjudication instead of inventing numbers, applies approved state changes,
-records history, and provides results for narration. The freeform reference
-system and automated campaign demonstration cover this flow. This is not a
-player-facing UI.
+records history, and provides results for narration. Allocated context also
+enters Omega as a second prompt extension, recomputed at `getContext`. Omega
+appends the current human message after that extension. The freeform reference
+system and automated campaign demonstration cover the mechanical flow. This is
+not a player-facing UI.
 
 ### Milestone 5: 5e reference
 
@@ -57,11 +59,13 @@ and many other rules are not implemented.
 
 ### Milestone 6: GURPS validation
 
-**Landed as an audit, not an implementation.** The documented audit checks
-that the generic plugin API can represent roll-under checks, active defenses,
-maneuvers, skill defaults, hit locations, damage resistance, separate HP and
-FP, advantages and disadvantages, contests, and encumbrance without importing
-D&D assumptions into the core. No GURPS plugin has landed.
+**Landed as a minimal plugin plus the earlier audit.** The documented audit
+checks that the generic plugin API can represent roll-under checks, active
+defenses, maneuvers, skill defaults, hit locations, damage resistance,
+separate HP and FP, advantages and disadvantages, contests, and encumbrance
+without importing D&D assumptions into the core. `systems/gurps` implements
+roll-under, contests, active defense, damage resistance, hit location, and
+fatigue. Broader GURPS coverage has not landed.
 
 ### Milestone 7: UI and channel improvements
 

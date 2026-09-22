@@ -51,7 +51,11 @@ rather than filter them.
    Omega-specific integration point. It initializes the runtime, registers
    skills, adds prompt guidance, discovers campaigns and system plugins,
    translates Omega skill calls into Tabletop Runtime calls, and serializes
-   results back. No game logic lives there.
+   results back. No game logic lives there. Allocated campaign context enters
+   Omega as a second prompt extension, recomputed when `getContext` runs.
+   Omega still appends the current human message after that extension, using
+   the `:-:-:-:` separator in `src/loop.metta`. The extension does not see
+   that utterance.
 3. **Game-system plugins do not depend on Omega or MeTTa.** They implement a
    platform-agnostic Python API. Capability negotiation decides which features
    a system offers; the API is not D&D-shaped. Armor class, saving throws, hit

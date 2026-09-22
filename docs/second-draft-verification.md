@@ -1,5 +1,7 @@
 # Second-draft verification
 
+Later prompt-context evidence is in `docs/prompt-context.md`.
+
 The checks below were recorded during development of
 `.agents/plans/2026-09-22_091051-post-first-draft-hardening.plan.md`.
 The work ultimately landed on `main` at
