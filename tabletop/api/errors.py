@@ -96,3 +96,9 @@ class PluginIdentityMismatchError(GameSystemError):
     """A loaded plugin's identity disagrees with its manifest."""
 
     code = "plugin_identity_mismatch"
+
+
+class DiceExpressionError(GameSystemError):
+    """A dice expression is malformed or out of supported range."""
+
+    code = "dice_expression_error"
