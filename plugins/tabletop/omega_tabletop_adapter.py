@@ -19,6 +19,14 @@ _RUNTIME = None
 _SKILLS_REGISTERED = False
 
 
+def load_prompt_policy(path: str | Path) -> str:
+    """Load the non-empty policy text registered during Omega startup."""
+    policy = Path(path).read_text(encoding="utf-8").strip()
+    if not policy:
+        raise ValueError("Tabletop prompt policy file is empty")
+    return policy
+
+
 def ensure_runtime_importable():
     """Make the standalone ``tabletop`` runtime importable under Omega."""
     root = str(_REPO_ROOT)

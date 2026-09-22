@@ -3,23 +3,19 @@
 (= (loadOmegaPlugin)
    (let $prompt-path
      (joinPath ((projectRootDirectory) "plugins" "tabletop" "prompt.md"))
-     (if (not (exists-file $prompt-path))
-       (Error (_loadOmegaPlugin) "Tabletop prompt policy file is missing")
-       (let $prompt (read-file $prompt-path)
-         (if (== $prompt "")
-           (Error (_loadOmegaPlugin) "Tabletop prompt policy file is empty")
+     (let $prompt (py-call (omega_tabletop_adapter.load_prompt_policy $prompt-path))
+       (progn
+         (let $status (py-call (omega_tabletop_adapter.initialize_response))
+           (log INFO "tabletop-plugin" $status))
+         ;; claim_skill_registration is the one-shot gate: first call returns the
+         ;; bare workspace token (setting|campaign); later calls return
+         ;; already-registered so register-workspace-skills adds nothing.
+         (let $workspace (py-call (omega_tabletop_adapter.claim_skill_registration))
            (progn
-             (let $status (py-call (omega_tabletop_adapter.initialize_response))
-               (log INFO "tabletop-plugin" $status))
-             ;; claim_skill_registration is the one-shot gate: first call returns the
-             ;; bare workspace token (setting|campaign); later calls return
-             ;; already-registered so register-workspace-skills adds nothing.
-             (let $workspace (py-call (omega_tabletop_adapter.claim_skill_registration))
-               (progn
-                 (log INFO "tabletop-plugin-workspace" $workspace)
-                 (register-workspace-skills $workspace)))
-             (add-prompt-extension tabletop-runtime-policy $prompt)
-             ())))))
+             (log INFO "tabletop-plugin-workspace" $workspace)
+             (register-workspace-skills $workspace)))
+         (add-prompt-extension tabletop-runtime-policy $prompt)
+         ()))))
 
 ;; Workspace skill surfaces are fixed at startup from TABLETOP_WORKSPACE.
 ;; Forbidden operations are absent from add-skill, not merely discouraged.

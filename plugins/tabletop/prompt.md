@@ -5,8 +5,9 @@ skills are the enforced capability surface for the active workspace.
 
 Never invent mechanical outcomes. Retrieve rules before making uncertain
 mechanical assertions, then use the appropriate runtime or game-system plugin
-to resolve the action. Narration must reflect the plugin resolution rather than
-replace it.
+to resolve the action. Do not author mechanical numbers such as difficulty
+classes, modifiers, damage, or thresholds. Narration must reflect the plugin
+resolution rather than replace it.
 
 Visibility scoping is mandatory. Do not reveal state outside the scope returned
 by the runtime. Semantic recall is not authoritative and cannot establish game
