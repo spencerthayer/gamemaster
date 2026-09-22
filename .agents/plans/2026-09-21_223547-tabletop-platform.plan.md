@@ -366,6 +366,21 @@ If an implementation choice starts collapsing these layers, fix the architecture
 15. The first draft must run locally and in Docker under Portainer, with no docker socket mount and no hardcoded developer paths.
 16. Never merge a pull request without explicit human approval in the conversation that opened it.
 
+## Execution invariants
+
+These bind every task below. Where a task's prose and one of these disagree, the invariant wins.
+
+1. **Branch before edit.** A review branch is created from freshly merged `main` before any file for that boundary changes.
+2. **No undeclared stacked PRs.** A task depending on another boundary waits for that boundary's PR to merge.
+3. **Setting ownership is first class.** Entities, facts, relationships, and world state may be setting-owned or campaign-owned. No fake campaign stands in for a setting.
+4. **`StateChange` targets a documented canonical state tree**, never SQLite schema paths.
+5. **After event sourcing lands, every authoritative mutation writes state and its event in one transaction.**
+6. **Raw-document immutability is an application convention locally and a filesystem guarantee only under read-only deployment mounts.** Tests must not claim an OS boundary the process does not have.
+7. **Workspace skill surfaces are fixed per runtime instance** for the first draft.
+8. **Lore and mechanics use distinct precedence policies.**
+9. **Extraction-envelope failure and individual-proposal rejection are different failure classes.**
+10. **Vector retrieval is optional and backend-independent. Lexical retrieval is the required baseline.**
+
 ## Current state
 
 `main` carries Phases 1 through 8. Branch `phase-9-mechanics-boundary` carries Phase 9 as commit `a43e082`, committed locally with no upstream tracking branch and no pull request yet.
@@ -396,24 +411,41 @@ python3.11 -m pytest tests/tabletop -q   # 183 passed
 python3.11 -m pytest tests/ -q           # 248 passed
 ```
 
-One feature branch per phase, merging to `main` through a PR. Existing convention: `phase-<n>-<slug>`.
+**One feature branch per review boundary**, merging to `main` through a PR. Existing convention: `phase-<n>-<slug>`.
 
-| Tasks | Branch |
-|---|---|
-| 01 | `phase-9-mechanics-boundary` (exists) |
-| 02 to 04 | `phase-10-dice-engine` |
-| 05 to 11 | `phase-11-campaign-persistence` |
-| 12 to 16 | `phase-12-13-events-projections` |
-| 17 to 20 | `phase-14-16-visibility-npcs` |
-| 21 to 28 | `phase-17-19-documents-ingestion` |
-| 29 to 33 | `phase-20-22-retrieval-precedence` |
-| 34 to 36 | `phase-23-25-rulings-skills-prompt` |
-| 37 to 39 | `phase-26-28-reference-systems` |
-| 40 to 44 | `phase-29-30-session-context-turn` |
-| 45 to 46 | `phase-31-32-security-docker` |
-| 47 to 55 | `phase-33-40-verification-release` |
+Branch before edit. At the start of the first task in every boundary, before any file for that boundary changes:
 
-Commit at every task boundary. Open the PR at the phase boundary, then stop and wait for explicit merge approval.
+```bash
+# 1. confirm every merge gate for this boundary has merged (see the table)
+# 2. start from freshly merged main
+git switch main
+git pull --ff-only
+git status --short          # must be clean
+git switch -c <branch>
+# 3. only now modify files
+```
+
+No undeclared stacked PRs. A task whose dependency lives in another boundary waits for that boundary's PR to merge. Architectural independence in the dependency graph is not the same as being safe to execute on a stacked branch, so the merge gate column is binding.
+
+| Tasks | Branch | Merge gate before starting |
+|---|---|---|
+| 01 | `phase-9-mechanics-boundary` (exists) | none |
+| 02 to 04 | `phase-10-dice-engine` | Phase 9 merged (task 04 only) |
+| 05 to 11 | `phase-11-campaign-persistence` | none |
+| 12 to 16 | `phase-12-13-events-projections` | Phase 11 merged |
+| 17 to 20 | `phase-14-16-visibility-npcs` | Phase 11 merged |
+| 21 to 23 | `phase-17-document-foundations` | none |
+| 24 to 28 | `phase-18-19-ingestion` | Phase 11 and `phase-17-document-foundations` merged |
+| 29 to 33 | `phase-20-22-retrieval-precedence` | ingestion merged |
+| 34 to 36 | `phase-23-25-rulings-skills-prompt` | retrieval merged |
+| 37 to 39 | `phase-26-28-reference-systems` | Phase 10 and Phase 9 merged |
+| 40 to 44 | `phase-29-30-session-context-turn` | visibility, retrieval, reference systems merged |
+| 45 to 46 | `phase-31-32-security-docker` | ingestion merged |
+| 47 to 55 | `phase-33-40-verification-release` | every prior boundary merged |
+
+Tasks 21 to 23 split out of the old single documents boundary because they need no persistence schema, while task 24 onward depends on task 06. Keeping them in one branch would have forced a stacked PR.
+
+Commit at every task boundary. Open the PR at the review boundary, then stop and wait for explicit merge approval.
 
 ## Task dependency graph
 
@@ -651,6 +683,17 @@ Then stop. Do not merge without explicit approval.
 - Modify: `tabletop/api/errors.py`
 - Create: `tests/tabletop/test_dice_parser.py`
 
+**Step 0: Open the review branch before editing anything**
+
+No merge gate: this boundary starts from `main` as it stands.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-10-dice-engine
+```
+
 **Step 1: Write the failing test**
 
 ```python
@@ -711,16 +754,23 @@ class DiceExpressionError(GameSystemError):
 
 **Step 4: Implement the parser**
 
-`tabletop/dice/parser.py` gets three frozen dataclasses and one function. Grammar: one or more `+` or `-` separated parts, where a part is either an integer constant or `<count>?d<sides><keep>?`, and `<keep>` is one of `kh`, `kl`, `dh`, `dl` followed by an integer.
+`tabletop/dice/parser.py` gets three frozen dataclasses and one function. Grammar for the first draft: **exactly one dice term and one optional signed integer modifier.**
+
+```
+<count>?d<sides><selection>?([+-]<modifier>)?
+```
 
 ```python
-_TERM = re.compile(
+_EXPRESSION = re.compile(
     r"\A(?P<count>\d*)d(?P<sides>\d+)"
-    r"(?:(?P<keep_kind>kh|kl|dh|dl)(?P<keep_count>\d+))?\Z"
+    r"(?:(?P<keep_kind>kh|kl|dh|dl)(?P<keep_count>\d+))?"
+    r"(?:(?P<sign>[+-])(?P<modifier>\d+))?\Z"
 )
 ```
 
-Validation rules, each raising `DiceExpressionError`: the input must be a non-empty `str` with no leading or trailing whitespace (matching the padded-string rejection already used in `tabletop/api/_contract.py`); `count` defaults to 1 and must be at least 1; `sides` must be at least 2; a keep or drop count must be at least 1 and strictly less than `count`. Signed dice terms are not supported, only signed constants.
+This covers every expression Phase 10 requires: `d20`, `2d6`, `3d6+2`, `2d20kh1`, `2d20kl1`, `4d6dl1`, `1d100`. Multi-term sums such as `2d6+1d4+3` are a later grammar version, deliberately excluded: `ParsedExpression` keeping a `terms` tuple while `RollResult.details` carries one flat `rolls` list was an inconsistency, and one term with one modifier makes both coherent. `terms` stays a one-element tuple so the later grammar is additive.
+
+Validation rules, each raising `DiceExpressionError`: the input must be a non-empty `str` with no leading or trailing whitespace (matching the padded-string rejection already used in `tabletop/api/_contract.py`); `count` defaults to 1 and must be at least 1; `sides` must be at least 2; a keep or drop count must be at least 1 and strictly less than `count`. Signed dice terms are not supported, only a signed constant modifier.
 
 **Step 5: Run the test to green**
 
@@ -733,7 +783,6 @@ Expected: all parametrized cases pass.
 **Step 6: Commit**
 
 ```bash
-git switch -c phase-10-dice-engine
 git add tabletop/dice/parser.py tabletop/api/errors.py tests/tabletop/test_dice_parser.py
 git commit -m "feat: parse generic dice expressions"
 ```
@@ -867,6 +916,17 @@ gh pr create --base main --title "Phase 10: dice engine" --body "Generic parser,
 - Modify: `tabletop/storage/sqlite.py`
 - Create: `tests/tabletop/test_storage_sqlite.py`
 
+**Step 0: Open the review branch before editing anything**
+
+No merge gate: this boundary starts from `main` as it stands.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-11-campaign-persistence
+```
+
 **Step 1: Write the failing test**
 
 Assert that `connect(path)` returns a connection whose `row_factory` is `sqlite3.Row`, where `PRAGMA foreign_keys` reads 1 and `PRAGMA journal_mode` reads `wal`; that `transaction(conn)` rolls back every write in the block when the body raises; that `migrate(conn)` creates a `schema_migrations` table and records each applied filename; that calling `migrate` twice applies nothing the second time and returns an empty tuple; and that a migration file whose recorded checksum no longer matches raises rather than silently re-running.
@@ -899,7 +959,6 @@ Add `StorageError` to `tabletop/api/errors.py` with code `storage_error`.
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_storage_sqlite.py -q
-git switch -c phase-11-campaign-persistence
 git add tabletop/storage/sqlite.py tabletop/api/errors.py tests/tabletop/test_storage_sqlite.py
 git commit -m "feat: add sqlite connection, transaction, and migration plumbing"
 ```
@@ -917,6 +976,8 @@ git commit -m "feat: add sqlite connection, transaction, and migration plumbing"
 **Step 1: Write the failing test**
 
 Assert that after `migrate(conn)` the tables `campaigns`, `sessions`, `scenes`, `entities`, and `settings` exist; that inserting a session against a missing campaign id raises `sqlite3.IntegrityError`; that `entities.system_state` accepts an arbitrary JSON blob; and that no column name in the schema mentions hit points, armor class, level, or class.
+
+Also assert the ownership model: a setting scoped entity stores with a `setting_id` and no `campaign_id`; a campaign scoped entity stores with a `campaign_id`; a setting scoped row carrying a `campaign_id` is rejected by the `CHECK`; and the same `entity_id` can exist once per owner, so a campaign entity may shadow a setting entity of the same id through `overrides_id`.
 
 **Step 2: Implement the DDL**
 
@@ -956,19 +1017,32 @@ CREATE TABLE scenes (
 
 CREATE TABLE entities (
   entity_id    TEXT NOT NULL,
-  campaign_id  TEXT NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+  owner_scope  TEXT NOT NULL CHECK (owner_scope IN ('setting', 'campaign')),
+  setting_id   TEXT REFERENCES settings(setting_id) ON DELETE CASCADE,
+  campaign_id  TEXT REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+  overrides_id TEXT,
   entity_type  TEXT,
   name         TEXT NOT NULL,
   system_state TEXT NOT NULL DEFAULT '{}',
   metadata     TEXT NOT NULL DEFAULT '{}',
-  PRIMARY KEY (campaign_id, entity_id)
+  PRIMARY KEY (owner_scope, COALESCE(setting_id, campaign_id), entity_id),
+  CHECK (
+    (owner_scope = 'setting'  AND setting_id  IS NOT NULL AND campaign_id IS NULL)
+    OR
+    (owner_scope = 'campaign' AND campaign_id IS NOT NULL)
+  )
 );
 
 CREATE INDEX idx_scenes_campaign ON scenes(campaign_id);
 CREATE INDEX idx_entities_campaign_type ON entities(campaign_id, entity_type);
+CREATE INDEX idx_entities_setting_type ON entities(setting_id, entity_type);
 ```
 
 `entity_id` matches `EntityRef.id`: opaque, non-empty, not necessarily a UUID. `system_state` is the plugin-owned blob the core never interprets.
+
+**Ownership scope, not campaign-only.** Deities, factions, regions, cultures, and world NPCs belong to a setting and outlive any one campaign. Scoping entities to a campaign would force the setting workspace in task 35 to invent a fake campaign in order to own anything, which is the collapse execution invariant 3 forbids. `owner_scope` plus the two nullable owner ids is the same ownership model the facts table uses in task 07, and `overrides_id` lets a campaign entity specialize the setting entity it shadows without editing it.
+
+A campaign scoped entity may also carry `setting_id`, recording which setting it overlays. Overlay resolution is a query-time decision, exactly as for facts.
 
 **Step 3: Run to green and commit**
 
@@ -1014,7 +1088,8 @@ CREATE TABLE facts (
   source_chunk_id    TEXT,
   import_job_id      TEXT,
   extraction_method  TEXT,
-  detached           INTEGER NOT NULL DEFAULT 0 CHECK (detached IN (0, 1)),
+  source_ownership   TEXT NOT NULL DEFAULT 'attached'
+                       CHECK (source_ownership IN ('attached', 'detached')),
   created_at         TEXT NOT NULL,
   CHECK (
     (fact_scope = 'setting'  AND setting_id  IS NOT NULL AND campaign_id IS NULL)
@@ -1032,6 +1107,8 @@ CREATE INDEX idx_facts_canon_knowledge ON facts(canon_state, knowledge_state);
 Note what the schema deliberately does not do: it does not forbid `proposed` plus `known`. Storage keeps the axes independent; task 08 adds the invariant layer that rejects the nonsense combinations. Keeping the rejection in one Python layer means the invariant has one testable home instead of being split between a `CHECK` and application code.
 
 A campaign scoped fact may carry a `setting_id` as well, recording which setting it overlays.
+
+`source_ownership` is a checked value rather than a `detached` boolean because the two provenance concepts are different: the `source_*` columns record where a row came from, historically and permanently, while `source_ownership` records whether the source still owns the row's lifecycle. Detachment keeps the historical source identity and stops purge ownership. A checked value also reads correctly in SQL and in event payloads, where `detached = 1` alongside a populated `source_document_id` looks like a contradiction.
 
 **Step 3: Run to green and commit**
 
@@ -1142,13 +1219,44 @@ git commit -m "feat: add resumable ingest job schema"
 
 **Step 1: Write the failing test**
 
-Cover: create a campaign and read it back; create and fetch entities and facts; `apply_state_changes(campaign_id, changes)` writes a `SET` at a nested tuple path into `entities.system_state`; a path component containing a dot stays a single literal key rather than splitting; an integer component indexes into a JSON list; `DELETE` removes the key and is a no-op on an already absent key; a batch containing one invalid change applies none of them; and the prior value comes from the store rather than the plugin, so `StateChange` has no `previous_value`.
+Cover: create a campaign and read it back; create and fetch entities and facts; `apply_state_changes(campaign_id, changes)` writes a `SET` at a nested tuple path into the canonical tree defined in step 1a; a path component containing a dot stays a single literal key rather than splitting; an integer component indexes into a JSON list; `DELETE` removes the key and is a no-op on an already absent key; a batch containing one invalid change applies none of them; and the prior value comes from the store rather than the plugin, so `StateChange` has no `previous_value`.
+
+**Step 1a: Define the canonical state tree before writing the applier**
+
+Phase 8 made `StateChange.path` structural but never said what it addresses. Applying paths straight at `entities.system_state` would silently give the tuple a new meaning and leak SQL structure into plugins. Define the tree first, in `docs/action-resolution.md`, and carry it into `docs/campaign-model.md` in task 11:
+
+```
+ResolutionContext.state
+{
+  "campaign": {
+    "system": { ... }          # campaign-level system-owned state
+  },
+  "entities": {
+    "<entity-id>": {
+      "system": { ... }        # entity system_state, plugin-owned
+      "metadata": { ... }      # generic metadata, core-owned shape
+    }
+  },
+  "scene": {
+    "system": { ... }          # active scene system-owned state
+  }
+}
+```
+
+Rules to encode and test:
+
+- A plugin `StateChange.path` must start with `campaign`, `entities`, or `scene`. Any other root is rejected with `InvalidResolutionError`.
+- `("entities", "<id>", "system", ...)` maps to that entity's `system_state` JSON. `("campaign", "system", ...)` maps to `campaigns.system_state`. `("scene", "system", ...)` maps to the active scene's state.
+- Plugins may write under `system`. They may not write `metadata`, ownership columns, provenance columns, canon state, knowledge state, or visibility. Those are core-owned and rejected at the boundary.
+- The persistence adapter performs the mapping. No plugin ever sees a table or column name.
 
 **Step 2: Implement**
 
 `CampaignStore(conn)` wraps the connection from task 05. Methods: `create_campaign`, `get_campaign`, `list_campaigns`, `upsert_entity`, `get_entity`, `add_fact`, `get_facts`, `apply_state_changes`. Every write runs inside `transaction(conn)`. `add_fact` calls `check_fact_invariants` from task 08 before the insert.
 
-`apply_state_changes` walks the tuple path against the decoded `system_state` JSON, creating intermediate dicts for missing string components, requiring an existing list for integer components, then re-encodes. Validate every change in the batch before mutating anything so a partially applied batch is impossible.
+`apply_state_changes` resolves each path root through the step 1a mapping, walks the remainder against the decoded JSON, creating intermediate dicts for missing string components, requiring an existing list for integer components, then re-encodes. Validate every change in the batch, including its root and its core-owned-field rejection, before mutating anything so a partially applied batch is impossible.
+
+**Mutation methods are building blocks, not the public flow.** Task 12 adds events and task 15 makes replay authoritative. From that point every authoritative mutation is state plus event in one transaction, so these store methods become internal primitives that an application service composes. Mark them as such in the module docstring now, rather than discovering the second history later.
 
 **Step 3: Run to green and commit**
 
@@ -1169,7 +1277,7 @@ git commit -m "feat: add campaign store with transactional state change applicat
 
 **Step 1: Write the document**
 
-Sections: the tables from migrations 0001 through 0003 with column purposes; the four independent axes and the invariant matrix from task 08; setting scope versus campaign scope, with the note that overlay resolution happens at query time and never mutates setting rows; provenance columns and the chain from fact to extraction to slice to job to document hash to parser version; the difference between promotion and detachment, including the two-row table showing that an imported and confirmed fact is still purged with its source while an imported and detached fact survives; and what SQLite owns versus what the event log owns.
+Sections: the tables from migrations 0001 through 0003 with column purposes; the ownership model shared by facts, entities, and relationships (`owner_scope` plus `setting_id` and `campaign_id`), and why setting-owned world material exists without a campaign; the canonical state tree from task 10 step 1a and the mapping from a `StateChange` path to storage; the four independent axes and the invariant matrix from task 08; setting scope versus campaign scope, with the note that overlay resolution happens at query time and never mutates setting rows; provenance columns and the chain from fact to extraction to slice to job to document hash to parser version; the difference between promotion and detachment, including the two-row table showing that an imported and confirmed fact is still purged with its source while an imported and detached fact survives; and what SQLite owns versus what the event log owns.
 
 **Step 2: Verify the document matches the code**
 
@@ -1196,15 +1304,26 @@ gh pr create --base main --title "Phase 11: campaign persistence" \
 - Modify: `tabletop/campaign/event_store.py`
 - Create: `tests/tabletop/test_event_store.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: Phase 11 merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-12-13-events-projections
+```
+
 **Step 1: Write the failing test**
 
-Assert `append` assigns sequence 1, 2, 3 within a campaign and restarts at 1 for a different campaign; that two campaigns interleaving appends keep independent sequences; that `UPDATE` and `DELETE` on `events` raise, enforced by SQLite triggers rather than convention; that `read(campaign_id, since=n)` returns rows in sequence order; and that a persisted event carries the fields a proposed `GameEvent` lacks, namely sequence, campaign id, session id, and timestamp.
+Assert that deleting a campaign with events raises rather than cascading, since campaign deletion is unsupported; that `append_in_transaction` issues no `BEGIN` of its own and works inside a caller-owned transaction, while `append` works standalone; that `append` assigns sequence 1, 2, 3 within a campaign and restarts at 1 for a different campaign; that two campaigns interleaving appends keep independent sequences; that `UPDATE` and `DELETE` on `events` raise, enforced by SQLite triggers rather than convention; that `read(campaign_id, since=n)` returns rows in sequence order; and that a persisted event carries the fields a proposed `GameEvent` lacks, namely sequence, campaign id, session id, and timestamp.
 
 **Step 2: Implement the DDL**
 
 ```sql
 CREATE TABLE events (
-  campaign_id TEXT NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(campaign_id) ON DELETE RESTRICT,
   sequence    INTEGER NOT NULL,
   event_type  TEXT NOT NULL,
   session_id  TEXT,
@@ -1229,17 +1348,25 @@ BEGIN
 END;
 ```
 
-The delete trigger blocks row deletion, which means a campaign cascade delete will also abort. That is the intended tension: dropping a campaign's history is an explicit administrative operation, added in task 14 as a purge path that disables the trigger inside one transaction, not an incidental side effect.
+`ON DELETE RESTRICT`, not `CASCADE`. An immutable event history and automatic campaign cascade deletion cannot coexist: a cascade would try to delete events, the trigger would abort it, and every campaign delete would fail in a way no caller could fix. SQLite also has no clean session-level way to disable a trigger temporarily, so a purge path that turns the trigger off is a trap rather than an escape hatch.
+
+The rule instead: **campaign deletion is unsupported, campaign archival is supported.** Add a `status` or `archived_at` column when archival is actually needed. Task 14 purges documents by provenance ownership and never touches campaign rows.
 
 **Step 3: Implement the store**
 
-`EventStore(conn).append(...)` computes the next sequence with `SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE campaign_id = ?` inside `BEGIN IMMEDIATE`, so concurrent writers cannot collide. `read(campaign_id, since=0, limit=None)` returns decoded records.
+`EventStore` exposes two append forms, decided here because task 13 composes them:
+
+- `append_in_transaction(conn, ...)` assumes **the caller owns the transaction** and begins none of its own. This is the primitive every lifecycle and application flow uses.
+- `append(...)` is the standalone convenience that opens one `transaction(conn)` around a single call.
+
+Nesting is the failure this prevents: a lifecycle function doing `with transaction(conn): update_fact(...); event_store.append(...)` would otherwise issue `BEGIN IMMEDIATE` inside an open transaction. Store primitives do not begin transactions; application services do.
+
+Both forms compute the next sequence with `SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE campaign_id = ?` inside the owning `BEGIN IMMEDIATE`, so concurrent writers cannot collide. `read(campaign_id, since=0, limit=None)` returns decoded records.
 
 **Step 4: Run to green and commit**
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_event_store.py -q
-git switch -c phase-12-13-events-projections
 git add tabletop/storage/migrations/0004_events.sql tabletop/campaign/event_store.py \
   tests/tabletop/test_event_store.py
 git commit -m "feat: add append-only event log"
@@ -1264,7 +1391,7 @@ Assert that promoting a fact appends exactly one `fact.promoted` event and no `f
 
 Add an `EventType` string enum with at least `fact.proposed`, `fact.promoted`, `fact.revealed`, `fact.detached`, `canon.contradiction_detected`, plus the play events `action.resolved`, `ruling.recorded`, `scene.opened`, `scene.closed`, `session.started`, `session.ended`. Use an exhaustive `match` with an `assert_never` default anywhere the runtime branches on it, matching the pattern already used in `tabletop/api/resolution.py`.
 
-Each lifecycle helper does its single field update and its single append inside one `transaction(conn)`, so a promotion cannot commit without its event and vice versa.
+Each lifecycle helper opens one `transaction(conn)` and calls `append_in_transaction` from task 12 inside it, so a promotion cannot commit without its event and vice versa, and no nested `BEGIN` is issued.
 
 **Step 3: Run to green and commit**
 
@@ -1291,7 +1418,7 @@ Build a fixture with five facts against one document: imported and proposed, imp
 
 **Step 2: Implement**
 
-`purge_document` selects `fact_id` where `source_document_id = ?` and `detached = 0`, deletes those rows, deletes the document and chunk rows, and appends the purge event, all in one transaction. Return the removed ids so callers can report what happened rather than claiming a silent success.
+`purge_document` selects `fact_id` where `source_document_id = ?` and `source_ownership = 'attached'`, deletes those rows, deletes the document and chunk rows, and appends the purge event, all in one transaction. Return the removed ids so callers can report what happened rather than claiming a silent success.
 
 **Step 3: Run to green and commit**
 
@@ -1313,13 +1440,27 @@ git commit -m "feat: purge imported records by provenance ownership"
 
 **Step 1: Write the failing test**
 
-Assert that replaying a known event sequence produces the same entity `system_state` the store holds after the same operations applied directly; that replay is idempotent, so replaying twice equals replaying once; that replay from a sequence offset produces the same result as full replay for the tail; and that an unknown `event_type` fails loudly rather than being skipped.
+Assert that replaying a known event sequence produces the same entity `system_state` the store holds after the same operations applied through the public flow; that replay is idempotent, so replaying twice equals replaying once; that replay from a sequence offset produces the same result as full replay for the tail; and that an unknown `event_type` fails loudly rather than being skipped.
+
+Then assert the stronger invariant this phase exists to establish: **every public authoritative mutation writes state and its event in one transaction.** Drive each public mutation flow, snapshot the event table before and after, and assert every state change has a matching event. A flow that mutates state with no event is a failure, not a documented limitation.
 
 **Step 2: Implement**
 
 `project_campaign(events) -> CampaignProjection` folds events into a plain dataclass holding entities, facts, scenes, and open threads. Dispatch on `EventType` with an exhaustive `match` and an `assert_never` default, so adding an event type in a later task breaks this function at type-check time instead of silently dropping history.
 
-Document the honest limit in the module docstring: state changes written directly through `CampaignStore` outside an event are not replayable, and every write path that matters must emit its event.
+One mutation unit from this phase onward:
+
+```
+command
+   |
+validate
+   |
+append event(s) + apply state mutation
+   |
+single transaction
+```
+
+`CampaignStore` mutation methods remain as internal building blocks, but no public application flow calls `store.apply_state_changes(...)` without the matching event in the same transaction. Two competing histories, SQLite current state and event reconstruction, is the failure mode; the invariant test above is what keeps them one history rather than a docstring caveat.
 
 **Step 3: Run to green and commit**
 
@@ -1370,6 +1511,17 @@ gh pr create --base main --title "Phases 12 and 13: event history and projection
 - Modify: `tabletop/api/visibility.py`
 - Create: `tests/tabletop/test_visibility_scopes.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: Phase 11 merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-14-16-visibility-npcs
+```
+
 **Step 1: Write the failing test**
 
 Assert `parse_scope` accepts `PUBLIC`, `PARTY`, `GM`, `CHARACTER:<id>`, `NPC:<id>`, `FACTION:<id>`, `GROUP:<id>`; that an unknown prefix, an empty id, a padded id, or a lowercase bare keyword is rejected with `VisibilityScopeError`; that `GM` sees every scope; that `PUBLIC` facts are visible to every viewpoint; that `CHARACTER:a` cannot see `CHARACTER:b` or `NPC:x`; and that a party member sees `PARTY` while a non-member does not.
@@ -1382,7 +1534,6 @@ Assert `parse_scope` accepts `PUBLIC`, `PARTY`, `GM`, `CHARACTER:<id>`, `NPC:<id
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_visibility_scopes.py -q
-git switch -c phase-14-16-visibility-npcs
 git add tabletop/api/visibility.py tabletop/api/errors.py tests/tabletop/test_visibility_scopes.py
 git commit -m "feat: parse and compare visibility scopes"
 ```
@@ -1428,11 +1579,13 @@ git commit -m "feat: filter fact queries by viewpoint in sql"
 
 **Step 1: Write the failing test**
 
-Assert an edge stores `source`, `relationship_type`, `target`, `metadata`, `visibility`, `valid_from`, `valid_until`; that querying as of a world time excludes closed edges; that closing an edge sets `valid_until` while superseding creates a new edge and closes the old one, and that these are distinguishable in the result; that edges respect the task 18 viewpoint filter; and that querying a missing entity returns an empty tuple rather than raising.
+Assert an edge stores `owner_scope`, `setting_id` or `campaign_id`, `source`, `relationship_type`, `target`, `metadata`, `visibility`, `valid_from`, `valid_until`; that a setting-owned edge exists without any campaign, so a setting can record that a deity opposes a faction; that a campaign-owned edge between the same pair does not modify the setting edge; that querying as of a world time excludes closed edges; that closing an edge sets `valid_until` while superseding creates a new edge and closes the old one, and that these are distinguishable in the result; that edges respect the task 18 viewpoint filter; and that querying a missing entity returns an empty tuple rather than raising.
 
 **Step 2: Implement the DDL and module**
 
-Columns as above with `PRIMARY KEY (campaign_id, source_id, relationship_type, target_id, valid_from)` so re-establishing a relationship later is a new row, plus indexes on `(campaign_id, source_id)` and `(campaign_id, target_id)`. `close_edge` and `supersede_edge` are separate functions with separate tests; collapsing them loses the distinction between a relationship ending and a relationship changing.
+Relationships carry the same ownership model as facts and entities: `owner_scope` in `setting` or `campaign`, the two nullable owner ids, and the same `CHECK`. Without it the setting workspace in task 35 cannot own world history, which execution invariant 3 forbids.
+
+`PRIMARY KEY (owner_scope, COALESCE(setting_id, campaign_id), source_id, relationship_type, target_id, valid_from)` so re-establishing a relationship later is a new row, plus indexes on `(campaign_id, source_id)`, `(campaign_id, target_id)`, and `(setting_id, source_id)`. `close_edge` and `supersede_edge` are separate functions with separate tests; collapsing them loses the distinction between a relationship ending and a relationship changing.
 
 **Step 3: Run to green and commit**
 
@@ -1483,6 +1636,17 @@ gh pr create --base main --title "Phases 14 to 16: visibility, relationships, NP
 - Create: `tabletop/documents/content_pack.py`
 - Create: `tests/tabletop/test_content_packs.py`
 
+**Step 0: Open the review branch before editing anything**
+
+No merge gate: this boundary starts from `main` as it stands.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-17-document-foundations
+```
+
 **Step 1: Write the failing test**
 
 Assert `load_content_pack(directory)` reads a `content-pack.yaml` with `id`, `name`, `pack_type` in `rules`, `setting`, `adventure`, `campaign-seed`, `supplement`, plus `system_id`, `version`, and an optional `gm_only` file list; that unknown manifest fields are rejected, matching the strict behavior already in `tabletop/plugins/manifest.py`; that a manifest declaring an `entrypoint` is rejected, because content packs are never executable; that a `gm_only` path escaping the pack directory via `..` or a symlink is rejected; and that discovery never imports a Python module from a pack directory.
@@ -1495,7 +1659,6 @@ Reuse the safe-loader and unknown-field discipline from `tabletop/plugins/manife
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_content_packs.py -q
-git switch -c phase-17-19-documents-ingestion
 git add tabletop/documents/content_pack.py tabletop/api/errors.py tests/tabletop/test_content_packs.py
 git commit -m "feat: load non-executable content pack manifests"
 ```
@@ -1513,11 +1676,13 @@ git commit -m "feat: load non-executable content pack manifests"
 
 **Step 1: Write the failing test**
 
-Assert `DocumentLibrary(raw_root, processed_root)` rejects a lookup escaping either root through `..`, an absolute path, or a symlink pointing outside; that the raw root is opened read-only, so a write attempt raises; that the same logical document resolves to one raw path and one processed path; that a missing raw root fails at construction rather than on first use; and that the raw and processed roots must not be nested inside one another.
+Assert `DocumentLibrary(raw_root, processed_root)` rejects a lookup escaping either root through `..`, an absolute path, or a symlink pointing outside; that the library exposes **no raw mutation API at all**, so there is no supported call that writes under the raw root; that the same logical document resolves to one raw path and one processed path; that a missing raw root fails at construction rather than on first use; and that the raw and processed roots must not be nested inside one another.
 
 **Step 2: Implement**
 
 Resolve with `Path.resolve()` and verify containment with `is_relative_to`. Store `sha256` of the raw bytes on the document record, which is the resume identity task 26 needs and the version identity task 33 needs.
+
+**Honest contract.** A Python wrapper cannot stop arbitrary code in the same process from writing to a directory the process can write to. `DocumentLibrary` therefore guarantees only that it exposes no raw mutation API and treats raw files as immutable. The filesystem guarantee comes from the read-only mount in task 46, which is where it gets verified. A test asserting that "the raw root is read-only" would be testing a convention while claiming an OS boundary.
 
 Note the repository reality: `.gitignore` excludes `/library/` and `library/` entirely, so the layout is created at runtime and documented, never committed. Copyrighted sourcebooks stay out of the repository.
 
@@ -1542,11 +1707,11 @@ git commit -m "feat: separate raw and processed document roots with path contain
 
 **Step 1: Write the failing test**
 
-Assert `detect_shape(text)` returns `STRUCTURED_RULES` for heading-dense text with stat-block patterns, `PROSE` for paragraph text with dialogue quotes and speech verbs, `REFERENCE_TABLE` for delimiter-aligned rows, and `UNSUPPORTED` when no rule fires; that the function performs no I/O and no network access; that the same input always returns the same shape, so there is no randomness or model call; and that `UNSUPPORTED` routes to manual review rather than guessing a parser.
+Assert `detect_shape(text)` returns `STRUCTURED_RULES` for heading-dense text with label and value blocks, `PROSE` for paragraph text with dialogue quotes and speech verbs, `REFERENCE_TABLE` for delimiter-aligned rows, and `UNSUPPORTED` when no rule fires; that the function performs no I/O and no network access; that the same input always returns the same shape, so there is no randomness or model call; and that `UNSUPPORTED` routes to manual review rather than guessing a parser.
 
 **Step 2: Implement**
 
-Score each candidate shape from countable signals: heading line ratio, average paragraph length, quotation and speech-verb density, pipe or tab column consistency, and colon-terminated label ratio. Return the highest score above a threshold, otherwise `UNSUPPORTED`. Record the winning score and the signal counts on the result so a misroute can be debugged without rerunning by hand.
+Score each candidate shape from countable signals: heading line ratio, average paragraph length, quotation and speech-verb density, pipe or tab column consistency, and colon-terminated label ratio. Keep the vocabulary generic: these are key-value reference records and structured entity records, not stat blocks. A system-specific detector for a particular game's stat block belongs to that content pack or system plugin, never to generic ingestion. Return the highest score above a threshold, otherwise `UNSUPPORTED`. Record the winning score and the signal counts on the result so a misroute can be debugged without rerunning by hand.
 
 **Step 3: Run to green and commit**
 
@@ -1554,6 +1719,9 @@ Score each candidate shape from countable signals: heading line ratio, average p
 python3.11 -m pytest tests/tabletop/test_document_shape.py -q
 git add tabletop/documents/shape.py tests/tabletop/test_document_shape.py
 git commit -m "feat: detect document shape deterministically"
+git push -u origin phase-17-document-foundations
+gh pr create --base main --title "Phase 17: content packs, document roots, shape detection" \
+  --body "Non-executable content pack manifests, contained raw and processed roots, deterministic document-shape detection."
 ```
 
 ---
@@ -1567,6 +1735,17 @@ git commit -m "feat: detect document shape deterministically"
 - Modify: `tabletop/documents/ingest.py`
 - Modify: `tabletop/documents/markdown.py`
 - Create: `tests/tabletop/test_ingest_markdown.py`
+
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: Phase 11 and `phase-17-document-foundations` merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-18-19-ingestion
+```
 
 **Step 1: Write the failing test**
 
@@ -1678,11 +1857,18 @@ git commit -m "feat: bound model extraction to closed proposal schemas"
 
 **Step 1: Write the failing test**
 
-Assert the importer writes facts at `canon_state='proposed'` and `knowledge_state='unrevealed'` only; that malformed names, single-character fragments, and rejected subject patterns are filtered before insert and reported in the result; that an extraction from an unknown or version-incompatible `extractor_version` is rejected outright; that every imported row carries `source_document_id`, `source_chunk_id`, `import_job_id`, and `extraction_method`; that the module's import graph contains no provider, HTTP, or credential module, asserted with a subprocess import check in the style of `tests/tabletop/test_skeleton.py`; and that a batch containing one invalid proposal imports none of it.
+Two distinct failure classes, tested separately, because conflating them either discards 500 good facts over one bad name or lets a malformed envelope through:
+
+| Class | Examples | Result |
+|---|---|---|
+| Invalid extraction envelope | unknown extractor version, unknown fields, wrong schema, bad job identity | reject the entire extraction, import nothing |
+| Rejected individual proposal | fragment name, empty subject, absurd entity, refused subject pattern | reject that proposal, import the rest, report every rejection |
+
+Assert the importer writes facts at `canon_state='proposed'` and `knowledge_state='unrevealed'` only; that an envelope failure imports nothing at all; that a single rejected proposal inside a valid envelope does not block its valid siblings and appears in the report with its reason; that every imported row carries `source_document_id`, `source_chunk_id`, `import_job_id`, `extraction_method`, and `source_ownership='attached'`; that the whole import is one transaction, so a mid-insert failure leaves no partial batch; and that the module's import graph contains no provider, HTTP, or credential module, asserted with a subprocess import check in the style of `tests/tabletop/test_skeleton.py`.
 
 **Step 2: Implement**
 
-`import_extraction(conn, extraction) -> ImportReport` validates, filters, then inserts inside one transaction, calling `check_fact_invariants` per row. The report lists accepted ids, rejected proposals, and the reason for each rejection, so a bad extraction is debuggable without re-running the model.
+`import_extraction(conn, extraction) -> ImportReport` validates the envelope first and raises on envelope failure, then filters individual proposals, then inserts the survivors inside one transaction, calling `check_fact_invariants` per row. The report lists accepted ids, rejected proposals, and the reason for each rejection, so a bad extraction is debuggable without re-running the model.
 
 **Step 3: Run to green, open the phase PR, stop for approval**
 
@@ -1690,9 +1876,9 @@ Assert the importer writes facts at `canon_state='proposed'` and `knowledge_stat
 python3.11 -m pytest tests/tabletop -q
 git add tabletop/documents/importer.py tests/tabletop/test_importer.py
 git commit -m "feat: gate authoritative import behind deterministic validation"
-git push -u origin phase-17-19-documents-ingestion
-gh pr create --base main --title "Phases 17 to 19: content packs, storage, ingestion" \
-  --body "Non-executable packs, contained document roots, deterministic shape detection, markdown and PDF ingestion, resumable jobs, extraction and import trust boundaries."
+git push -u origin phase-18-19-ingestion
+gh pr create --base main --title "Phases 18 and 19: ingestion, jobs, import boundary" \
+  --body "Markdown and PDF ingestion, heading-aware chunking, resumable content-addressed jobs, extraction and import trust boundaries."
 ```
 
 ---
@@ -1708,6 +1894,17 @@ gh pr create --base main --title "Phases 17 to 19: content packs, storage, inges
 - Modify: `tabletop/retrieval/lexical.py`
 - Create: `tests/tabletop/test_retrieval_lexical.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: ingestion merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-20-22-retrieval-precedence
+```
+
 **Step 1: Write the failing test**
 
 Assert `Retriever.search(query, filters, limit)` returns `RetrievedChunk` records carrying text, score, namespace, and a source reference sufficient to fetch the full record again; that the namespaces `system`, `setting`, `adventure`, `campaign`, `rulings`, `character`, `npc` filter independently and a query against one never returns another's rows; that a `limit` is always applied; that FTS5 special characters in a user query are escaped rather than interpreted as operators; and that results carry human-citable provenance so a GM can be told which document and section a rule came from.
@@ -1722,7 +1919,6 @@ If the local SQLite build lacks FTS5, fail at construction with a clear message 
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_retrieval_lexical.py -q
-git switch -c phase-20-22-retrieval-precedence
 git add tabletop/storage/migrations/0007_retrieval.sql tabletop/retrieval/interface.py \
   tabletop/retrieval/models.py tabletop/retrieval/lexical.py \
   tests/tabletop/test_retrieval_lexical.py
@@ -1746,7 +1942,22 @@ Assert every vector row records its embedding model name and dimension; that que
 
 **Step 2: Implement**
 
-Store embeddings in a table pinned to `(embedding_model, dimension)`. The cascade returns a result object carrying the tier that answered and any tiers that were skipped with their reason.
+Specify the backend rather than assuming one, because SQLite has no built-in vector search and the plan explicitly prefers SQLite over external infrastructure. No pgvector.
+
+- `Embedder` is a protocol: `embed(text) -> tuple[float, ...]`, plus `model` and `dimension` properties. Who supplies it is a deployment choice, not a runtime dependency.
+- Persistence stores `embedding_model`, `dimension`, and the encoded vector alongside the chunk id.
+- The first-draft `VectorRetriever` loads candidate vectors for the namespace and computes cosine similarity in Python. Brute force, honestly slow at scale, and enough to prove the interface. Mark it with the ceiling and the upgrade path in the module docstring.
+- A later backend replaces the similarity step without touching the `Retriever` interface.
+
+The cascade is explicit about why it degraded:
+
+```
+embedder available and dimension matches  -> semantic tier
+embedder missing, or dimension mismatch   -> FTS5 lexical tier
+FTS5 unavailable                          -> retrieval unavailable
+```
+
+The result object carries the tier that answered and every skipped tier with its reason, so a degraded answer is never presented as a full one.
 
 **Step 3: Run to green and commit**
 
@@ -1789,11 +2000,21 @@ git commit -m "docs: describe retrieval architecture and its limits"
 
 **Step 1: Write the failing test**
 
-Encode the order as data and assert it holds: campaign rulings, campaign house rules, campaign-specific canon, shared setting canon, active system rules, enabled supplements, adventure-specific rules, GM adjudication. Assert a campaign ruling outranks a sourcebook passage on the same question; that a campaign fact wins over a conflicting setting fact for that campaign only, verified by reading the setting row afterward and finding it unchanged; that the conflict is reported in the result for the GM to see; that a second campaign against the same setting is unaffected; and that mechanics and lore namespaces are searched separately rather than pooled.
+Encode **two** policies as data and assert each holds. A single eight-tier ladder answers mechanics and lore questions with the same order, which is wrong in both directions: setting canon should not outrank system rules on "what is the base difficulty", and system rules are irrelevant to "who rules the city".
+
+```
+MECHANICS                        LORE
+campaign rulings                 campaign-specific canon
+campaign house rules             shared setting canon
+adventure-specific mechanics     adventure canon
+enabled supplements              source material
+active system rules              GM adjudication
+GM adjudication
+``` Assert a campaign ruling outranks a sourcebook passage on the same question; that a campaign fact wins over a conflicting setting fact for that campaign only, verified by reading the setting row afterward and finding it unchanged; that the conflict is reported in the result for the GM to see; that a second campaign against the same setting is unaffected; and that mechanics and lore namespaces are searched separately rather than pooled.
 
 **Step 2: Implement**
 
-`PRECEDENCE_ORDER` is a tuple of namespace tiers. `resolve(query, campaign_id, kind)` walks tiers in order, collects the first satisfying answer, and reports lower-tier contradictions as advisory conflicts. The overlay is a query-time decision, exactly as task 07 storage assumed.
+`MECHANICS_PRECEDENCE` and `LORE_PRECEDENCE` are separate tuples of namespace tiers. `resolve(query, campaign_id, kind)` selects the policy from `kind`, walks its tiers in order, collects the first satisfying answer, and reports lower-tier contradictions as advisory conflicts. An unknown `kind` raises rather than defaulting, so a caller cannot get the mechanics ladder for a lore question by omission. The overlay is a query-time decision, exactly as task 07 storage assumed.
 
 **Step 3: Run to green and commit**
 
@@ -1844,6 +2065,17 @@ gh pr create --base main --title "Phases 20 to 22: retrieval, precedence, rule r
 - Create: `tabletop/campaign/rulings.py`
 - Create: `tests/tabletop/test_rulings.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: retrieval merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-23-25-rulings-skills-prompt
+```
+
 **Step 1: Write the failing test**
 
 Assert a ruling stores `ruling_id`, `campaign_id`, `system_id`, `question`, `decision`, `scope`, source references, `session_id`, `created_at`, `supersedes`; that a ruling is searched before generic sourcebooks, reusing the task 32 order; that recording a ruling never modifies any document or chunk row; that a ruling may be recorded as `proposed` and promoted later, and that promotion is independent of whether players were told; that superseding links the new ruling to the old without deleting it; and that `AdjudicationResult` from task 01 can be persisted as a ruling with its originating action and context intact.
@@ -1856,7 +2088,6 @@ Reuse the task 08 invariants and the task 13 event types, appending `ruling.reco
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_rulings.py -q
-git switch -c phase-23-25-rulings-skills-prompt
 git add tabletop/storage/migrations/0008_rulings.sql tabletop/campaign/rulings.py \
   tabletop/runtime.py tests/tabletop/test_rulings.py
 git commit -m "feat: record campaign rulings as first-class canon"
@@ -1877,11 +2108,15 @@ git commit -m "feat: record campaign rulings as first-class canon"
 
 **Step 1: Write the failing test**
 
-Assert the skill set for a `SETTING` workspace contains setting query and edit, world entity, and world history operations, and contains no session read, quest mutation, party state, or campaign secret operation; that a `CAMPAIGN` workspace inherits setting read access and adds session, party, thread, and campaign tools; that a skill absent from a workspace is not merely rejected at call time but missing from the registered list, asserted by inspecting the registration payload; that every registered skill has a non-empty description; and that no skill exposes a raw SQL string, table name, or file path parameter.
+Assert the workspace is fixed at construction from `TABLETOP_WORKSPACE` and that changing it afterwards is not possible through any public call; that an unset or unknown value fails startup rather than defaulting to the larger surface; that the skill set for a `SETTING` workspace contains setting query and edit, world entity, and world history operations, and contains no session read, quest mutation, party state, or campaign secret operation; that a `CAMPAIGN` workspace inherits setting read access and adds session, party, thread, and campaign tools; that a skill absent from a workspace is not merely rejected at call time but missing from the registered list, asserted by inspecting the registration payload; that every registered skill has a non-empty description; and that no skill exposes a raw SQL string, table name, or file path parameter.
 
 **Step 2: Implement**
 
 `Workspace` is an enum with a declared skill set per member. The adapter registers only the active workspace's skills through Omega's `add-skill`. Skills map to `TabletopRuntime` methods that now have real implementations from tasks 04, 10, 12, 29, and 34.
+
+**One active workspace per runtime instance, selected at startup.** Omega's `add-skill` mutates a process-wide skill registry, so swapping the surface per conversation is unsafe the moment two campaigns or channels share a process: a campaign conversation would change the global set and a setting conversation would then see campaign tools. That is exactly the leak this task exists to prevent.
+
+The first draft therefore reads `TABLETOP_WORKSPACE` (`setting` or `campaign`) at startup, registers once, and never re-registers. Serving several workspaces from one process waits until Omega offers per-session tool surfaces. Record this as an ADR in task 52, since it constrains deployment: two workspaces means two runtime instances.
 
 **Step 3: Run to green and commit**
 
@@ -1934,6 +2169,17 @@ gh pr create --base main --title "Phases 23 to 25: rulings, workspace skills, pr
 - Modify: `systems/freeform/plugin.yaml`
 - Create: `tests/tabletop/test_freeform_system.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: Phase 10 and Phase 9 merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-26-28-reference-systems
+```
+
 **Step 1: Write the failing test**
 
 Assert `freeform` advertises exactly `DICE`, `ACTION_RESOLUTION`, `OPPOSED_RESOLUTION`, and `RESOURCE_TRACKING`, and nothing it has not implemented; that a simple check resolves to `RESOLVED` with a roll and an explanation; that an opposed check resolves both sides from one action; that a generic resource decrement arrives as a `StateChange` rather than a direct write; that an action the system does not model returns `UNSUPPORTED` with an explanation and no fabricated numbers; that an action missing a target difficulty returns `UNRESOLVED`; and that the module imports nothing from Omega, MeTTa, or `tabletop.orchestration`, asserted with the subprocess import check pattern from `tests/tabletop/test_skeleton.py`.
@@ -1946,7 +2192,6 @@ Resolution uses the task 03 roller. Outcome keys are freeform's own; the core mu
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_freeform_system.py -q
-git switch -c phase-26-28-reference-systems
 git add systems/freeform/__init__.py systems/freeform/plugin.yaml \
   tests/tabletop/test_freeform_system.py
 git commit -m "feat: implement the freeform reference system"
@@ -2016,6 +2261,17 @@ gh pr create --base main --title "Phases 26 to 28: reference systems and API val
 - Modify: `tabletop/orchestration/session.py`
 - Create: `tests/tabletop/test_session_model.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: visibility, retrieval, reference systems merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-29-30-session-context-turn
+```
+
 **Step 1: Write the failing test**
 
 Assert a session records id, campaign id, start and end time, participants, transcript reference, event range, summary, important facts, and open threads; that `end_session` closes the event range, writes the summary, regenerates the task 16 projections, and updates retrieval, in that order; that ending a session preserves NPC agendas, clocks, rulings, and events untouched, asserted by comparing those rows before and after; that the recorded event range is derived from actual sequence numbers rather than a timestamp guess; and that a missing or failed LLM summary does not lose history, because the event range remains the authoritative record.
@@ -2028,7 +2284,6 @@ Wire `TabletopRuntime.end_session`, replacing its placeholder. The checklist is 
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_session_model.py -q
-git switch -c phase-29-30-session-context-turn
 git add tabletop/orchestration/session.py tabletop/runtime.py tests/tabletop/test_session_model.py
 git commit -m "feat: add the session lifecycle and closing checklist"
 ```
@@ -2097,7 +2352,7 @@ git commit -m "feat: compact context into refetchable stubs"
 
 **Step 1: Write the failing test**
 
-Assert `check_claim(conn, claim)` retrieves adjacent canon for the claim's subject and returns either no conflict or a `ConflictCandidate` carrying the existing fact, its source, its session, and the reason; that the function performs no write of any kind, asserted by comparing a full table snapshot before and after; that a detected conflict appends only the advisory `canon.contradiction_detected` event from task 13; that an unknown subject yields no conflict rather than a false positive; and that the result is surfaced to the GM rather than resolved automatically.
+Assert `check_claim(conn, claim)` retrieves adjacent canon for the claim's subject and returns either no conflict or a `ConflictCandidate` carrying the existing fact, its source, its session, and the reason; that the function performs **no authoritative canon or state mutation**, asserted by snapshotting `facts`, `entities`, and `relationships` before and after and finding them identical; that its only write is the advisory `canon.contradiction_detected` event from task 13, which is a write and is the one permitted one; that an unknown subject yields no conflict rather than a false positive; and that the result is surfaced to the GM rather than resolved automatically.
 
 **Step 2: Implement**
 
@@ -2151,6 +2406,17 @@ gh pr create --base main --title "Phases 29 and 30: session, context, turn loop"
 - Create: `docs/security.md`
 - Create: `tests/tabletop/test_security_boundaries.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: ingestion merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-31-32-security-docker
+```
+
 **Step 1: Write the failing test**
 
 Assert path normalization rejects traversal, absolute paths, and symlink escapes across the document library, content packs, and plugin discovery; that manifest validation rejects unknown fields and unsafe YAML tags in both loaders; that executable plugin roots are configured separately from document and content roots and that a document root is never searched for entrypoints; that the task 28 importer module graph contains no credential or network module; and that ingested document text is never evaluated, executed, or interpolated into SQL.
@@ -2163,7 +2429,6 @@ Cover prompt injection from ingested documents, sourcebooks as untrusted data, p
 
 ```bash
 python3.11 -m pytest tests/tabletop/test_security_boundaries.py -q
-git switch -c phase-31-32-security-docker
 git add docs/security.md tests/tabletop/test_security_boundaries.py
 git commit -m "docs: state the security model and test its claims"
 ```
@@ -2218,6 +2483,17 @@ gh pr create --base main --title "Phases 31 and 32: security and deployment" \
 **Files:**
 - Create: `tests/tabletop/test_architecture_invariants.py`
 
+**Step 0: Open the review branch before editing anything**
+
+Merge gate: every prior boundary merged. Do not start until it has.
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+git switch -c phase-33-40-verification-release
+```
+
 **Step 1: Write one test per invariant**
 
 From the amended and clarified plan, in order:
@@ -2250,7 +2526,6 @@ Expected: all pass, including the Omega tests that existed before this work.
 **Step 3: Commit**
 
 ```bash
-git switch -c phase-33-40-verification-release
 git add tests/tabletop/test_architecture_invariants.py
 git commit -m "test: assert every architectural invariant as a regression"
 ```
@@ -2366,12 +2641,12 @@ git commit -m "docs: record the roadmap and deferred items"
 
 ---
 
-### Task 52: Record ADRs 0001 through 0008 in docs/decisions
+### Task 52: Record ADRs 0001 through 0010 in docs/decisions
 
 **Objective:** Capture the decisions whose reasoning is not obvious from the code, in the standard four-section form.
 
 **Files:**
-- Create: `docs/decisions/0001-omega-as-foundation.md` through `docs/decisions/0008-clean-room-implementation.md`
+- Create: `docs/decisions/0001-omega-as-foundation.md` through `docs/decisions/0010-campaign-archival-not-deletion.md`
 
 **Step 1: Write each ADR with Status, Context, Decision, Consequences, Alternatives**
 
@@ -2383,16 +2658,18 @@ git commit -m "docs: record the roadmap and deferred items"
 6. Refetch-based compaction instead of summarization.
 7. A closed `ResolutionStatus` set instead of a `requires_ruling` boolean.
 8. Clean-room implementation and the research-repo license policy.
+9. One workspace per runtime instance, selected at startup, because `add-skill` is process-global.
+10. Campaign archival instead of campaign deletion, because immutable events and cascade delete cannot coexist.
 
 **Step 2: State real consequences, including the costs**
 
-ADR 4 costs extra columns and an invariant layer. ADR 6 costs storage of refetch arguments and a dependency on stable tool names. ADR 7 cost a migration of every construction site. An ADR listing only benefits is a sales document.
+ADR 4 costs extra columns and an invariant layer. ADR 6 costs storage of refetch arguments and a dependency on stable tool names. ADR 7 cost a migration of every construction site. ADR 9 costs one process per workspace in deployment. ADR 10 costs an archival path and leaves stale campaigns in the database. An ADR listing only benefits is a sales document.
 
 **Step 3: Commit**
 
 ```bash
 git add docs/decisions
-git commit -m "docs: record architecture decisions 0001 through 0008"
+git commit -m "docs: record architecture decisions 0001 through 0010"
 ```
 
 ---
@@ -2446,11 +2723,11 @@ Each line records the test name or the exact command that proves it, or is marke
 
 ```bash
 python3.11 -m pytest tests/ -q
-sh run.sh run.metta
+timeout 90 sh run.sh run.metta 2>&1 | tee /tmp/omega-start.log | grep -m1 -E "tabletop.*loaded|agent ready"
 git remote -v
 ```
 
-Expected: the suite passes; Omega starts without the tabletop plugin breaking startup; `upstream` and the project `origin` are both present. `UPSTREAM.md` still records bootstrap commit `7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`; current `HEAD` is expected to have moved well past it.
+Expected: the suite passes; Omega reaches the plugin-loaded line inside the timeout with no traceback in `/tmp/omega-start.log`, so the tabletop plugin does not break startup; `upstream` and the project `origin` are both present. `UPSTREAM.md` still records bootstrap commit `7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`; current `HEAD` is expected to have moved well past it.
 
 **Step 3: Commit**
 
@@ -2500,11 +2777,15 @@ python3.11 -m pytest tests/tabletop/test_architecture_invariants.py -v
 
 Baseline before task 01: 183 tabletop, 248 total.
 
-Omega must keep starting throughout. Check it at every phase boundary, not only at the end:
+Omega must keep starting throughout. Check it at every review boundary, not only at the end. The launcher is long-running, so the check is bounded and has a defined success condition rather than an open-ended run:
 
 ```bash
-sh run.sh run.metta
+# success: the plugin-loaded line appears within 90s and no traceback is printed
+timeout 90 sh run.sh run.metta 2>&1 | tee /tmp/omega-start.log | grep -m1 -E "tabletop.*loaded|agent ready"
+grep -qi traceback /tmp/omega-start.log && echo "STARTUP FAILED" || echo "startup ok"
 ```
+
+Adjust the match string to whatever the current launcher prints on a successful plugin load, and record that string here the first time it is observed. An unbounded `sh run.sh run.metta` in a verification step hangs the run.
 
 Git hygiene before every commit:
 
@@ -2518,7 +2799,7 @@ Confirm no `research/`, no PDFs, no keys, no `.env`, no `.sqlite`, no vector dat
 
 **The 5e plugin pulling system vocabulary into the core.** This is the most likely architectural failure in the whole plan, because 5e mechanics are convenient to special-case. Task 38 greps `tabletop/` for the vocabulary and task 39 audits the API against a system built on inverted comparisons. If GURPS roll-under does not fit, the API changes rather than the audit being softened.
 
-**Event replay drifting from direct store writes.** Task 15 makes replay authoritative in tests, but any write path added later that skips its event silently breaks reconstruction. The `assert_never` dispatch catches new event types, not missing emissions. Consider a store-level audit in a later milestone that flags a state mutation with no matching event.
+**Event replay drifting from direct store writes.** Task 15 now asserts the stronger invariant that every public authoritative mutation writes state and its event in one transaction, so a silent second history fails a test rather than accumulating. The residual risk is narrower: a new public flow added later that never gets covered by that invariant test. The `assert_never` dispatch catches new event types, not missing emissions, so the invariant test needs extending whenever a public mutation flow is added.
 
 **Token estimation accuracy in task 41.** The budget is computed from an approximation. A bad estimate degrades context quality rather than corrupting state, so it is acceptable for a first draft, but the estimator needs to be replaceable without touching allocation.
 
@@ -2528,5 +2809,7 @@ Confirm no `research/`, no PDFs, no keys, no `.env`, no `.sqlite`, no vector dat
 
 **Concurrency beyond a single writer.** SQLite in WAL mode with `BEGIN IMMEDIATE` handles one writer and several readers. Multiple simultaneous GMs writing to one campaign is untested and out of scope for the first draft.
 
-**Open question: workspace selection.** Task 35 scopes the skill surface per workspace, but how a workspace is selected at runtime is unspecified. Config, environment variable, and channel-derived selection are all plausible. Decide at task 35 and record it in the task 52 ADR set if the choice constrains later work.
+**Workspace selection, decided.** One active workspace per runtime instance, read from `TABLETOP_WORKSPACE` at startup, because `add-skill` mutates a process-global registry and per-conversation swapping would leak campaign tools into a setting conversation sharing the process. Recorded as ADR 9 in task 52. The cost is one process per workspace; the open part is only when Omega gains per-session tool surfaces, which would allow multi-workspace serving.
+
+**Setting-scoped ownership adds a join dimension.** Facts, entities, and relationships now carry `owner_scope` plus two nullable owner ids. Every query that used to filter on `campaign_id` alone must consider setting-owned rows, and forgetting one produces a silent omission rather than an error. The precedence resolver in task 32 is the main consumer and the place to concentrate the tests.
 
