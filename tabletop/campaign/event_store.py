@@ -200,6 +200,11 @@ class EventStore:
         return [_event_from_row(row) for row in rows]
 
 
+def _require_updated_fact_row(cursor: sqlite3.Cursor, fact_id: str) -> None:
+    if cursor.rowcount != 1:
+        raise LookupError(f"fact not found: {fact_id}")
+
+
 def promote_fact(conn: sqlite3.Connection, fact: Fact) -> Fact:
     """Confirm a fact and append exactly one ``fact.promoted`` event."""
 
@@ -208,10 +213,11 @@ def promote_fact(conn: sqlite3.Connection, fact: Fact) -> Fact:
     promoted = promote(fact)
     store = EventStore(conn)
     with transaction(conn):
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE facts SET canon_state = ? WHERE fact_id = ?",
             (promoted.canon_state.value, promoted.fact_id),
         )
+        _require_updated_fact_row(cursor, fact.fact_id)
         store.append_in_transaction(
             conn,
             fact.campaign_id,
@@ -231,10 +237,11 @@ def reveal_fact(conn: sqlite3.Connection, fact: Fact) -> Fact:
     revealed = reveal(fact)
     store = EventStore(conn)
     with transaction(conn):
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE facts SET knowledge_state = ? WHERE fact_id = ?",
             (revealed.knowledge_state.value, revealed.fact_id),
         )
+        _require_updated_fact_row(cursor, fact.fact_id)
         store.append_in_transaction(
             conn,
             fact.campaign_id,
@@ -254,10 +261,11 @@ def detach_fact(conn: sqlite3.Connection, fact: Fact) -> Fact:
     detached = detach(fact)
     store = EventStore(conn)
     with transaction(conn):
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE facts SET source_ownership = ? WHERE fact_id = ?",
             (detached.source_ownership, detached.fact_id),
         )
+        _require_updated_fact_row(cursor, fact.fact_id)
         store.append_in_transaction(
             conn,
             fact.campaign_id,

@@ -154,6 +154,44 @@ def test_reveal_proposed_fact_raises_and_appends_no_event(conn) -> None:
     assert EventStore(conn).read("campaign-1") == []
 
 
+@pytest.mark.parametrize(
+    ("helper", "fact"),
+    [
+        (
+            promote_fact,
+            _fact(fact_id="missing-promote", canon_state=CanonState.PROPOSED),
+        ),
+        (
+            reveal_fact,
+            _fact(
+                fact_id="missing-reveal",
+                canon_state=CanonState.CONFIRMED,
+                knowledge_state=KnowledgeState.UNREVEALED,
+            ),
+        ),
+        (
+            detach_fact,
+            _fact(
+                fact_id="missing-detach",
+                canon_state=CanonState.CONFIRMED,
+                source_document_id="doc-1",
+                import_job_id="job-1",
+            ),
+        ),
+    ],
+)
+def test_missing_fact_raises_and_leaves_event_log_unchanged(
+    conn,
+    helper,
+    fact: Fact,
+) -> None:
+    with pytest.raises(LookupError, match="fact not found"):
+        helper(conn, fact)
+
+    assert EventStore(conn).read("campaign-1") == []
+    assert CampaignStore(conn).get_facts("campaign-1") == []
+
+
 def test_contradiction_detected_never_changes_facts(conn) -> None:
     store = CampaignStore(conn)
     fact = _fact(canon_state=CanonState.CONFIRMED)
