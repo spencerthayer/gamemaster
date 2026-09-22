@@ -71,9 +71,10 @@ proposal data. The importer validates envelopes, rejects individual proposals
 that fail policy, and inserts survivors with parameterized SQL. Imported facts
 enter as non-canon until a separate promotion step.
 
-Ingested document text is stored as values bound to SQL parameters. Markdown
-and PDF ingestion and the importer do not `eval` or `exec` document text and
-do not interpolate document text into SQL strings.
+Ingested document text is stored as values bound to SQL parameters. Static
+analysis of the Markdown and PDF ingestion modules and the importer rejects
+`eval`/`exec`/`compile`, and rejects SQL built with f-strings, `%`
+interpolation, concatenation, or `str.format` in those modules.
 
 ## Read-only raw mounts
 

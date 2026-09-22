@@ -12,13 +12,23 @@ import pytest
 
 from tabletop.api.errors import ContentPackError, PluginManifestError
 from tabletop.api.workspace import Workspace
+from tabletop.campaign.models import CanonState, KnowledgeState
+from tabletop.campaign.store import CampaignStore
 from tabletop.documents.content_pack import load_content_pack
+from tabletop.documents.extraction import (
+    KNOWN_EXTRACTOR_VERSIONS,
+    ProposedEntity,
+    ProposedExtraction,
+    ProposedFact,
+)
+from tabletop.documents.importer import ImportEnvelopeError, import_extraction
 from tabletop.documents.library import DocumentLibrary
 from tabletop.documents.markdown import MarkdownIngestor
 from tabletop.documents.pdf import PdfIngestor
 from tabletop.plugins.discovery import discover_plugins
 from tabletop.plugins.manifest import load_manifest
 from tabletop.runtime import PLUGIN_PATH_ENV_VAR, TabletopRuntime
+from tabletop.storage.sqlite import connect, migrate
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SECURITY_DOC = _REPO_ROOT / "docs" / "security.md"
@@ -33,6 +43,8 @@ _BANNED_IMPORTER_TOPLEVEL = {
     "credentials",
     "boto3",
 }
+
+_SQL_MARKERS = ("SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "INTO", "VALUES")
 
 _PLUGIN_MANIFEST = """\
 id: freeform
@@ -74,6 +86,31 @@ def _toplevel_imports(module_path: Path) -> set[str]:
     return tops
 
 
+def _looks_like_sql(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    upper = value.upper()
+    return any(marker in upper for marker in _SQL_MARKERS)
+
+
+def _is_format_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format"
+    )
+
+
+def _is_interpolated_sql_expr(node: ast.AST) -> bool:
+    if isinstance(node, ast.JoinedStr):
+        return True
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
+        return True
+    if _is_format_call(node):
+        return True
+    return False
+
+
 def _assert_no_eval_exec_or_sql_interpolation(module_path: Path) -> None:
     source = module_path.read_text()
     tree = ast.parse(source)
@@ -86,20 +123,13 @@ def _assert_no_eval_exec_or_sql_interpolation(module_path: Path) -> None:
                 if not node.args:
                     continue
                 sql_arg = node.args[0]
-                if isinstance(sql_arg, ast.JoinedStr):
+                if _is_interpolated_sql_expr(sql_arg):
                     pytest.fail(
-                        f"{module_path.name} interpolates SQL via f-string at "
-                        f"line {node.lineno}"
-                    )
-                if isinstance(sql_arg, ast.BinOp) and isinstance(
-                    sql_arg.op, (ast.Add, ast.Mod)
-                ):
-                    pytest.fail(
-                        f"{module_path.name} builds SQL by concatenation or % "
-                        f"formatting at line {node.lineno}"
+                        f"{module_path.name} builds SQL via f-string, %, "
+                        f"concatenation, or str.format at line {node.lineno}"
                     )
                 if len(node.args) < 2:
-                    # Parameterless DDL/static statements are fine; values from
+                    # Parameterless static statements are fine; values from
                     # document text must never be spliced into the SQL string.
                     if isinstance(sql_arg, ast.Constant) and isinstance(
                         sql_arg.value, str
@@ -109,6 +139,30 @@ def _assert_no_eval_exec_or_sql_interpolation(module_path: Path) -> None:
                         f"{module_path.name} execute() at line {node.lineno} "
                         "has no bound parameters"
                     )
+
+        # Reject SQL templates built with % or str.format anywhere in the module,
+        # even before they are passed to execute().
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+            if isinstance(node.left, ast.Constant) and _looks_like_sql(node.left.value):
+                pytest.fail(
+                    f"{module_path.name} percent-interpolates SQL at line {node.lineno}"
+                )
+        if _is_format_call(node):
+            receiver = node.func.value  # type: ignore[attr-defined]
+            if isinstance(receiver, ast.Constant) and _looks_like_sql(receiver.value):
+                pytest.fail(
+                    f"{module_path.name} builds SQL with str.format at line {node.lineno}"
+                )
+        if isinstance(node, ast.JoinedStr):
+            text = "".join(
+                part.value
+                for part in node.values
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            )
+            if _looks_like_sql(text):
+                pytest.fail(
+                    f"{module_path.name} builds SQL with an f-string at line {node.lineno}"
+                )
 
 
 def test_security_doc_states_required_threat_model_topics() -> None:
@@ -234,9 +288,17 @@ def test_both_manifest_loaders_reject_unknown_fields(tmp_path: Path) -> None:
     with pytest.raises(PluginManifestError, match="unknown fields"):
         load_manifest(plugin_path)
 
-    _write_content_manifest(tmp_path / "pack", _CONTENT_MANIFEST + "entrypoint: x:Y\n")
-    with pytest.raises(ContentPackError, match="unknown fields|entrypoint"):
+    _write_content_manifest(
+        tmp_path / "pack", _CONTENT_MANIFEST + "nonsense_field: unexpected\n"
+    )
+    with pytest.raises(ContentPackError, match="unknown fields"):
         load_content_pack(tmp_path / "pack")
+
+
+def test_content_pack_rejects_entrypoint_field(tmp_path: Path) -> None:
+    _write_content_manifest(tmp_path, _CONTENT_MANIFEST + "entrypoint: pack_code:run\n")
+    with pytest.raises(ContentPackError, match="unknown fields"):
+        load_content_pack(tmp_path)
 
 
 def test_both_manifest_loaders_reject_unsafe_yaml_tags(tmp_path: Path) -> None:
@@ -262,6 +324,51 @@ def test_both_manifest_loaders_reject_unsafe_yaml_tags(tmp_path: Path) -> None:
     with pytest.raises(ContentPackError):
         load_content_pack(tmp_path / "pack")
     assert not sentinel.exists()
+
+
+def test_plugin_discovery_is_immediate_children_only(
+    tmp_path: Path, make_plugin
+) -> None:
+    make_plugin(tmp_path, "alpha")
+    make_plugin(tmp_path / "nested", "beta")
+    candidates = discover_plugins([tmp_path])
+    assert [candidate.manifest.id for candidate in candidates] == ["alpha"]
+
+
+def test_discover_plugins_never_executes_plugin_python(
+    tmp_path: Path, make_plugin
+) -> None:
+    sentinel = tmp_path / "discovery-imported"
+    make_plugin(tmp_path, "sideeffect")
+    module_file = tmp_path / "sideeffect" / "sideeffect" / "__init__.py"
+    module_file.write_text(
+        module_file.read_text()
+        + f"\nimport pathlib\npathlib.Path({str(sentinel)!r}).write_text('imported')\n"
+    )
+    candidates = discover_plugins([tmp_path])
+    assert [candidate.manifest.id for candidate in candidates] == ["sideeffect"]
+    assert not sentinel.exists(), "discover_plugins executed plugin Python"
+
+
+def test_content_pack_load_never_imports_pack_python(tmp_path: Path) -> None:
+    sentinel = tmp_path / "pack-python-imported"
+    (tmp_path / "__init__.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(sentinel)!r}).write_text('imported')\n"
+    )
+    _write_content_manifest(tmp_path, _CONTENT_MANIFEST)
+    load_content_pack(tmp_path)
+    assert not sentinel.exists(), "content-pack load imported pack Python"
+
+
+def test_document_library_has_no_raw_mutation_api(tmp_path: Path) -> None:
+    library, _, _ = _library(tmp_path)
+    public_methods = {
+        name
+        for name in dir(library)
+        if not name.startswith("_") and callable(getattr(library, name))
+    }
+    assert public_methods == {"lookup"}
 
 
 def test_plugin_roots_are_separate_from_document_and_content_roots(
@@ -326,6 +433,152 @@ def test_document_root_is_never_searched_for_entrypoints_by_default(
     ids = {plugin.info.id for plugin in runtime._registry.list()}
     assert "from-plugins" in ids
     assert "from-docs" not in ids
+
+
+@pytest.fixture
+def import_conn(tmp_path: Path):
+    connection = connect(tmp_path / "security-import.db")
+    migrate(connection)
+    connection.execute(
+        "INSERT INTO settings (setting_id, name, created_at) VALUES (?, ?, ?)",
+        ("setting-1", "Test Setting", "2026-09-22T00:00:00Z"),
+    )
+    CampaignStore(connection).create_campaign(
+        "campaign-1",
+        "First",
+        "test",
+        setting_id="setting-1",
+    )
+    connection.execute(
+        "INSERT INTO ingest_jobs "
+        "(job_id, document_hash, parser_version, slice_strategy_version, "
+        "status, total_slices, completed_slices, failed_slices, "
+        "started_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'completed', 1, 1, 0, ?, ?)",
+        (
+            "job-1",
+            "hash-1",
+            "1",
+            "1",
+            "2026-09-22T00:00:00Z",
+            "2026-09-22T00:00:00Z",
+        ),
+    )
+    connection.execute(
+        "INSERT INTO documents "
+        "(document_id, content_hash, source_path, title, document_shape, "
+        "content_pack_id, system_id, visibility, ingested_at) "
+        "VALUES (?, ?, ?, ?, 'prose', NULL, NULL, 'GM', ?)",
+        (
+            "document-1",
+            "doc-hash-1",
+            "/tmp/doc.md",
+            "Doc",
+            "2026-09-22T00:00:00Z",
+        ),
+    )
+    connection.execute(
+        "INSERT INTO document_chunks "
+        "(chunk_id, document_id, ordinal, heading_path, page, text, "
+        "content_hash, content_pack_id, system_id, visibility) "
+        "VALUES (?, ?, 0, ?, NULL, ?, ?, NULL, NULL, 'GM')",
+        (
+            "chunk-1",
+            "document-1",
+            '["Doc"]',
+            "Mara lives in Greyhaven.",
+            "chunk-hash-1",
+        ),
+    )
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+def test_importer_rejects_bad_envelope_and_imports_facts_as_non_canon(
+    import_conn,
+) -> None:
+    with pytest.raises(ImportEnvelopeError, match="unknown fields"):
+        import_extraction(
+            import_conn,
+            {
+                "job_id": "job-1",
+                "slice_index": 0,
+                "extractor_version": next(iter(KNOWN_EXTRACTOR_VERSIONS)),
+                "entities": [],
+                "facts": [],
+                "extra": True,
+            },
+        )
+    assert import_conn.execute("SELECT COUNT(*) AS n FROM facts").fetchone()["n"] == 0
+
+    with pytest.raises(ImportEnvelopeError, match="extractor_version"):
+        import_extraction(
+            import_conn,
+            ProposedExtraction(
+                job_id="job-1",
+                slice_index=0,
+                extractor_version="not-a-known-extractor",
+                entities=(),
+                facts=(
+                    ProposedFact(
+                        fact_id="fact-1",
+                        fact_scope="campaign",
+                        setting_id=None,
+                        campaign_id="campaign-1",
+                        subject_id="mara",
+                        predicate="lives_in",
+                        value="Greyhaven",
+                        source_document_id="document-1",
+                        source_chunk_id="chunk-1",
+                    ),
+                ),
+            ),
+        )
+    assert import_conn.execute("SELECT COUNT(*) AS n FROM facts").fetchone()["n"] == 0
+
+    report = import_extraction(
+        import_conn,
+        ProposedExtraction(
+            job_id="job-1",
+            slice_index=0,
+            extractor_version=next(iter(KNOWN_EXTRACTOR_VERSIONS)),
+            entities=(
+                ProposedEntity(
+                    entity_id="mara",
+                    owner_scope="campaign",
+                    setting_id=None,
+                    campaign_id="campaign-1",
+                    overrides_id=None,
+                    entity_type="npc",
+                    name="Mara",
+                    system_state={},
+                    metadata={},
+                ),
+            ),
+            facts=(
+                ProposedFact(
+                    fact_id="fact-1",
+                    fact_scope="campaign",
+                    setting_id=None,
+                    campaign_id="campaign-1",
+                    subject_id="mara",
+                    predicate="lives_in",
+                    value="Greyhaven",
+                    source_document_id="document-1",
+                    source_chunk_id="chunk-1",
+                ),
+            ),
+        ),
+    )
+    assert "fact-1" in report.accepted_ids
+    row = import_conn.execute(
+        "SELECT canon_state, knowledge_state FROM facts WHERE fact_id = ?",
+        ("fact-1",),
+    ).fetchone()
+    assert row["canon_state"] == CanonState.PROPOSED.value
+    assert row["knowledge_state"] == KnowledgeState.UNREVEALED.value
 
 
 def test_importer_module_graph_contains_no_credential_or_network_module() -> None:
