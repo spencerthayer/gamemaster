@@ -39,6 +39,32 @@ if [[ -n "${TABLETOP_DATABASE_PATH:-}" ]]; then
   chown -R 65534:65534 -- "$TABLETOP_STATE_DIRECTORY"
 fi
 
+# Landlock cannot grant access to Docker Desktop bind mounts. Copy the
+# read-only plugin and library trees, and the campaigns tree, onto the
+# container filesystem before the agent applies the policy.
+copy_mount_into_image() {
+  local stage="$1"
+  local dest="$2"
+  local staged
+  if [[ -z "${stage}" || -z "${dest}" || "${stage}" == "${dest}" ]]; then
+    return 0
+  fi
+  if [[ ! -d "${stage}" ]]; then
+    return 0
+  fi
+  staged="$(mktemp -d)"
+  cp -a "${stage}"/. "${staged}/"
+  rm -rf "${dest}"
+  mkdir -p "${dest}"
+  cp -a "${staged}"/. "${dest}/"
+  rm -rf "${staged}"
+  chown -R 65534:65534 "${dest}"
+}
+
+copy_mount_into_image "${TABLETOP_PLUGIN_MOUNT:-}" /PeTTa/repos/Omega/plugins
+copy_mount_into_image "${TABLETOP_LIBRARY_MOUNT:-}" /PeTTa/repos/Omega/library
+copy_mount_into_image "${TABLETOP_CAMPAIGNS_MOUNT:-}" /PeTTa/repos/Omega/campaigns
+
 su www-data -s /bin/sh -c "sh /opt/nginx/nginx.sh"
 
 # Optional knowledge-base import

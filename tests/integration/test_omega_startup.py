@@ -101,6 +101,8 @@ def test_omega_loads_tabletop_and_shuts_down() -> None:
                 "sh",
                 "-c",
                 "for d in /proc/[0-9]*; do "
+                "comm=$(cat \"$d/comm\"); "
+                "[ \"$comm\" = swipl ] || continue; "
                 "tr '\\0' ' ' < \"$d/cmdline\" | grep -q 'run.metta' || continue; "
                 "awk '/^Uid:/{print $2; exit}' \"$d/status\"; exit; done",
             ],

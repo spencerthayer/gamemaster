@@ -19,15 +19,16 @@ The commands below are the evidence. A skipped Docker test is not a pass.
    `tests/tabletop/test_fact_lifecycle_skills.py` pass.
 6. **Writes stay in the active campaign or owned setting: MET** if the
    boundary and lifecycle tests pass.
-7. **Omega container startup: NOT MET for plugin registration.**
+7. **Omega container startup: MET.**
    `GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration/test_omega_startup.py`
-   built the image, passed nginx, and reached the agent loop with provider
-   `Test` and channel `test`. The MeTTa loader then logged
-   `Cannot import tabletop plugin from /PeTTa/repos/Omega/plugins/tabletop/tabletop`.
-   The same failure hit the workflow and openclaw MeTTa plugins.
-   `loadOmegaPlugin` did not run, so `tabletop-plugin` and
-   `tabletop-prompt-extension` were absent. Python plugins under `channels/`
-   and `providers/` did load.
+   passed in 46.94s. Logs contained `tabletop-plugin`,
+   `tabletop-plugin-workspace` with `campaign`, and
+   `tabletop-prompt-extension`. The `swipl` process running `run.metta` was
+   uid 65534. Landlock denies Docker Desktop bind mounts even when the path
+   is allowed, so `entrypoint.sh` copies the plugin, library, and campaigns
+   mounts onto the container filesystem before the agent starts. Tabletop
+   SQLite stays on the named state volume, which the policy allows as
+   read-write.
 8. **Production image build: MET.** `docker compose build` produced
    `gamemaster:latest`. `SWIPL_IMAGE` remained `docker.io/library/swipl:10.0.2`.
    The index digest observed on 2026-09-22 was
@@ -42,8 +43,8 @@ The commands below are the evidence. A skipped Docker test is not a pass.
 10. **Visibility matrix: MET** if `tests/tabletop/test_visibility_matrix.py` passes.
     Fact expiry is not filtered. Relationship expiry is.
 11. **Full suite: MET.** `python3.11 -m pytest tests/ -q` reported
-    `698 passed, 2 skipped in 5.00s`. The two skips are the Docker and Omega
-    opt-in tests.
+    `698 passed, 3 skipped in 7.73s`. The skips are the Docker image test,
+    the Omega startup test, and the Docker opt-in marker test.
 12. **Schema document: MET.** `docs/campaign-model.md` lists migrations through
     `0015_turn_receipts.sql`.
 13. **Campaign archival: NOT MET.** ADR 0010 remains accepted and unimplemented.

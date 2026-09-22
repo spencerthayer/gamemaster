@@ -88,8 +88,13 @@ every bind-mount source and container path.
 The compose file sets `read_only: true` on the plugin and library bind mounts.
 This is a compose mount flag; it is not a claim that the underlying host
 directories or operating system are otherwise read-only. The campaigns bind
-mount is read-write so session projections and other operator-approved
-campaign artifacts can be updated.
+mount is read-write at its mount point. Omega applies a Landlock policy
+before plugin load. That policy can allow a normal volume, and it denies
+Docker Desktop bind mounts even when those paths are listed. `entrypoint.sh`
+therefore copies the plugin, library, and campaigns mounts onto the
+container filesystem before the agent starts, and the runtime reads those
+copies. The tabletop state path stays a named volume and is listed as
+read-write in the Landlock policy.
 
 The service does not mount `/var/run/docker.sock`. Do not add that mount:
 access to the Docker socket would give the process control over the Docker
