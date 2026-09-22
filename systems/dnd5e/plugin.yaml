@@ -3,4 +3,4 @@ name: D&D 5e Reference Plugin
 api_version: tabletop/v1
 version: 0.1.0
 entrypoint: dnd5e:Dnd5ePlugin
-description: Structural stub conforming to the plugin API; mechanics arrive in Phase 27
+description: Partial D&D 5e reference plugin using the 2014 rules revision only. Ability checks, saving throws, attacks, advantage and disadvantage, damage, conditions, initiative, movement, and basic rests. Never mixes later revisions.

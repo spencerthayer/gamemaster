@@ -106,10 +106,10 @@ def test_negotiation_does_not_leak_state_between_plugins():
     dicey = DicePlugin()
     dnd5e = Dnd5ePlugin()
     assert dicey.supports(Capability.DICE)
-    assert not dnd5e.supports(Capability.DICE)
+    assert dnd5e.supports(Capability.DICE)
     assert dicey.capabilities() != dnd5e.capabilities()
     with pytest.raises(UnsupportedCapabilityError):
-        dnd5e.require_capability(Capability.DICE)
+        dnd5e.require_capability(Capability.HIT_LOCATIONS)
     dicey.require_capability(Capability.DICE)  # unchanged by dnd5e's failure
 
 
@@ -146,11 +146,22 @@ def test_freeform_plugin_conforms_and_advertises_implemented_capabilities():
     plugin.shutdown()
 
 
-def test_dnd5e_stub_conforms_without_advertising_dnd_capabilities():
+def test_dnd5e_plugin_conforms_and_advertises_implemented_capabilities():
     plugin = Dnd5ePlugin()
     assert plugin.info.id == "dnd5e"
-    assert plugin.capabilities() == frozenset()
+    assert plugin.capabilities() == frozenset(
+        {
+            Capability.DICE,
+            Capability.ACTION_RESOLUTION,
+            Capability.TURN_ORDER,
+            Capability.DAMAGE,
+            Capability.HEALING,
+            Capability.CONDITIONS,
+            Capability.RESOURCE_TRACKING,
+        }
+    )
     assert plugin.supports(Capability.MAGIC) is False
+    assert "2014" in (plugin.info.description or "")
 
 
 # Validation

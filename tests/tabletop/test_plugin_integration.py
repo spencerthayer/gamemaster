@@ -34,7 +34,16 @@ def test_builtin_systems_load_through_generic_pipeline():
     assert systems["freeform"]["version"] == "0.1.0"
     assert systems["freeform"]["api_version"] == "tabletop/v1"
     assert systems["freeform"]["capabilities"] == freeform_capabilities
-    assert systems["dnd5e"]["capabilities"] == []
+    dnd5e_capabilities = [
+        "action-resolution",
+        "conditions",
+        "damage",
+        "dice",
+        "healing",
+        "resource-tracking",
+        "turn-order",
+    ]
+    assert systems["dnd5e"]["capabilities"] == dnd5e_capabilities
     assert runtime.system_capabilities("freeform") == freeform_capabilities
 
 
