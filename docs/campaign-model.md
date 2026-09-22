@@ -5,9 +5,12 @@ structural records, fact state, provenance references, resumable ingestion
 progress, and plugin-owned JSON state described below. Vector recall and
 narrative text are not authoritative campaign state.
 
-This document describes migrations `0001_core.sql` through
-`0004_scene_state.sql`. It documents the schema that exists now. Relationships
-and the event log are later additions.
+This document describes the schema applied by `tabletop/storage/migrations/`,
+from `0001_core.sql` through `0014_setting_events.sql`. SQLite is the
+authoritative current state. Campaign history is the append-only `events`
+table. Setting history is the append-only `setting_events` table. Replay
+rebuilds projections from those logs. Retrieval and vector rows are lookup,
+not truth.
 
 ## Core tables
 
@@ -156,9 +159,11 @@ therefore diverge from shared setting canon without changing other campaigns.
 For entities, `overrides_id` records the setting entity that a campaign entity
 specializes.
 
-There is no relationships table yet. When relationships are added, they will
-use the same ownership pattern with `owner_scope`, `setting_id`, and
-`campaign_id`. This document does not define their other columns.
+`relationships` (`0006_relationships.sql`) stores directed edges with the
+same setting-or-campaign ownership split. Each edge has `relationship_id`,
+`source_id`, `relationship_type`, `target_id`, `metadata`, `visibility`,
+`valid_from`, and `valid_until`. A closed `valid_until` hides the edge from
+later reads. Superseding an edge closes the old row and inserts a new one.
 
 ## Canonical state tree
 
@@ -271,16 +276,43 @@ Promotion and detachment change different axes:
 This distinction allows audit and debugging after detachment without letting a
 later source purge remove independently owned campaign canon.
 
-## SQLite and later event history
+## Migrations
 
-SQLite currently owns the authoritative current records listed in this
-document. It owns campaign, session, scene, entity, and fact rows; plugin-owned
-state JSON; fact invariants at the store boundary; provenance references; and
-ingestion job progress. Store writes are transactional, including batches of
-state changes.
+| File | Adds |
+|---|---|
+| `0001_core.sql` | `settings`, `campaigns`, `sessions`, `scenes`, `entities` |
+| `0002_facts.sql` | `facts` with canon, knowledge, visibility, validity, and provenance |
+| `0003_ingest_jobs.sql` | `ingest_jobs`, `ingest_slices` |
+| `0004_scene_state.sql` | `scenes.system_state` |
+| `0005_events.sql` | append-only `events`, update and delete triggers |
+| `0006_relationships.sql` | `relationships` |
+| `0007_documents.sql` | `documents`, `document_chunks` |
+| `0008_retrieval.sql` | one FTS5 table per retrieval namespace |
+| `0009_rulings.sql` | `rulings` |
+| `0010_session_lifecycle.sql` | session transcript, event range, summary lists |
+| `0011_session_checklist_progress.sql` | `sessions.checklist_step` |
+| `0012_event_schema_version.sql` | `events.event_schema_version`, default 0 |
+| `0013_one_open_session.sql` | one open session per campaign |
+| `0014_setting_events.sql` | append-only `setting_events` |
 
-There is no event-log table yet. A later append-only event log will record
-history such as promotion, reveal, detachment, and state changes. Until that
-schema and its application service exist, current state is not derived by
-event replay, and the store's mutation methods are persistence primitives
-rather than a completed event-sourced flow.
+## Event history
+
+`events` is append-only. The primary key is `(campaign_id, sequence)`.
+Update and delete triggers abort. `event_schema_version` 0 is the historical
+payload shape. New appends write generation 1. Replay dispatches on event
+type and generation. Rows are not rewritten.
+
+`setting_events` is the same idea for setting-owned edits, world entities,
+and world-history facts. `setting_id` references `settings` with
+`ON DELETE RESTRICT`. Every setting event is written at generation 1.
+
+`rulings` store GM decisions. `record` appends `ruling.recorded`.
+`promote` appends `ruling.promoted` and changes canon without changing
+knowledge.
+
+Sessions open through `start-session` (`session.started`) and close through
+`end-session` (`session.ended`). At most one session per campaign has a
+null `ended_at`.
+
+Current rows remain authoritative. Projections are derived and are not a
+second write path.
