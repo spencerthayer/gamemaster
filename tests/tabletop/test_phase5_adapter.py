@@ -119,7 +119,7 @@ def test_metta_plugin_registers_workspace_skills_and_prompt_extension():
     assert "(= (loadOmegaPlugin)" in text
     assert "(= (register-workspace-skills setting)" in text
     assert "(= (register-workspace-skills campaign)" in text
-    assert "begin_skill_registration" in text
+    assert "claim_skill_registration" in text
     for skill in _SKILLS:
         assert f"(add-skill {skill}" in text
         assert f"(= ({skill}" in text

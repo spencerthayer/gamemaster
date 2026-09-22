@@ -56,24 +56,24 @@ def initialize_response() -> str:
     return _invoke("bootstrap_status")
 
 
+# Sentinel returned to MeTTa when registration must be a no-op. Never JSON:
+# ``register-workspace-skills`` matches bare tokens ``setting`` / ``campaign``.
+_ALREADY_REGISTERED = "already-registered"
+_WORKSPACE_UNAVAILABLE = "workspace-unavailable"
+
+
 def active_workspace() -> str:
-    """Return the fixed workspace value for MeTTa registration branching."""
+    """Return the fixed workspace token for MeTTa registration branching.
+
+    Success is always the bare enum value ``setting`` or ``campaign`` so
+    MeTTa can match ``(register-workspace-skills setting)``. Failures return
+    a bare sentinel token, never a JSON object string.
+    """
     try:
         runtime = initialize()
         return runtime.workspace.value
-    except Exception as exc:  # adapter boundary must not leak arbitrary exceptions
-        return _encode(
-            {
-                "ok": False,
-                "operation": "active-workspace",
-                "error": {
-                    "code": "adapter_error",
-                    "message": "Tabletop adapter call failed.",
-                    "exception_type": type(exc).__name__,
-                },
-                "data": {},
-            }
-        )
+    except Exception:
+        return _WORKSPACE_UNAVAILABLE
 
 
 def skill_registration_payload() -> str:
@@ -100,7 +100,9 @@ def begin_skill_registration() -> str:
     """Return the registration payload exactly once per process.
 
     Omega ``add-skill`` is process-global. Re-registration would widen or
-    swap the tool surface across conversations sharing the process.
+    swap the tool surface across conversations sharing the process. The
+    MeTTa path must also call ``claim_skill_registration`` so a second
+    ``loadOmegaPlugin`` does not run ``add-skill`` again.
     """
     global _SKILLS_REGISTERED
     try:
@@ -135,6 +137,29 @@ def begin_skill_registration() -> str:
                 "data": {},
             }
         )
+
+
+def claim_skill_registration() -> str:
+    """One-shot guard for the MeTTa ``add-skill`` path.
+
+    First successful claim returns the bare workspace token (``setting`` or
+    ``campaign``). Later calls return ``already-registered`` so
+    ``register-workspace-skills`` is a no-op and does not widen the surface.
+    """
+    global _SKILLS_REGISTERED
+    try:
+        runtime = initialize()
+        if _SKILLS_REGISTERED:
+            return _ALREADY_REGISTERED
+        _SKILLS_REGISTERED = True
+        return runtime.workspace.value
+    except Exception:
+        return _WORKSPACE_UNAVAILABLE
+
+
+def skills_already_registered() -> str:
+    """Return ``true`` or ``false`` for MeTTa one-shot gating checks."""
+    return "true" if _SKILLS_REGISTERED else "false"
 
 
 def current_campaign() -> str:

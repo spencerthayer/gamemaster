@@ -2,18 +2,29 @@
 
 (= (loadOmegaPlugin)
    (progn
-     (let* (($status (py-call (omega_tabletop_adapter.initialize_response)))
-            ($registration (py-call (omega_tabletop_adapter.begin_skill_registration)))
-            ($workspace (py-call (omega_tabletop_adapter.active_workspace))))
-       (log INFO "tabletop-plugin" $status)
-       (log INFO "tabletop-plugin-skills" $registration)
-       (register-workspace-skills $workspace)
-       (add-prompt-extension tabletop-runtime-policy
-         "TABLETOP_RUNTIME: Use tabletop skills for authoritative campaign state and mechanics. If a tabletop skill returns ok=false or capability_unavailable, treat that operation as unavailable and do not invent a mechanical result or campaign fact. Game-system plugins own deterministic mechanics; the Tabletop Runtime owns campaign continuity. Narration may describe returned outcomes but must not silently replace them.")
-       ())))
+     (let $status (py-call (omega_tabletop_adapter.initialize_response))
+       (log INFO "tabletop-plugin" $status))
+     ;; claim_skill_registration is the one-shot gate: first call returns the
+     ;; bare workspace token (setting|campaign); later calls return
+     ;; already-registered so register-workspace-skills adds nothing.
+     (let $workspace (py-call (omega_tabletop_adapter.claim_skill_registration))
+       (progn
+         (log INFO "tabletop-plugin-workspace" $workspace)
+         (register-workspace-skills $workspace)))
+     (add-prompt-extension tabletop-runtime-policy
+       "TABLETOP_RUNTIME: Use tabletop skills for authoritative campaign state and mechanics. If a tabletop skill returns ok=false or capability_unavailable, treat that operation as unavailable and do not invent a mechanical result or campaign fact. Game-system plugins own deterministic mechanics; the Tabletop Runtime owns campaign continuity. Narration may describe returned outcomes but must not silently replace them.")
+     ()))
 
 ;; Workspace skill surfaces are fixed at startup from TABLETOP_WORKSPACE.
 ;; Forbidden operations are absent from add-skill, not merely discouraged.
+;; Bare tokens (not JSON) match py-call results from claim_skill_registration.
+
+(= (register-workspace-skills already-registered) ())
+(= (register-workspace-skills workspace-unavailable) ())
+(= (register-workspace-skills "already-registered") ())
+(= (register-workspace-skills "workspace-unavailable") ())
+(= (register-workspace-skills "setting") (register-workspace-skills setting))
+(= (register-workspace-skills "campaign") (register-workspace-skills campaign))
 
 (= (register-workspace-skills setting)
    (progn

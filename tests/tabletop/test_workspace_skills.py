@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -256,13 +257,101 @@ def test_adapter_registers_skills_only_once() -> None:
     assert second["error"]["code"] == "skills_already_registered"
 
 
+def test_claim_skill_registration_makes_second_metta_path_a_noop() -> None:
+    adapter = _load_adapter()
+    adapter.reset_runtime_for_tests()
+    adapter.reset_skill_registration_for_tests()
+    adapter._RUNTIME = TabletopRuntime(
+        _REPO_ROOT,
+        campaign_roots=[],
+        plugin_roots=[],
+        workspace=Workspace.CAMPAIGN,
+    )
+
+    first = adapter.claim_skill_registration()
+    assert first == "campaign"
+    assert adapter.skills_already_registered() == "true"
+
+    second = adapter.claim_skill_registration()
+    assert second == "already-registered"
+
+    text = _METTA_PATH.read_text()
+    assert "(= (register-workspace-skills already-registered) ())" in text
+    assert "claim_skill_registration" in text
+    load_body = text.split("(= (loadOmegaPlugin)", 1)[1].split(
+        "(= (register-workspace-skills already-registered)", 1
+    )[0]
+    assert "claim_skill_registration" in load_body
+    assert "register-workspace-skills $workspace" in load_body
+
+
+def test_active_workspace_returns_bare_setting_or_campaign_token() -> None:
+    adapter = _load_adapter()
+    adapter.reset_runtime_for_tests()
+    adapter.reset_skill_registration_for_tests()
+    adapter._RUNTIME = TabletopRuntime(
+        _REPO_ROOT,
+        campaign_roots=[],
+        plugin_roots=[],
+        workspace=Workspace.SETTING,
+    )
+
+    token = adapter.active_workspace()
+    assert token in {"setting", "campaign"}
+    assert token == "setting"
+    assert not token.startswith("{")
+    assert '"' not in token
+    assert "ok" not in token
+
+    adapter._RUNTIME = TabletopRuntime(
+        _REPO_ROOT,
+        campaign_roots=[],
+        plugin_roots=[],
+        workspace=Workspace.CAMPAIGN,
+    )
+    assert adapter.active_workspace() == "campaign"
+
+
+def test_active_workspace_failure_is_bare_sentinel_not_json() -> None:
+    adapter = _load_adapter()
+    adapter.reset_runtime_for_tests()
+    adapter.reset_skill_registration_for_tests()
+
+    class Boom:
+        @property
+        def workspace(self):
+            raise RuntimeError("nope")
+
+    adapter._RUNTIME = Boom()
+    token = adapter.active_workspace()
+    assert token == "workspace-unavailable"
+    assert not token.startswith("{")
+
+
+def test_metta_skill_names_match_workspace_skill_specs() -> None:
+    text = _METTA_PATH.read_text()
+    setting_block = text.split("(= (register-workspace-skills setting)", 1)[1].split(
+        "(= (register-workspace-skills campaign)", 1
+    )[0]
+    # Campaign block ends before the first skill implementation equation.
+    campaign_block = text.split("(= (register-workspace-skills campaign)", 1)[1].split(
+        "(= (query-setting", 1
+    )[0]
+
+    setting_metta = re.findall(r"\(add-skill ([^\s)]+)", setting_block)
+    campaign_metta = re.findall(r"\(add-skill ([^\s)]+)", campaign_block)
+
+    assert setting_metta == [skill.name for skill in Workspace.SETTING.skills]
+    assert campaign_metta == [skill.name for skill in Workspace.CAMPAIGN.skills]
+
+
 def test_metta_registers_from_workspace_payload_not_a_flat_global_list() -> None:
     text = _METTA_PATH.read_text()
-    assert "begin_skill_registration" in text or "skill_registration_payload" in text
-    assert "register-workspace-skills" in text or "active_workspace" in text
+    assert "claim_skill_registration" in text
+    assert "register-workspace-skills" in text
 
     load_body = text.split("(= (loadOmegaPlugin)", 1)[1].split(
-        "(= (register-workspace-skills setting)", 1
+        "(= (register-workspace-skills already-registered)", 1
     )[0]
     for forbidden in _SETTING_FORBIDDEN:
         assert f"(add-skill {forbidden}" not in load_body
