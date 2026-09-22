@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
 from typing import Mapping, Protocol, Sequence
@@ -82,7 +83,7 @@ class ContextEntry:
     refetch_args: Mapping[str, object]
     priority: int
     compacted: bool
-    recency: int = 0
+    recency: int | float = 0
     source: ContextSource | None = None
 
     def __post_init__(self) -> None:
@@ -221,9 +222,10 @@ def build_context(request: ContextRequest) -> Context:
     gathered = list(_visible_precedence_records(gathered, request.viewpoint))
 
     records: list[ContextEntry] = []
-    recency = 0
+    collection_index = 0
     for source, raw_record in gathered:
-        recency += 1
+        collection_index += 1
+        recency = _record_recency(raw_record, collection_index)
         entry = _entry_from_record(raw_record, source, recency)
         if entry is not None:
             records.append(entry)
@@ -260,6 +262,8 @@ def _visible_precedence_records(
     winners: dict[tuple[str | None, str], tuple[ContextSource, Fact]] = {}
     for source, record in records:
         if not isinstance(record, Fact):
+            if source in {ContextSource.FACTS, ContextSource.SETTING_FACTS}:
+                continue
             passthrough.append((source, record))
             continue
         if not _fact_is_visible(record, viewpoint):
@@ -291,10 +295,34 @@ def _fact_precedence(fact: Fact) -> tuple[int, str]:
     return scope_rank, fact.created_at
 
 
+def _record_recency(record: object, fallback: int) -> int | float:
+    sequence = _record_field(record, "sequence")
+    if isinstance(sequence, (int, float)) and not isinstance(sequence, bool):
+        return sequence
+
+    for field_name in ("occurred_at", "created_at", "updated_at", "timestamp"):
+        timestamp = _record_field(record, field_name)
+        if isinstance(timestamp, datetime):
+            return timestamp.timestamp()
+        if not isinstance(timestamp, str):
+            continue
+        try:
+            return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+    return fallback
+
+
+def _record_field(record: object, field_name: str) -> object | None:
+    if isinstance(record, Mapping):
+        return record.get(field_name)
+    return getattr(record, field_name, None)
+
+
 def _entry_from_record(
     record: object,
     source: ContextSource,
-    recency: int,
+    recency: int | float,
 ) -> ContextEntry | None:
     content: str
     refetch_tool: str | None = None

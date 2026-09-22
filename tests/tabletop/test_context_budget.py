@@ -89,6 +89,8 @@ def _fact(
     scope: FactScope,
     value: str,
     visibility: str,
+    subject_id: str = "city",
+    predicate: str = "ruler",
     canon: CanonState = CanonState.CONFIRMED,
     knowledge: KnowledgeState = KnowledgeState.KNOWN,
     created_at: str = "2026-09-22T01:00:00Z",
@@ -98,8 +100,8 @@ def _fact(
         fact_scope=scope,
         setting_id="setting-1" if scope is FactScope.SETTING else None,
         campaign_id="campaign-1" if scope is FactScope.CAMPAIGN else None,
-        subject_id="city",
-        predicate="ruler",
+        subject_id=subject_id,
+        predicate=predicate,
         value=value,
         canon_state=canon,
         knowledge_state=knowledge,
@@ -226,6 +228,62 @@ def test_build_context_filters_every_fact_and_applies_campaign_precedence() -> N
     assert "Rumor" not in content
 
 
+def test_player_context_drops_non_fact_records_from_fact_sources() -> None:
+    source = RecordingSource(
+        {
+            ContextSource.FACTS: (
+                {
+                    "value": "GM secret disguised as a mapping",
+                    "visibility": "PUBLIC",
+                },
+            ),
+            ContextSource.SETTING_FACTS: ("untyped setting fact",),
+        }
+    )
+
+    context = build_context(_request(source, viewpoint="CHARACTER:hero"))
+
+    assert all("secret" not in entry.content for entry in context.entries)
+    assert all("untyped setting fact" not in entry.content for entry in context.entries)
+
+
+def test_same_priority_uses_record_timestamp_before_collection_order() -> None:
+    source = RecordingSource(
+        {
+            ContextSource.FACTS: (
+                _fact(
+                    "newer",
+                    scope=FactScope.CAMPAIGN,
+                    subject_id="newer",
+                    value="new",
+                    visibility="PUBLIC",
+                    created_at="2026-09-22T03:00:00Z",
+                ),
+                _fact(
+                    "older",
+                    scope=FactScope.CAMPAIGN,
+                    subject_id="older",
+                    value="old",
+                    visibility="PUBLIC",
+                    created_at="2026-09-22T01:00:00Z",
+                ),
+            )
+        }
+    )
+
+    context = build_context(
+        _request(
+            source,
+            model_context_size=4,
+            prompt_reserve=0,
+            response_reserve=0,
+            session_reserve=0,
+        )
+    )
+
+    assert [entry.content for entry in context.entries] == ["newer ruler: new"]
+
+
 def test_player_context_never_reads_or_contains_gm_npc_agendas() -> None:
     source = RecordingSource(
         {ContextSource.NPC_AGENDAS: ("Betray the party at dawn.",)}
@@ -260,7 +318,26 @@ def test_build_context_gathers_all_campaign_categories_as_entries() -> None:
     records: dict[ContextSource, Sequence[object]] = {
         source: (f"{source.value} record",)
         for source in ContextSource
+        if source not in {ContextSource.FACTS, ContextSource.SETTING_FACTS}
     }
+    records[ContextSource.FACTS] = (
+        _fact(
+            "campaign-fact",
+            scope=FactScope.CAMPAIGN,
+            subject_id="campaign",
+            value="campaign fact",
+            visibility="PUBLIC",
+        ),
+    )
+    records[ContextSource.SETTING_FACTS] = (
+        _fact(
+            "setting-fact",
+            scope=FactScope.SETTING,
+            subject_id="setting",
+            value="setting fact",
+            visibility="PUBLIC",
+        ),
+    )
     records[ContextSource.RETRIEVED_RULES] = (
         _chunk("dragon rule", RetrievalNamespace.SYSTEM),
     )
