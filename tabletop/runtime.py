@@ -17,7 +17,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from tabletop.api.errors import DiceExpressionError, InvalidActionError, InvalidResolutionError
+from tabletop.api.errors import (
+    DiceExpressionError,
+    FactInvariantError,
+    GameSystemError,
+    InvalidActionError,
+    InvalidResolutionError,
+    StorageError,
+)
 from tabletop.api.events import GameEvent
 from tabletop.api.resolution import StateChange, StateOperation
 from tabletop.api.visibility import Viewpoint, parse_scope
@@ -303,7 +310,7 @@ class TabletopRuntime:
                 RetrievalFilters(namespace=RetrievalNamespace.SYSTEM),
                 limit=10,
             )
-        except (sqlite3.Error, ValueError) as exc:
+        except (GameSystemError, sqlite3.Error, ValueError) as exc:
             return self._error("query-rules", "rules_not_queried", str(exc))
         return self._ok(
             "query-rules",
@@ -483,6 +490,45 @@ class TabletopRuntime:
             )
         return self._ok("get-entity", {"entity": entity})
 
+    def get_fact(self, fact_id: str) -> dict[str, Any]:
+        """Return one fact owned by the active campaign or its setting."""
+        if self._connection is None:
+            return self._storage_required("get-fact")
+        campaign_id = self.active_campaign
+        if not campaign_id:
+            return self._error(
+                "get-fact",
+                "campaign_not_configured",
+                "get-fact requires an active campaign.",
+            )
+        fact_key = fact_id.strip()
+        if not fact_key:
+            return self._error(
+                "get-fact",
+                "invalid_fact_id",
+                "get-fact requires a non-empty fact id.",
+            )
+        setting_id = self._owned_setting_id()
+        row = self._connection.execute(
+            "SELECT fact_id, fact_scope, setting_id, campaign_id, subject_id, "
+            "predicate, value, canon_state, knowledge_state, visibility, valid_from, "
+            "valid_until, source_document_id, source_chunk_id, import_job_id, "
+            "extraction_method, source_ownership, created_at FROM facts "
+            "WHERE fact_id = ? AND ("
+            "(fact_scope = 'campaign' AND campaign_id = ?) OR "
+            "(fact_scope = 'setting' AND setting_id = ?)"
+            ")",
+            (fact_key, campaign_id, setting_id),
+        ).fetchone()
+        if row is None:
+            return self._error(
+                "get-fact",
+                "fact_not_found",
+                "Fact was not found in the active campaign scope.",
+                data={"fact_id": fact_key, "campaign_id": campaign_id},
+            )
+        return self._ok("get-fact", {"fact": dict(row)})
+
     def get_relationships(self, entity_id: str) -> dict[str, Any]:
         """Return campaign relationship edges visible to the GM viewpoint."""
         if self._connection is None:
@@ -552,7 +598,7 @@ class TabletopRuntime:
                 )
             try:
                 parsed = ruling_from_mapping(payload)
-            except (TypeError, ValueError) as exc:
+            except (GameSystemError, TypeError, ValueError) as exc:
                 return self._error("record-ruling", "invalid_ruling", str(exc))
         else:
             return self._error(
@@ -566,9 +612,25 @@ class TabletopRuntime:
                 "storage_not_configured",
                 "record-ruling requires a configured campaign database connection.",
             )
+        if not self.active_campaign:
+            return self._error(
+                "record-ruling",
+                "campaign_not_configured",
+                "record-ruling requires an active campaign.",
+            )
+        if parsed.campaign_id != self.active_campaign:
+            return self._error(
+                "record-ruling",
+                "campaign_mismatch",
+                "record-ruling cannot write outside the active campaign.",
+                data={
+                    "campaign_id": parsed.campaign_id,
+                    "active_campaign": self.active_campaign,
+                },
+            )
         try:
             stored = RulingStore(self._connection).record(parsed)
-        except (LookupError, sqlite3.IntegrityError, ValueError) as exc:
+        except (GameSystemError, LookupError, sqlite3.IntegrityError, ValueError) as exc:
             return self._error("record-ruling", "ruling_not_recorded", str(exc))
         return self._ok("record-ruling", stored.to_dict())
 
@@ -737,7 +799,14 @@ class TabletopRuntime:
                 "upsert-world-entity requires entity_id, setting_id, and name.",
             )
         owned_setting = self._owned_setting_id()
-        if owned_setting is not None and owned_setting != setting_id:
+        if owned_setting is None:
+            return self._error(
+                "upsert-world-entity",
+                "setting_not_configured",
+                "upsert-world-entity requires an active campaign with a setting "
+                "or a single owned setting.",
+            )
+        if owned_setting != setting_id:
             return self._error(
                 "upsert-world-entity",
                 "setting_mismatch",
@@ -845,7 +914,14 @@ class TabletopRuntime:
             )
         setting_id = str(payload["setting_id"]).strip()
         owned_setting = self._owned_setting_id()
-        if owned_setting is not None and owned_setting != setting_id:
+        if owned_setting is None:
+            return self._error(
+                "record-world-history",
+                "setting_not_configured",
+                "record-world-history requires an active campaign with a setting "
+                "or a single owned setting.",
+            )
+        if owned_setting != setting_id:
             return self._error(
                 "record-world-history",
                 "setting_mismatch",
@@ -869,41 +945,11 @@ class TabletopRuntime:
             created_at=created_at,
         )
         store = CampaignStore(self._connection)
-        event_campaign_ids = [
-            str(row["campaign_id"])
-            for row in self._connection.execute(
-                "SELECT campaign_id FROM campaigns WHERE setting_id = ? "
-                "ORDER BY created_at, campaign_id",
-                (setting_id,),
-            ).fetchall()
-        ]
-        if self.active_campaign and self.active_campaign not in event_campaign_ids:
-            campaign = store.get_campaign(self.active_campaign)
-            if campaign is not None and (
-                campaign.get("setting_id") in (None, setting_id)
-            ):
-                event_campaign_ids.append(self.active_campaign)
         try:
+            # Setting facts have no campaign_id, so they do not write campaign events.
             with transaction(self._connection):
                 store.add_fact_in_transaction(fact)
-                events = EventStore(self._connection)
-                for campaign_id in event_campaign_ids:
-                    events.append_in_transaction(
-                        self._connection,
-                        campaign_id,
-                        GameEvent(
-                            event_type=EventType.FACT_PROPOSED.value,
-                            payload={
-                                "fact_id": fact.fact_id,
-                                "subject_id": fact.subject_id,
-                                "predicate": fact.predicate,
-                                "value": fact.value,
-                                "visibility": fact.visibility,
-                            },
-                        ),
-                        occurred_at=created_at,
-                    )
-        except (sqlite3.IntegrityError, ValueError) as exc:
+        except (FactInvariantError, StorageError, sqlite3.IntegrityError, ValueError) as exc:
             return self._error("record-world-history", "history_not_recorded", str(exc))
         return self._ok(
             "record-world-history",
@@ -1058,17 +1104,26 @@ class TabletopRuntime:
                 data={"campaign": campaign_id},
             )
         try:
-            store.apply_state_changes(
-                campaign_id,
-                (
-                    StateChange(
-                        operation=StateOperation.SET,
-                        path=("campaign", "system", "quests", quest_id),
-                        value=payload,
+            with transaction(self._connection):
+                store.apply_state_changes_in_transaction(
+                    campaign_id,
+                    (
+                        StateChange(
+                            operation=StateOperation.SET,
+                            path=("campaign", "system", "quests", quest_id),
+                            value=payload,
+                        ),
                     ),
-                ),
-            )
-        except (InvalidResolutionError, sqlite3.Error) as exc:
+                )
+                EventStore(self._connection).append_in_transaction(
+                    self._connection,
+                    campaign_id,
+                    GameEvent(
+                        event_type=EventType.QUEST_MUTATED.value,
+                        payload={"quest_id": quest_id, "quest": payload},
+                    ),
+                )
+        except (GameSystemError, sqlite3.Error) as exc:
             return self._error("mutate-quest", "quest_not_mutated", str(exc))
         return self._ok("mutate-quest", {"campaign_id": campaign_id, "quest": payload})
 

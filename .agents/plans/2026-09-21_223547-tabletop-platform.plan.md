@@ -1,6 +1,6 @@
 ---
 name: Gamemaster tabletop platform first draft
-overview: 'Land the uncommitted Phase 9 mechanics boundary, then build the remaining Tabletop Runtime first draft on top of Omega: dice, SQLite persistence, event history, visibility axes, documents and ingestion, retrieval and precedence, orchestration, and the freeform plus partial D&D 5e reference systems.'
+overview: 'First draft landed on main at 5a81322 (PR #8). Tasks 02 through 55 are complete. The baseline snapshot below is main at dad8228, when the package was still stubs plus the Phase 5 adapter.'
 todos:
   - id: task-01-land-phase-9
     content: Verify the committed Phase 9 boundary and open its pull request
@@ -8,145 +8,145 @@ todos:
     dependencies: []
   - id: task-02-dice-parser
     content: Parse generic dice expressions into a frozen AST
-    status: pending
+    status: completed
     dependencies: []
   - id: task-03-dice-roller
     content: Roll a parsed expression with an injected seedable RNG
-    status: pending
+    status: completed
     dependencies:
       - task-02-dice-parser
   - id: task-04-dice-capability-wiring
     content: Advertise the DICE capability and wire the runtime roll skill
-    status: pending
+    status: completed
     dependencies:
       - task-03-dice-roller
       - task-01-land-phase-9
   - id: task-05-sqlite-foundation
     content: Add SQLite connection pragmas, transactions, and a migration runner
-    status: pending
+    status: completed
     dependencies: []
   - id: task-06-core-schema
     content: Write migration 0001 for campaigns, sessions, scenes, and entities
-    status: pending
+    status: completed
     dependencies:
       - task-05-sqlite-foundation
   - id: task-07-facts-schema
     content: Write migration 0002 for facts with four independent axes and provenance
-    status: pending
+    status: completed
     dependencies:
       - task-06-core-schema
   - id: task-08-canon-invariants
     content: Reject nonsense canon and knowledge combinations at the write boundary
-    status: pending
+    status: completed
     dependencies:
       - task-07-facts-schema
   - id: task-09-ingest-job-schema
     content: Write migration 0003 for resumable ingest jobs and slices
-    status: pending
+    status: completed
     dependencies:
       - task-06-core-schema
   - id: task-10-campaign-store
     content: Build the campaign store and apply StateChange paths transactionally
-    status: pending
+    status: completed
     dependencies:
       - task-07-facts-schema
   - id: task-11-campaign-model-doc
     content: Write docs/campaign-model.md describing the authoritative schema
-    status: pending
+    status: completed
     dependencies:
       - task-08-canon-invariants
       - task-09-ingest-job-schema
       - task-10-campaign-store
   - id: task-12-event-store
     content: Add the append-only event log with a monotonic per-campaign sequence
-    status: pending
+    status: completed
     dependencies:
       - task-06-core-schema
   - id: task-13-canon-event-types
     content: Separate promotion, reveal, detachment, and contradiction event types
-    status: pending
+    status: completed
     dependencies:
       - task-12-event-store
       - task-08-canon-invariants
   - id: task-14-provenance-purge
     content: Purge provenance-owned fact records for a source document id
-    status: pending
+    status: completed
     dependencies:
       - task-13-canon-event-types
       - task-10-campaign-store
   - id: task-15-projections
     content: Derive current campaign state from the event log
-    status: pending
+    status: completed
     dependencies:
       - task-12-event-store
       - task-10-campaign-store
   - id: task-16-file-projections
     content: Write the human-readable campaign directory projection
-    status: pending
+    status: completed
     dependencies:
       - task-15-projections
   - id: task-17-visibility-scopes
     content: Parse and compare visibility scopes without game semantics
-    status: pending
+    status: completed
     dependencies:
       - task-07-facts-schema
   - id: task-18-visibility-context-filter
     content: Filter fact queries by active viewpoint
-    status: pending
+    status: completed
     dependencies:
       - task-17-visibility-scopes
       - task-08-canon-invariants
   - id: task-19-relationship-graph
     content: Store typed temporal relationship edges over SQLite
-    status: pending
+    status: completed
     dependencies:
       - task-06-core-schema
       - task-17-visibility-scopes
   - id: task-20-npc-model
     content: Model NPC identity, private knowledge, and agenda system-agnostically
-    status: pending
+    status: completed
     dependencies:
       - task-19-relationship-graph
       - task-18-visibility-context-filter
   - id: task-21-content-pack-manifests
     content: Load non-executable content pack manifests
-    status: pending
+    status: completed
     dependencies: []
   - id: task-22-document-storage
     content: Separate raw and processed document roots with path safety
-    status: pending
+    status: completed
     dependencies:
       - task-21-content-pack-manifests
   - id: task-23-shape-detection
     content: Detect document shape deterministically before any model call
-    status: pending
+    status: completed
     dependencies:
       - task-22-document-storage
   - id: task-24-ingestor-text
     content: Ingest markdown and text with heading-aware chunking
-    status: pending
+    status: completed
     dependencies:
       - task-23-shape-detection
       - task-06-core-schema
   - id: task-25-ingestor-pdf
     content: Extract PDF text into the same chunk and provenance pipeline
-    status: pending
+    status: completed
     dependencies:
       - task-24-ingestor-text
   - id: task-26-resumable-jobs
     content: Resume interrupted ingestion only on matching content and version identity
-    status: pending
+    status: completed
     dependencies:
       - task-24-ingestor-text
       - task-09-ingest-job-schema
   - id: task-27-proposed-extraction
     content: Bound model extraction to closed ProposedExtraction schemas
-    status: pending
+    status: completed
     dependencies:
       - task-26-resumable-jobs
   - id: task-28-deterministic-importer
     content: Validate and import proposals, then compose the document purge service
-    status: pending
+    status: completed
     dependencies:
       - task-27-proposed-extraction
       - task-07-facts-schema
@@ -154,41 +154,41 @@ todos:
       - task-24-ingestor-text
   - id: task-29-retriever-fts5
     content: Add the retriever interface and FTS5 lexical search with namespaces
-    status: pending
+    status: completed
     dependencies:
       - task-24-ingestor-text
   - id: task-30-vector-degrade-ladder
     content: Add vector search with a dimension invariant and a degrade cascade
-    status: pending
+    status: completed
     dependencies:
       - task-29-retriever-fts5
   - id: task-31-retrieval-doc
     content: Write docs/retrieval.md covering namespaces and the degrade ladder
-    status: pending
+    status: completed
     dependencies:
       - task-30-vector-degrade-ladder
   - id: task-32-precedence-resolver
     content: Resolve retrieval precedence with campaign overlaying setting
-    status: pending
+    status: completed
     dependencies:
       - task-29-retriever-fts5
       - task-10-campaign-store
   - id: task-33-rule-reference-resolution
     content: Resolve rule references to exact source version identity
-    status: pending
+    status: completed
     dependencies:
       - task-25-ingestor-pdf
       - task-28-deterministic-importer
       - task-29-retriever-fts5
   - id: task-34-campaign-rulings
     content: Store rulings as first-class records inside the canon lifecycle
-    status: pending
+    status: completed
     dependencies:
       - task-32-precedence-resolver
       - task-13-canon-event-types
   - id: task-35-workspace-skill-surface
     content: Group Omega skills by workspace capability instead of exposing all
-    status: pending
+    status: completed
     dependencies:
       - task-10-campaign-store
       - task-12-event-store
@@ -196,53 +196,53 @@ todos:
       - task-04-dice-capability-wiring
   - id: task-36-prompt-extension
     content: Register the Omega prompt extension carrying runtime authority policy
-    status: pending
+    status: completed
     dependencies:
       - task-35-workspace-skill-surface
       - task-01-land-phase-9
   - id: task-37-freeform-system
     content: Implement the freeform reference system with generic checks
-    status: pending
+    status: completed
     dependencies:
       - task-04-dice-capability-wiring
       - task-01-land-phase-9
   - id: task-38-dnd5e-reference
     content: Implement a partial D&D 5e plugin on one rules revision
-    status: pending
+    status: completed
     dependencies:
       - task-37-freeform-system
   - id: task-39-gurps-validation-doc
     content: Audit the plugin API against GURPS mechanics in a document
-    status: pending
+    status: completed
     dependencies:
       - task-38-dnd5e-reference
   - id: task-40-session-model
     content: Add the session lifecycle and end-of-session checklist
-    status: pending
+    status: completed
     dependencies:
       - task-12-event-store
       - task-16-file-projections
   - id: task-41-context-budget
     content: Build ContextEntry with a computed budget and priority allocation
-    status: pending
+    status: completed
     dependencies:
       - task-18-visibility-context-filter
       - task-29-retriever-fts5
   - id: task-42-refetch-compaction
     content: Compact aged context entries into refetchable stubs
-    status: pending
+    status: completed
     dependencies:
       - task-41-context-budget
       - task-35-workspace-skill-surface
   - id: task-43-contradiction-advisory
     content: Emit advisory conflict candidates without rewriting canon
-    status: pending
+    status: completed
     dependencies:
       - task-41-context-budget
       - task-13-canon-event-types
   - id: task-44-turn-loop
     content: Wire the turn loop from intake through events to response assembly
-    status: pending
+    status: completed
     dependencies:
       - task-41-context-budget
       - task-15-projections
@@ -250,19 +250,19 @@ todos:
       - task-01-land-phase-9
   - id: task-45-security-doc-and-tests
     content: Write docs/security.md and test the trust boundaries it claims
-    status: pending
+    status: completed
     dependencies:
       - task-28-deterministic-importer
       - task-22-document-storage
   - id: task-46-docker-portainer
     content: Add the compose stack with read-only mounts and no docker socket
-    status: pending
+    status: completed
     dependencies:
       - task-10-campaign-store
       - task-22-document-storage
   - id: task-47-invariant-regression-suite
     content: Cover every named architectural invariant with a regression test
-    status: pending
+    status: completed
     dependencies:
       - task-44-turn-loop
       - task-34-campaign-rulings
@@ -273,42 +273,42 @@ todos:
       - task-32-precedence-resolver
   - id: task-48-freeform-demo
     content: Run the freeform example campaign end to end
-    status: pending
+    status: completed
     dependencies:
       - task-44-turn-loop
       - task-40-session-model
   - id: task-49-dnd5e-demo
     content: Run the D&D 5e combat demonstration end to end
-    status: pending
+    status: completed
     dependencies:
       - task-48-freeform-demo
       - task-38-dnd5e-reference
   - id: task-50-readme
     content: Rewrite the project README without over-claiming maturity
-    status: pending
+    status: completed
     dependencies:
       - task-49-dnd5e-demo
   - id: task-51-roadmap-doc
     content: Write docs/roadmap.md with milestones and post first-draft items
-    status: pending
+    status: completed
     dependencies:
       - task-39-gurps-validation-doc
   - id: task-52-decision-log
     content: Record ADRs 0001 through 0010 in docs/decisions
-    status: pending
+    status: completed
     dependencies:
       - task-44-turn-loop
       - task-28-deterministic-importer
       - task-42-refetch-compaction
   - id: task-53-git-hygiene
     content: Audit the tree for research clones, sourcebooks, secrets, and databases
-    status: pending
+    status: completed
     dependencies:
       - task-47-invariant-regression-suite
       - task-46-docker-portainer
   - id: task-54-definition-of-done
     content: Verify every first-draft definition of done item against the build
-    status: pending
+    status: completed
     dependencies:
       - task-50-readme
       - task-51-roadmap-doc
@@ -318,7 +318,7 @@ todos:
       - task-49-dnd5e-demo
   - id: task-55-final-report
     content: Write the final agent report with honest limitations and next steps
-    status: pending
+    status: completed
     dependencies:
       - task-54-definition-of-done
 isProject: true
@@ -383,26 +383,48 @@ These bind every task below. Where a task's prose and one of these disagree, the
 9. **Extraction-envelope failure and individual-proposal rejection are different failure classes.**
 10. **Vector retrieval is optional and backend-independent. Lexical retrieval is the required baseline.**
 
-## Current state
+## Completion record (2026-09-22)
 
-`main` carries Phases 1 through 9, and `origin/main` has them. Phase 9 landed by direct push to `main`, not through a pull request: `a43e082` (the implementation) is an ancestor of `origin/main`, `gh pr list` shows no PR for `phase-9-mechanics-boundary`, and that branch (`499faec`) is now fully contained in `main`.
+Tasks 01 through 55 are complete. The first draft is on `main` and `origin/main` at `5a81322` (`fix: stop model tools from writing confirmed canon outside the active campaign`). GitHub records that commit as the merge of pull request #8, "Tabletop first draft", merged 2026-09-22. Pull request #7, "Phase 10: dice engine", merged at the same time and is contained in #8.
 
-Every merge gate reading "Phase 9 merged" is therefore satisfied. Task 01 is complete; its step 5 was overtaken by the direct push.
+`python3.11 -m pytest tests/ -q` on that commit: 660 passed.
 
-Note the working convention this reveals: this repository has been taking work onto `main` directly. The branch-per-boundary workflow below is still the plan of record, and constraint 16 still forbids merging a PR without explicit approval, but an executing agent should expect `main` to move under it and should re-read `origin/main` at every Step 0 rather than trusting a stale gate.
+The work was built as one stacked line of phase branches, then landed as #8, rather than as a separate merged pull request per boundary. Constraint 16 was kept: the agent opened the pull requests and did not merge them.
 
-Implemented and merged:
+Deviations from the migration names in the task text, because earlier numbers were already taken:
 
-- `tabletop/api/`: `plugin.py`, `capabilities.py`, `errors.py`, `entities.py`, `actions.py`, `resolution.py`, `events.py`, `rules.py`, `_contract.py`
-- `tabletop/plugins/`: `manifest.py`, `discovery.py`, `registry.py`
-- `tabletop/runtime.py`, `plugins/tabletop/` (MeTTa glue plus `omega_tabletop_adapter.py`), `systems/freeform/`, `systems/dnd5e/`
-- Docs: `architecture.md`, `plugin-api.md`, `action-resolution.md`, `research/`
+| Plan name | File that landed |
+|---|---|
+| `0004_events.sql` | `0005_events.sql` (`0004_scene_state.sql` adds `scenes.system_state`) |
+| `0005_relationships.sql` | `0006_relationships.sql` |
+| `0006_documents.sql` | `0007_documents.sql` |
+| `0007_retrieval.sql` | `0008_retrieval.sql` |
+| `0008_rulings.sql` | `0009_rulings.sql` |
 
-Phase 9 in commit `a43e082`: `ResolutionStatus` as a closed four-member set in `tabletop/api/resolution.py` with `requires_ruling` derived from it, the non-bypassable `resolve_action` guard in `tabletop/orchestration/turn.py`, `AdjudicationRequest` and `AdjudicationResult` in `tabletop/orchestration/adjudication.py`, 25 tests in `tests/tabletop/test_mechanics_boundary.py`, and doc updates to `action-resolution.md`, `architecture.md`, and `plugin-api.md`.
+Session close added `0010_session_lifecycle.sql` and `0011_session_checklist_progress.sql`.
 
-Still stub docstrings only: `tabletop/api/visibility.py`, `tabletop/campaign/*`, `tabletop/dice/*`, `tabletop/storage/sqlite.py`, `tabletop/documents/*`, `tabletop/retrieval/*`, `tabletop/orchestration/{context,session}.py`.
+Evidence docs on that commit: `docs/first-draft-verification.md`, `docs/reports/first-draft-report.md`, `docs/campaign-model.md`, `docs/retrieval.md`, `docs/security.md`, `docs/gurps-validation.md`, `docs/roadmap.md`, and `docs/decisions/0001` through `0010`.
 
-Owed docs: `campaign-model.md`, `retrieval.md`, `security.md`, `gurps-validation.md`, `roadmap.md`, `docs/decisions/` ADRs 0001 through 0010.
+Known gaps recorded with the draft, not treated as unfinished tasks in this plan:
+
+- Omega/PeTTa startup is not met in the environment that verified the suite. `run.sh` and `petta` were absent. `docs/first-draft-verification.md` marks that item not met.
+- The full container image was not built. A smaller check showed UID 65534 can create the SQLite file after `entrypoint.sh` repairs volume ownership. That upstream edit is in `UPSTREAM.md`.
+- Retrieved chunks can still be dropped during compaction instead of refetched. Quest mutations are not rebuilt by event replay. No registered skill promotes a ruling from proposed to confirmed.
+- Seven old Autotests README PDFs remain in git history. They are gone from the tree. `*.pdf` is ignored. History was not rewritten.
+- Campaign deletion is unsupported. Archival is documented in ADR 0010 and is not implemented.
+
+## Repository state at `dad8228`
+
+`dad8228b403c27718cebe92db1e4e50f6d284fe8` is on `main`. It is the 2026-09-07 commit `fix: adapter rename, runtime bootstrap, boundary and loader tests`, parent `092bfa1`. It is an ancestor of `5a81322`. This is the tree the first-draft tasks were built on top of, after the Phase 5 adapter existed and before Phases 6 through 9 and tasks 02 through 55.
+
+What that commit contains:
+
+- Omega bootstrap plus the Gamemaster research and architecture docs (`docs/architecture.md`, `docs/research/`). `docs/plugin-api.md` and `docs/action-resolution.md` are not in this commit. Omega's own `docs/reference-plugin-api.md` is.
+- `plugins/tabletop/omega_tabletop_adapter.py`. The commit renames the adapter off `tabletop.py` so Omega's loader does not collide with the `tabletop` package, and it puts the repo root on `sys.path` inside the real `loadPythonPlugin` path.
+- Package skeleton under `tabletop/`, `systems/freeform/`, and `systems/dnd5e/`. The modules are docstring stubs that name a later phase. Examples: `tabletop/api/resolution.py` is 8 lines and still describes `requires_ruling = True` as Phase 8 work. `tabletop/dice/parser.py`, `tabletop/storage/sqlite.py`, `tabletop/campaign/store.py`, and `tabletop/orchestration/turn.py` are the same kind of stub. `tabletop/api/errors.py` does not exist.
+- Tests: `tests/tabletop/test_omega_loader.py` (one test) and `tests/tabletop/test_skeleton.py` (three tests). No migration SQL. No `pypdf` pin.
+
+Phases 6 through 9, and every task from 02 through 55, are absent from this commit and present on `main` at `5a81322`.
 
 ## Working agreements
 
@@ -410,11 +432,17 @@ Owed docs: `campaign-model.md`, `retrieval.md`, `security.md`, `gurps-validation
 
 Confirmed 2026-09-21: `python3.11` resolves to `/opt/homebrew/bin/python3.11` (3.11.16) with `pytest` and `PyYAML` importable, so the commands below run as written.
 
-Baseline on the current working tree:
+Baseline before this plan's tasks, recorded 2026-09-21 against the Phase 9 tree:
 
 ```bash
 python3.11 -m pytest tests/tabletop -q   # 183 passed
 python3.11 -m pytest tests/ -q           # 248 passed
+```
+
+Suite on `main` at `5a81322`, recorded 2026-09-22:
+
+```bash
+python3.11 -m pytest tests/ -q           # 660 passed
 ```
 
 **One feature branch per review boundary**, merging to `main` through a PR. Existing convention: `phase-<n>-<slug>`.
@@ -457,61 +485,61 @@ Commit at every task boundary. Open the PR at the review boundary, then stop and
 
 ```mermaid
 flowchart TD
-  task_01_land_phase_9["⬜ task-01-land-phase-9 | Verify the committed Phase 9 boundary and open its pull request"]
-  task_02_dice_parser["⬜ task-02-dice-parser | Parse generic dice expressions into a frozen AST"]
-  task_03_dice_roller["⬜ task-03-dice-roller | Roll a parsed expression with an injected seedable RNG"]
-  task_04_dice_capability_wiring["⬜ task-04-dice-capability-wiring | Advertise the DICE capability and wire the runtime roll skill"]
-  task_05_sqlite_foundation["⬜ task-05-sqlite-foundation | Add SQLite connection pragmas, transactions, and a migration runner"]
-  task_06_core_schema["⬜ task-06-core-schema | Write migration 0001 for campaigns, sessions, scenes, and entities"]
-  task_07_facts_schema["⬜ task-07-facts-schema | Write migration 0002 for facts with four independent axes and provenance"]
-  task_08_canon_invariants["⬜ task-08-canon-invariants | Reject nonsense canon and knowledge combinations at the write boundary"]
-  task_09_ingest_job_schema["⬜ task-09-ingest-job-schema | Write migration 0003 for resumable ingest jobs and slices"]
-  task_10_campaign_store["⬜ task-10-campaign-store | Build the campaign store and apply StateChange paths transactionally"]
-  task_11_campaign_model_doc["⬜ task-11-campaign-model-doc | Write docs/campaign-model.md describing the authoritative schema"]
-  task_12_event_store["⬜ task-12-event-store | Add the append-only event log with a monotonic per-campaign sequence"]
-  task_13_canon_event_types["⬜ task-13-canon-event-types | Separate promotion, reveal, detachment, and contradiction event types"]
-  task_14_provenance_purge["⬜ task-14-provenance-purge | Purge provenance-owned fact records for a source document id"]
-  task_15_projections["⬜ task-15-projections | Derive current campaign state from the event log"]
-  task_16_file_projections["⬜ task-16-file-projections | Write the human-readable campaign directory projection"]
-  task_17_visibility_scopes["⬜ task-17-visibility-scopes | Parse and compare visibility scopes without game semantics"]
-  task_18_visibility_context_filter["⬜ task-18-visibility-context-filter | Filter fact queries by active viewpoint"]
-  task_19_relationship_graph["⬜ task-19-relationship-graph | Store typed temporal relationship edges over SQLite"]
-  task_20_npc_model["⬜ task-20-npc-model | Model NPC identity, private knowledge, and agenda system-agnostically"]
-  task_21_content_pack_manifests["⬜ task-21-content-pack-manifests | Load non-executable content pack manifests"]
-  task_22_document_storage["⬜ task-22-document-storage | Separate raw and processed document roots with path safety"]
-  task_23_shape_detection["⬜ task-23-shape-detection | Detect document shape deterministically before any model call"]
-  task_24_ingestor_text["⬜ task-24-ingestor-text | Ingest markdown and text with heading-aware chunking"]
-  task_25_ingestor_pdf["⬜ task-25-ingestor-pdf | Extract PDF text into the same chunk and provenance pipeline"]
-  task_26_resumable_jobs["⬜ task-26-resumable-jobs | Resume interrupted ingestion only on matching content and version identity"]
-  task_27_proposed_extraction["⬜ task-27-proposed-extraction | Bound model extraction to closed ProposedExtraction schemas"]
-  task_28_deterministic_importer["⬜ task-28-deterministic-importer | Validate and import proposals, then compose the document purge service"]
-  task_29_retriever_fts5["⬜ task-29-retriever-fts5 | Add the retriever interface and FTS5 lexical search with namespaces"]
-  task_30_vector_degrade_ladder["⬜ task-30-vector-degrade-ladder | Add vector search with a dimension invariant and a degrade cascade"]
-  task_31_retrieval_doc["⬜ task-31-retrieval-doc | Write docs/retrieval.md covering namespaces and the degrade ladder"]
-  task_32_precedence_resolver["⬜ task-32-precedence-resolver | Resolve retrieval precedence with campaign overlaying setting"]
-  task_33_rule_reference_resolution["⬜ task-33-rule-reference-resolution | Resolve rule references to exact source version identity"]
-  task_34_campaign_rulings["⬜ task-34-campaign-rulings | Store rulings as first-class records inside the canon lifecycle"]
-  task_35_workspace_skill_surface["⬜ task-35-workspace-skill-surface | Group Omega skills by workspace capability instead of exposing all"]
-  task_36_prompt_extension["⬜ task-36-prompt-extension | Register the Omega prompt extension carrying runtime authority policy"]
-  task_37_freeform_system["⬜ task-37-freeform-system | Implement the freeform reference system with generic checks"]
-  task_38_dnd5e_reference["⬜ task-38-dnd5e-reference | Implement a partial D&D 5e plugin on one rules revision"]
-  task_39_gurps_validation_doc["⬜ task-39-gurps-validation-doc | Audit the plugin API against GURPS mechanics in a document"]
-  task_40_session_model["⬜ task-40-session-model | Add the session lifecycle and end-of-session checklist"]
-  task_41_context_budget["⬜ task-41-context-budget | Build ContextEntry with a computed budget and priority allocation"]
-  task_42_refetch_compaction["⬜ task-42-refetch-compaction | Compact aged context entries into refetchable stubs"]
-  task_43_contradiction_advisory["⬜ task-43-contradiction-advisory | Emit advisory conflict candidates without rewriting canon"]
-  task_44_turn_loop["⬜ task-44-turn-loop | Wire the turn loop from intake through events to response assembly"]
-  task_45_security_doc_and_tests["⬜ task-45-security-doc-and-tests | Write docs/security.md and test the trust boundaries it claims"]
-  task_46_docker_portainer["⬜ task-46-docker-portainer | Add the compose stack with read-only mounts and no docker socket"]
-  task_47_invariant_regression_suite["⬜ task-47-invariant-regression-suite | Cover every named architectural invariant with a regression test"]
-  task_48_freeform_demo["⬜ task-48-freeform-demo | Run the freeform example campaign end to end"]
-  task_49_dnd5e_demo["⬜ task-49-dnd5e-demo | Run the D&D 5e combat demonstration end to end"]
-  task_50_readme["⬜ task-50-readme | Rewrite the project README without over-claiming maturity"]
-  task_51_roadmap_doc["⬜ task-51-roadmap-doc | Write docs/roadmap.md with milestones and post first-draft items"]
-  task_52_decision_log["⬜ task-52-decision-log | Record ADRs 0001 through 0010 in docs/decisions"]
-  task_53_git_hygiene["⬜ task-53-git-hygiene | Audit the tree for research clones, sourcebooks, secrets, and databases"]
-  task_54_definition_of_done["⬜ task-54-definition-of-done | Verify every first-draft definition of done item against the build"]
-  task_55_final_report["⬜ task-55-final-report | Write the final agent report with honest limitations and next steps"]
+  task_01_land_phase_9["✅ task-01-land-phase-9 | Verify the committed Phase 9 boundary and open its pull request"]
+  task_02_dice_parser["✅ task-02-dice-parser | Parse generic dice expressions into a frozen AST"]
+  task_03_dice_roller["✅ task-03-dice-roller | Roll a parsed expression with an injected seedable RNG"]
+  task_04_dice_capability_wiring["✅ task-04-dice-capability-wiring | Advertise the DICE capability and wire the runtime roll skill"]
+  task_05_sqlite_foundation["✅ task-05-sqlite-foundation | Add SQLite connection pragmas, transactions, and a migration runner"]
+  task_06_core_schema["✅ task-06-core-schema | Write migration 0001 for campaigns, sessions, scenes, and entities"]
+  task_07_facts_schema["✅ task-07-facts-schema | Write migration 0002 for facts with four independent axes and provenance"]
+  task_08_canon_invariants["✅ task-08-canon-invariants | Reject nonsense canon and knowledge combinations at the write boundary"]
+  task_09_ingest_job_schema["✅ task-09-ingest-job-schema | Write migration 0003 for resumable ingest jobs and slices"]
+  task_10_campaign_store["✅ task-10-campaign-store | Build the campaign store and apply StateChange paths transactionally"]
+  task_11_campaign_model_doc["✅ task-11-campaign-model-doc | Write docs/campaign-model.md describing the authoritative schema"]
+  task_12_event_store["✅ task-12-event-store | Add the append-only event log with a monotonic per-campaign sequence"]
+  task_13_canon_event_types["✅ task-13-canon-event-types | Separate promotion, reveal, detachment, and contradiction event types"]
+  task_14_provenance_purge["✅ task-14-provenance-purge | Purge provenance-owned fact records for a source document id"]
+  task_15_projections["✅ task-15-projections | Derive current campaign state from the event log"]
+  task_16_file_projections["✅ task-16-file-projections | Write the human-readable campaign directory projection"]
+  task_17_visibility_scopes["✅ task-17-visibility-scopes | Parse and compare visibility scopes without game semantics"]
+  task_18_visibility_context_filter["✅ task-18-visibility-context-filter | Filter fact queries by active viewpoint"]
+  task_19_relationship_graph["✅ task-19-relationship-graph | Store typed temporal relationship edges over SQLite"]
+  task_20_npc_model["✅ task-20-npc-model | Model NPC identity, private knowledge, and agenda system-agnostically"]
+  task_21_content_pack_manifests["✅ task-21-content-pack-manifests | Load non-executable content pack manifests"]
+  task_22_document_storage["✅ task-22-document-storage | Separate raw and processed document roots with path safety"]
+  task_23_shape_detection["✅ task-23-shape-detection | Detect document shape deterministically before any model call"]
+  task_24_ingestor_text["✅ task-24-ingestor-text | Ingest markdown and text with heading-aware chunking"]
+  task_25_ingestor_pdf["✅ task-25-ingestor-pdf | Extract PDF text into the same chunk and provenance pipeline"]
+  task_26_resumable_jobs["✅ task-26-resumable-jobs | Resume interrupted ingestion only on matching content and version identity"]
+  task_27_proposed_extraction["✅ task-27-proposed-extraction | Bound model extraction to closed ProposedExtraction schemas"]
+  task_28_deterministic_importer["✅ task-28-deterministic-importer | Validate and import proposals, then compose the document purge service"]
+  task_29_retriever_fts5["✅ task-29-retriever-fts5 | Add the retriever interface and FTS5 lexical search with namespaces"]
+  task_30_vector_degrade_ladder["✅ task-30-vector-degrade-ladder | Add vector search with a dimension invariant and a degrade cascade"]
+  task_31_retrieval_doc["✅ task-31-retrieval-doc | Write docs/retrieval.md covering namespaces and the degrade ladder"]
+  task_32_precedence_resolver["✅ task-32-precedence-resolver | Resolve retrieval precedence with campaign overlaying setting"]
+  task_33_rule_reference_resolution["✅ task-33-rule-reference-resolution | Resolve rule references to exact source version identity"]
+  task_34_campaign_rulings["✅ task-34-campaign-rulings | Store rulings as first-class records inside the canon lifecycle"]
+  task_35_workspace_skill_surface["✅ task-35-workspace-skill-surface | Group Omega skills by workspace capability instead of exposing all"]
+  task_36_prompt_extension["✅ task-36-prompt-extension | Register the Omega prompt extension carrying runtime authority policy"]
+  task_37_freeform_system["✅ task-37-freeform-system | Implement the freeform reference system with generic checks"]
+  task_38_dnd5e_reference["✅ task-38-dnd5e-reference | Implement a partial D&D 5e plugin on one rules revision"]
+  task_39_gurps_validation_doc["✅ task-39-gurps-validation-doc | Audit the plugin API against GURPS mechanics in a document"]
+  task_40_session_model["✅ task-40-session-model | Add the session lifecycle and end-of-session checklist"]
+  task_41_context_budget["✅ task-41-context-budget | Build ContextEntry with a computed budget and priority allocation"]
+  task_42_refetch_compaction["✅ task-42-refetch-compaction | Compact aged context entries into refetchable stubs"]
+  task_43_contradiction_advisory["✅ task-43-contradiction-advisory | Emit advisory conflict candidates without rewriting canon"]
+  task_44_turn_loop["✅ task-44-turn-loop | Wire the turn loop from intake through events to response assembly"]
+  task_45_security_doc_and_tests["✅ task-45-security-doc-and-tests | Write docs/security.md and test the trust boundaries it claims"]
+  task_46_docker_portainer["✅ task-46-docker-portainer | Add the compose stack with read-only mounts and no docker socket"]
+  task_47_invariant_regression_suite["✅ task-47-invariant-regression-suite | Cover every named architectural invariant with a regression test"]
+  task_48_freeform_demo["✅ task-48-freeform-demo | Run the freeform example campaign end to end"]
+  task_49_dnd5e_demo["✅ task-49-dnd5e-demo | Run the D&D 5e combat demonstration end to end"]
+  task_50_readme["✅ task-50-readme | Rewrite the project README without over-claiming maturity"]
+  task_51_roadmap_doc["✅ task-51-roadmap-doc | Write docs/roadmap.md with milestones and post first-draft items"]
+  task_52_decision_log["✅ task-52-decision-log | Record ADRs 0001 through 0010 in docs/decisions"]
+  task_53_git_hygiene["✅ task-53-git-hygiene | Audit the tree for research clones, sourcebooks, secrets, and databases"]
+  task_54_definition_of_done["✅ task-54-definition-of-done | Verify every first-draft definition of done item against the build"]
+  task_55_final_report["✅ task-55-final-report | Write the final agent report with honest limitations and next steps"]
 
   task_02_dice_parser --> task_03_dice_roller
   task_03_dice_roller --> task_04_dice_capability_wiring
@@ -614,7 +642,7 @@ flowchart TD
   task_54_definition_of_done --> task_55_final_report
 ```
 
-Four roots start immediately and independently: task-01 (land Phase 9), task-02 (dice), task-05 (SQLite), and task-21 (content packs).
+Those four roots have all landed. Task 01 was already complete when execution started. Tasks 02 through 55 landed on `main` at `5a81322`.
 
 ---
 

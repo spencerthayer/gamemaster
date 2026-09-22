@@ -494,6 +494,7 @@ def test_12_setting_workspace_exposes_no_campaign_operations() -> None:
         "resolve-action",
         "roll",
         "get-entity",
+        "get-fact",
         "get-relationships",
         "record-ruling",
     }

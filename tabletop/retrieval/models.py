@@ -38,7 +38,7 @@ class SourceReference:
     section: str
     page: int | None
     source_path: str
-    refetch_tool: str | None = "get_document_chunk"
+    refetch_tool: str | None = None
 
     def __post_init__(self) -> None:
         if not self.chunk_id:

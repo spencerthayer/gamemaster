@@ -100,6 +100,9 @@
      (add-skill get-entity
        "Return one campaign entity by stable identifier with visibility filtering"
        (entity_id_in_quotes))
+     (add-skill get-fact
+       "Return one campaign or owned-setting fact by stable identifier"
+       (fact_id_in_quotes))
      (add-skill get-relationships
        "Return visible relationships for one campaign entity"
        (entity_id_in_quotes))
@@ -164,6 +167,9 @@
 
 (= (get-entity $entity-id)
    (py-call (omega_tabletop_adapter.get_entity $entity-id)))
+
+(= (get-fact $fact-id)
+   (py-call (omega_tabletop_adapter.get_fact $fact-id)))
 
 (= (get-relationships $entity-id)
    (py-call (omega_tabletop_adapter.get_relationships $entity-id)))

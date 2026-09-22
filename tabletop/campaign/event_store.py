@@ -45,6 +45,7 @@ class EventType(str, Enum):
     SCENE_CLOSED = "scene.closed"
     SESSION_STARTED = "session.started"
     SESSION_ENDED = "session.ended"
+    QUEST_MUTATED = "quest.mutated"
 
 
 def event_domain(event_type: EventType) -> str:
@@ -69,6 +70,7 @@ def event_domain(event_type: EventType) -> str:
             | EventType.SCENE_CLOSED
             | EventType.SESSION_STARTED
             | EventType.SESSION_ENDED
+            | EventType.QUEST_MUTATED
         ):
             return "play"
         case _:

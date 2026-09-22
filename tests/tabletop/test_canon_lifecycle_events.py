@@ -278,6 +278,7 @@ def test_event_type_members_and_exhaustive_domain() -> None:
         "scene.closed",
         "session.started",
         "session.ended",
+        "quest.mutated",
     }
     assert {member.value for member in EventType} >= expected
     domains = {member: event_domain(member) for member in EventType}

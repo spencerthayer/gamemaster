@@ -272,7 +272,7 @@ def test_player_context_drops_opaque_records_with_hidden_visibility() -> None:
     assert "trusts the party" in content
 
 
-def test_fact_entries_do_not_name_unregistered_refetch_tools() -> None:
+def test_fact_entries_name_registered_get_fact_refetch_tool() -> None:
     source = RecordingSource(
         {
             ContextSource.FACTS: (
@@ -289,7 +289,14 @@ def test_fact_entries_do_not_name_unregistered_refetch_tools() -> None:
     context = build_context(_request(source, viewpoint="CHARACTER:hero"))
 
     assert context.entries
-    assert all(entry.refetch_tool is None for entry in context.entries)
+    assert all(entry.refetch_tool == "get-fact" for entry in context.entries)
+    assert all(
+        dict(entry.refetch_args) == {"fact_id": "public-fact"}
+        for entry in context.entries
+    )
+    assert any(
+        skill.name == "get-fact" for skill in Workspace.CAMPAIGN.skills
+    )
 
 
 def test_same_priority_uses_record_timestamp_before_collection_order() -> None:

@@ -180,6 +180,12 @@ _CAMPAIGN_ONLY_SKILLS: tuple[SkillSpec, ...] = (
         runtime_method="get_entity",
     ),
     SkillSpec(
+        name="get-fact",
+        description="Return one campaign or owned-setting fact by stable identifier",
+        parameters=("fact_id_in_quotes",),
+        runtime_method="get_fact",
+    ),
+    SkillSpec(
         name="get-relationships",
         description="Return visible relationships for one campaign entity",
         parameters=("entity_id_in_quotes",),

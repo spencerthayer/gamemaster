@@ -124,6 +124,7 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                 | EventType.SCENE_CLOSED
                 | EventType.SESSION_STARTED
                 | EventType.SESSION_ENDED
+                | EventType.QUEST_MUTATED
             ):
                 pass
             case _:

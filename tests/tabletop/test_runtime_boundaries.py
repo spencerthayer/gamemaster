@@ -81,7 +81,7 @@ def _runtime(
     )
 
 
-def test_record_world_history_defaults_to_proposed_unrevealed_and_emits_event(
+def test_record_world_history_defaults_to_proposed_unrevealed_without_campaign_event(
     tmp_path: Path,
     conn,
 ) -> None:
@@ -115,9 +115,105 @@ def test_record_world_history_defaults_to_proposed_unrevealed_and_emits_event(
         "visibility": "PUBLIC",
         "fact_scope": FactScope.SETTING.value,
     }
-    events = EventStore(conn).read("campaign-1")
-    assert [event.event_type for event in events] == [EventType.FACT_PROPOSED.value]
-    assert events[0].payload["fact_id"] == "history-1"
+    assert EventStore(conn).read("campaign-1") == []
+
+
+def test_ruling_from_mapping_forces_proposed_unrevealed() -> None:
+    from tabletop.campaign.rulings import ruling_from_mapping
+
+    ruling = ruling_from_mapping(
+        {
+            "ruling_id": "ruling-forced",
+            "campaign_id": "campaign-1",
+            "system_id": "freeform",
+            "question": "May models confirm rulings?",
+            "decision": "No.",
+            "scope": "canon",
+            "source_references": [{"source_id": "core"}],
+            "session_id": None,
+            "created_at": "2026-09-22T01:00:00+00:00",
+            "canon_state": "confirmed",
+            "knowledge_state": "known",
+        }
+    )
+
+    assert ruling.canon_state is CanonState.PROPOSED
+    assert ruling.knowledge_state is KnowledgeState.UNREVEALED
+
+
+def test_record_ruling_rejects_non_active_campaign(tmp_path: Path, conn) -> None:
+    runtime = _runtime(tmp_path, conn)
+    payload = runtime.record_ruling(
+        json.dumps(
+            {
+                "ruling_id": "ruling-other",
+                "campaign_id": "campaign-2",
+                "system_id": "freeform",
+                "question": "Cross-campaign write?",
+                "decision": "Rejected.",
+                "scope": "scope",
+                "source_references": [{"source_id": "core"}],
+                "session_id": None,
+                "created_at": "2026-09-22T01:00:00+00:00",
+            }
+        )
+    )
+
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "campaign_mismatch"
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM rulings WHERE ruling_id = ?",
+            ("ruling-other",),
+        ).fetchone()["n"]
+        == 0
+    )
+
+
+def test_setting_writes_reject_when_owned_setting_is_none(
+    tmp_path: Path,
+    conn,
+) -> None:
+    runtime = _runtime(tmp_path, conn, active_campaign=None)
+    entity = runtime.upsert_world_entity(
+        json.dumps(
+            {
+                "entity_id": "place-1",
+                "setting_id": "setting-1",
+                "name": "Landmark",
+            }
+        )
+    )
+    history = runtime.record_world_history(
+        json.dumps(
+            {
+                "fact_id": "history-unowned",
+                "setting_id": "setting-1",
+                "subject_id": "city",
+                "predicate": "ruler",
+                "value": "Nobody",
+            }
+        )
+    )
+
+    assert entity["ok"] is False
+    assert entity["error"]["code"] == "setting_not_configured"
+    assert history["ok"] is False
+    assert history["error"]["code"] == "setting_not_configured"
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM entities WHERE entity_id = ?",
+            ("place-1",),
+        ).fetchone()["n"]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM facts WHERE fact_id = ?",
+            ("history-unowned",),
+        ).fetchone()["n"]
+        == 0
+    )
 
 
 def test_adapter_record_ruling_accepts_json_string(
@@ -246,3 +342,6 @@ def test_mutate_quest_uses_campaign_store_state_changes(
     campaign = CampaignStore(conn).get_campaign("campaign-1")
     assert campaign is not None
     assert campaign["system_state"]["quests"]["q1"]["title"] == "Find the gate"
+    events = EventStore(conn).read("campaign-1")
+    assert [event.event_type for event in events] == [EventType.QUEST_MUTATED.value]
+    assert events[0].payload["quest_id"] == "q1"
