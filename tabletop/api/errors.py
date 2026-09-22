@@ -68,6 +68,12 @@ class PluginManifestError(GameSystemError):
     code = "plugin_manifest_error"
 
 
+class ContentPackError(GameSystemError):
+    """A content-pack.yaml is missing required fields, malformed, or unsafe."""
+
+    code = "content_pack_error"
+
+
 class PluginApiVersionError(GameSystemError):
     """A manifest declares an API version the runtime does not support."""
 
