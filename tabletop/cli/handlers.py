@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -14,18 +16,12 @@ from tabletop.api.events import GameEvent
 from tabletop.api.plugin import GameSystemPlugin, is_compatible_api_version
 from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.membership import MembershipStore, validate_participant_id
-<<<<<<< HEAD
 from tabletop.campaign.readiness import readiness_report
 from tabletop.campaign.resume import resume_snapshot
 from tabletop.campaign.selection import (
     clear_active_campaign_file,
     write_active_campaign_file,
 )
-=======
-from tabletop.campaign.readiness import readiness_report
-from tabletop.campaign.resume import resume_snapshot
-from tabletop.campaign.selection import write_active_campaign_file
->>>>>>> 482c361 (Stage external and historical imports until explicit apply.)
 from tabletop.campaign.store import CampaignStore
 from tabletop.cli.runtime_factory import open_operator_runtime, resolve_campaign_id
 from tabletop.cli.util import (
@@ -357,6 +353,54 @@ def cmd_campaign_fork(args: argparse.Namespace) -> int:
         f"forked campaign {result['forked_from']} -> {result['campaign_id']}"
     )
     return 0
+
+
+def _compose_service_name(*, gm: bool, participant_id: str | None) -> str:
+    if gm and participant_id:
+        raise SystemExit("pass either --gm or --participant, not both")
+    if gm:
+        return "omega"
+    if not participant_id:
+        raise SystemExit("pass --gm or --participant <id>")
+    return f"omega-player-{participant_id}"
+
+
+def _run_compose(service: str, action: str, campaign_id: str) -> int:
+    env = os.environ.copy()
+    env["TABLETOP_CAMPAIGN"] = campaign_id
+    command = [
+        "docker",
+        "compose",
+        "--env-file",
+        ".env.example",
+        "-f",
+        "docker-compose.yml",
+        action,
+    ]
+    if action == "up":
+        command.extend(["-d", "--no-deps", service])
+    else:
+        command.append(service)
+    completed = subprocess.run(command, check=False)
+    return int(completed.returncode)
+
+
+def cmd_campaign_start_process(args: argparse.Namespace) -> int:
+    campaign_id = validate_campaign_id(args.campaign_id)
+    service = _compose_service_name(gm=bool(args.gm), participant_id=args.participant)
+    code = _run_compose(service, "up", campaign_id)
+    if code == 0:
+        print(f"started {service} for campaign {campaign_id}")
+    return code
+
+
+def cmd_campaign_stop_process(args: argparse.Namespace) -> int:
+    campaign_id = validate_campaign_id(args.campaign_id)
+    service = _compose_service_name(gm=bool(args.gm), participant_id=args.participant)
+    code = _run_compose(service, "stop", campaign_id)
+    if code == 0:
+        print(f"stopped {service} for campaign {campaign_id}")
+    return code
 
 
 def _resolve_inside_cwd(path_arg: str) -> Path:

@@ -90,6 +90,24 @@ def build_parser() -> argparse.ArgumentParser:
     fork_cmd.add_argument("--id", required=True, dest="campaign_id")
     fork_cmd.set_defaults(handler=handlers.cmd_campaign_fork)
 
+    start_cmd = campaign_sub.add_parser(
+        "start",
+        help="Start the GM or one participant Compose service.",
+    )
+    start_cmd.add_argument("campaign_id")
+    start_cmd.add_argument("--gm", action="store_true")
+    start_cmd.add_argument("--participant", default=None)
+    start_cmd.set_defaults(handler=handlers.cmd_campaign_start_process)
+
+    stop_cmd = campaign_sub.add_parser(
+        "stop",
+        help="Stop the GM or one participant Compose service.",
+    )
+    stop_cmd.add_argument("campaign_id")
+    stop_cmd.add_argument("--gm", action="store_true")
+    stop_cmd.add_argument("--participant", default=None)
+    stop_cmd.set_defaults(handler=handlers.cmd_campaign_stop_process)
+
     session = campaign_sub.add_parser("session", help="Start, inspect, and end sessions.")
     session_sub = session.add_subparsers(dest="session_command")
     session_start = session_sub.add_parser("start", help="Start a session.")

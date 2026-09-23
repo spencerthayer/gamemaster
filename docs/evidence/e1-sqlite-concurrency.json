@@ -1,0 +1,63 @@
+{
+  "scenarios": {
+    "1. Concurrent startup migration \u00d7 20": {
+      "processes": 2,
+      "expected": "identical schema_migrations, usable schema, wal",
+      "observed": "20/20 ok; migrations match; wal",
+      "max_wait_ms": 62.49766598921269,
+      "median_wait_ms": 30.89243746944703,
+      "result": "pass"
+    },
+    "2. Existing-schema migration": {
+      "processes": 2,
+      "expected": "both succeed, no lock error",
+      "observed": "both ok",
+      "max_wait_ms": 9.498208004515618,
+      "median_wait_ms": 6.568354001501575,
+      "result": "pass"
+    },
+    "5. Busy-window exhaustion": {
+      "processes": 2,
+      "expected": "second writer waits ~5000ms then classified busy/locked",
+      "observed": "waiter wait_ms=5386.8 error=OperationalError: database is locked",
+      "max_wait_ms": 6508.527915982995,
+      "median_wait_ms": 5947.686686995439,
+      "result": "pass"
+    },
+    "7. Concurrent process startup": {
+      "processes": 2,
+      "expected": "both reach usable runtime on completed schema",
+      "observed": "both migrated and inserted campaigns",
+      "max_wait_ms": 34.223750000819564,
+      "median_wait_ms": 28.038229007506743,
+      "result": "pass"
+    },
+    "3. Writer vs player read": {
+      "processes": 2,
+      "expected": "read completes within busy_timeout, consistent snapshot",
+      "observed": "reader wait_ms=104.7 count=0",
+      "max_wait_ms": 267.5156660261564,
+      "median_wait_ms": 186.09056252171285,
+      "result": "pass"
+    },
+    "4. Writer vs writer in busy window": {
+      "processes": 2,
+      "expected": "second waits, completes, sees first commit",
+      "observed": "both writers committed",
+      "max_wait_ms": 663.3180000353605,
+      "median_wait_ms": 485.0206045084633,
+      "result": "pass"
+    },
+    "6. Archive vs session start": {
+      "processes": 2,
+      "expected": "exactly one winner",
+      "observed": "winner=session",
+      "max_wait_ms": 59.87729103071615,
+      "median_wait_ms": 56.848333013476804,
+      "result": "pass"
+    }
+  },
+  "python_version": "3.11.16 (main, Aug 12 2026, 23:03:19) [Clang 21.0.0 (clang-2100.1.1.101)]",
+  "busy_timeout_ms": 5000,
+  "os": "Darwin"
+}

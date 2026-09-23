@@ -11,16 +11,18 @@ services:
       ASI_API_KEY: ${ASI_API_KEY}
       IMPORT_KB_ON_START: ${IMPORT_KB_ON_START}
       OMEGA_AUTH_SECRET: ${OMEGA_AUTH_SECRET}
+      OMEGA_EXPECTED_SENDER: ${OMEGA_EXPECTED_SENDER_GM:-}
       TABLETOP_CAMPAIGN: ${TABLETOP_CAMPAIGN}
       TABLETOP_CAMPAIGN_PATHS: ${TABLETOP_CONTAINER_CAMPAIGNS_PATH}
       TABLETOP_CAMPAIGNS_MOUNT: ${TABLETOP_CAMPAIGNS_MOUNT}
       TABLETOP_DATABASE_PATH: ${TABLETOP_DATABASE_PATH}
       TABLETOP_LIBRARY_MOUNT: ${TABLETOP_LIBRARY_MOUNT}
+      TABLETOP_PARTICIPANT: ${TABLETOP_PARTICIPANT_GM:-}
       TABLETOP_PLUGIN_MOUNT: ${TABLETOP_PLUGIN_MOUNT}
       TABLETOP_PLUGIN_PATH: ${TABLETOP_CONTAINER_PLUGIN_PATH}
-      TABLETOP_WORKSPACE: ${TABLETOP_WORKSPACE}
+      TABLETOP_WORKSPACE: campaign
     command:
-      - commchannel=${OMEGA_COMMCHANNEL}
+      - commchannel=${OMEGA_COMMCHANNEL_GM:-${OMEGA_COMMCHANNEL}}
       - provider=${OMEGA_PROVIDER}
       - embeddingprovider=${OMEGA_EMBEDDING_PROVIDER}
       - securityPolicyPath=${OMEGA_SECURITY_POLICY_PATH}
@@ -43,8 +45,102 @@ services:
         source: ${TABLETOP_CAMPAIGNS_HOST_PATH}
         target: ${TABLETOP_CAMPAIGNS_MOUNT}
 
+  omega-player-ada:
+    image: ${OMEGA_IMAGE}
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ASI_API_KEY: ${ASI_API_KEY_ADA:-${ASI_API_KEY}}
+      IMPORT_KB_ON_START: "0"
+      OMEGA_AUTH_SECRET: ${OMEGA_AUTH_SECRET_ADA:-${OMEGA_AUTH_SECRET}}
+      OMEGA_EXPECTED_SENDER: ${OMEGA_EXPECTED_SENDER_ADA:-}
+      TABLETOP_CAMPAIGN: ${TABLETOP_CAMPAIGN}
+      TABLETOP_CAMPAIGN_PATHS: ${TABLETOP_CONTAINER_CAMPAIGNS_PATH}
+      TABLETOP_CAMPAIGNS_MOUNT: ${TABLETOP_CAMPAIGNS_MOUNT}
+      TABLETOP_DATABASE_PATH: ${TABLETOP_DATABASE_PATH}
+      TABLETOP_LIBRARY_MOUNT: ${TABLETOP_LIBRARY_MOUNT}
+      TABLETOP_PARTICIPANT: ${TABLETOP_PARTICIPANT_ADA:-ada}
+      TABLETOP_PLUGIN_MOUNT: ${TABLETOP_PLUGIN_MOUNT}
+      TABLETOP_PLUGIN_PATH: ${TABLETOP_CONTAINER_PLUGIN_PATH}
+      TABLETOP_WORKSPACE: player
+      WS_TOKEN: ${WS_TOKEN_ADA:-}
+    command:
+      - commchannel=${OMEGA_COMMCHANNEL_ADA:-telegram}
+      - provider=${OMEGA_PROVIDER}
+      - embeddingprovider=${OMEGA_EMBEDDING_PROVIDER}
+      - securityPolicyPath=${OMEGA_SECURITY_POLICY_PATH}
+    volumes:
+      - type: volume
+        source: omega-memory-ada
+        target: ${OMEGA_MEMORY_PATH}
+      - type: volume
+        source: tabletop-state
+        target: ${TABLETOP_STATE_PATH}
+      - type: bind
+        source: ${TABLETOP_PLUGIN_HOST_PATH}
+        target: ${TABLETOP_PLUGIN_MOUNT}
+        read_only: true
+      - type: bind
+        source: ${TABLETOP_LIBRARY_HOST_PATH}
+        target: ${TABLETOP_LIBRARY_MOUNT}
+        read_only: true
+      - type: bind
+        source: ${TABLETOP_CAMPAIGNS_HOST_PATH}
+        target: ${TABLETOP_CAMPAIGNS_MOUNT}
+
+  omega-player-bo:
+    image: ${OMEGA_IMAGE}
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ASI_API_KEY: ${ASI_API_KEY_BO:-${ASI_API_KEY}}
+      IMPORT_KB_ON_START: "0"
+      OMEGA_AUTH_SECRET: ${OMEGA_AUTH_SECRET_BO:-${OMEGA_AUTH_SECRET}}
+      OMEGA_EXPECTED_SENDER: ${OMEGA_EXPECTED_SENDER_BO:-}
+      TABLETOP_CAMPAIGN: ${TABLETOP_CAMPAIGN}
+      TABLETOP_CAMPAIGN_PATHS: ${TABLETOP_CONTAINER_CAMPAIGNS_PATH}
+      TABLETOP_CAMPAIGNS_MOUNT: ${TABLETOP_CAMPAIGNS_MOUNT}
+      TABLETOP_DATABASE_PATH: ${TABLETOP_DATABASE_PATH}
+      TABLETOP_LIBRARY_MOUNT: ${TABLETOP_LIBRARY_MOUNT}
+      TABLETOP_PARTICIPANT: ${TABLETOP_PARTICIPANT_BO:-bo}
+      TABLETOP_PLUGIN_MOUNT: ${TABLETOP_PLUGIN_MOUNT}
+      TABLETOP_PLUGIN_PATH: ${TABLETOP_CONTAINER_PLUGIN_PATH}
+      TABLETOP_WORKSPACE: player
+      WS_TOKEN: ${WS_TOKEN_BO:-}
+    command:
+      - commchannel=${OMEGA_COMMCHANNEL_BO:-telegram}
+      - provider=${OMEGA_PROVIDER}
+      - embeddingprovider=${OMEGA_EMBEDDING_PROVIDER}
+      - securityPolicyPath=${OMEGA_SECURITY_POLICY_PATH}
+    volumes:
+      - type: volume
+        source: omega-memory-bo
+        target: ${OMEGA_MEMORY_PATH}
+      - type: volume
+        source: tabletop-state
+        target: ${TABLETOP_STATE_PATH}
+      - type: bind
+        source: ${TABLETOP_PLUGIN_HOST_PATH}
+        target: ${TABLETOP_PLUGIN_MOUNT}
+        read_only: true
+      - type: bind
+        source: ${TABLETOP_LIBRARY_HOST_PATH}
+        target: ${TABLETOP_LIBRARY_MOUNT}
+        read_only: true
+      - type: bind
+        source: ${TABLETOP_CAMPAIGNS_HOST_PATH}
+        target: ${TABLETOP_CAMPAIGNS_MOUNT}
+
 volumes:
   omega-memory:
     name: ${OMEGA_MEMORY_VOLUME}
+  omega-memory-ada:
+    name: ${OMEGA_MEMORY_VOLUME_ADA:-gamemaster-omega-memory-ada}
+  omega-memory-bo:
+    name: ${OMEGA_MEMORY_VOLUME_BO:-gamemaster-omega-memory-bo}
   tabletop-state:
     name: ${TABLETOP_STATE_VOLUME}
