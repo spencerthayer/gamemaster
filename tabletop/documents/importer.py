@@ -242,6 +242,16 @@ def import_extraction(
 ) -> ImportReport:
     """Validate an extraction envelope, filter proposals, and insert survivors."""
 
+    with transaction(conn):
+        return import_extraction_in_transaction(conn, extraction)
+
+
+def import_extraction_in_transaction(
+    conn: sqlite3.Connection,
+    extraction: ProposedExtraction | Mapping[str, Any],
+) -> ImportReport:
+    """Import an extraction envelope inside a caller-owned transaction."""
+
     parsed = _coerce_extraction(extraction)
     _validate_envelope(conn, parsed)
 
@@ -269,16 +279,15 @@ def import_extraction(
         accepted.append(fact.fact_id)
 
     created_at = _utc_now()
-    with transaction(conn):
-        for entity in accepted_entities:
-            _insert_entity(conn, entity)
-        for fact in accepted_facts:
-            _insert_fact(
-                conn,
-                proposed=fact,
-                import_job_id=parsed.job_id,
-                extraction_method=parsed.extractor_version,
-                created_at=created_at,
-            )
+    for entity in accepted_entities:
+        _insert_entity(conn, entity)
+    for fact in accepted_facts:
+        _insert_fact(
+            conn,
+            proposed=fact,
+            import_job_id=parsed.job_id,
+            extraction_method=parsed.extractor_version,
+            created_at=created_at,
+        )
 
     return ImportReport(accepted_ids=tuple(accepted), rejected=tuple(rejected))

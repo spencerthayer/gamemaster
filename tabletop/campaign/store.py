@@ -125,39 +125,62 @@ class CampaignStore:
         metadata: Mapping[str, Any] | None = None,
         overrides_id: str | None = None,
     ) -> None:
+        with transaction(self.conn):
+            self.upsert_entity_in_transaction(
+                campaign_id,
+                entity_id,
+                name,
+                entity_type=entity_type,
+                system_state=system_state,
+                metadata=metadata,
+                overrides_id=overrides_id,
+            )
+
+    def upsert_entity_in_transaction(
+        self,
+        campaign_id: str,
+        entity_id: str,
+        name: str,
+        *,
+        entity_type: str | None = None,
+        system_state: Mapping[str, Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        overrides_id: str | None = None,
+    ) -> None:
+        """Upsert one entity using a transaction already owned by the caller."""
+
         encoded_state = _encode_json({} if system_state is None else system_state)
         encoded_metadata = _encode_json({} if metadata is None else metadata)
-        with transaction(self.conn):
-            cursor = self.conn.execute(
-                "UPDATE entities SET overrides_id = ?, entity_type = ?, name = ?, "
-                "system_state = ?, metadata = ? "
-                "WHERE owner_scope = 'campaign' AND campaign_id = ? AND entity_id = ?",
+        cursor = self.conn.execute(
+            "UPDATE entities SET overrides_id = ?, entity_type = ?, name = ?, "
+            "system_state = ?, metadata = ? "
+            "WHERE owner_scope = 'campaign' AND campaign_id = ? AND entity_id = ?",
+            (
+                overrides_id,
+                entity_type,
+                name,
+                encoded_state,
+                encoded_metadata,
+                campaign_id,
+                entity_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            self.conn.execute(
+                "INSERT INTO entities "
+                "(entity_id, owner_scope, setting_id, campaign_id, overrides_id, "
+                "entity_type, name, system_state, metadata) "
+                "VALUES (?, 'campaign', NULL, ?, ?, ?, ?, ?, ?)",
                 (
+                    entity_id,
+                    campaign_id,
                     overrides_id,
                     entity_type,
                     name,
                     encoded_state,
                     encoded_metadata,
-                    campaign_id,
-                    entity_id,
                 ),
             )
-            if cursor.rowcount == 0:
-                self.conn.execute(
-                    "INSERT INTO entities "
-                    "(entity_id, owner_scope, setting_id, campaign_id, overrides_id, "
-                    "entity_type, name, system_state, metadata) "
-                    "VALUES (?, 'campaign', NULL, ?, ?, ?, ?, ?, ?)",
-                    (
-                        entity_id,
-                        campaign_id,
-                        overrides_id,
-                        entity_type,
-                        name,
-                        encoded_state,
-                        encoded_metadata,
-                    ),
-                )
 
     def get_entity(
         self, campaign_id: str, entity_id: str

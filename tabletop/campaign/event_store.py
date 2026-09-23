@@ -244,22 +244,30 @@ def promote_fact(conn: sqlite3.Connection, fact: Fact) -> Fact:
 
     if fact.campaign_id is None:
         raise ValueError("promote_fact requires a campaign-scoped fact")
+    with transaction(conn):
+        return promote_fact_in_transaction(conn, fact)
+
+
+def promote_fact_in_transaction(conn: sqlite3.Connection, fact: Fact) -> Fact:
+    """Confirm a fact inside a caller-owned transaction."""
+
+    if fact.campaign_id is None:
+        raise ValueError("promote_fact requires a campaign-scoped fact")
     promoted = promote(fact)
     store = EventStore(conn)
-    with transaction(conn):
-        cursor = conn.execute(
-            "UPDATE facts SET canon_state = ? WHERE fact_id = ?",
-            (promoted.canon_state.value, promoted.fact_id),
-        )
-        _require_updated_fact_row(cursor, fact.fact_id)
-        store.append_in_transaction(
-            conn,
-            fact.campaign_id,
-            GameEvent(
-                event_type=EventType.FACT_PROMOTED.value,
-                payload={"fact_id": fact.fact_id},
-            ),
-        )
+    cursor = conn.execute(
+        "UPDATE facts SET canon_state = ? WHERE fact_id = ?",
+        (promoted.canon_state.value, promoted.fact_id),
+    )
+    _require_updated_fact_row(cursor, fact.fact_id)
+    store.append_in_transaction(
+        conn,
+        fact.campaign_id,
+        GameEvent(
+            event_type=EventType.FACT_PROMOTED.value,
+            payload={"fact_id": fact.fact_id},
+        ),
+    )
     return promoted
 
 
@@ -318,16 +326,26 @@ def record_contradiction(
 ) -> PersistedEvent:
     """Append ``canon.contradiction_detected`` without mutating any facts row."""
 
-    store = EventStore(conn)
     with transaction(conn):
-        return store.append_in_transaction(
-            conn,
-            campaign_id,
-            GameEvent(
-                event_type=EventType.CANON_CONTRADICTION_DETECTED.value,
-                payload=payload,
-            ),
-        )
+        return record_contradiction_in_transaction(conn, campaign_id, payload)
+
+
+def record_contradiction_in_transaction(
+    conn: sqlite3.Connection,
+    campaign_id: str,
+    payload: Mapping[str, Any],
+) -> PersistedEvent:
+    """Append a contradiction event inside a caller-owned transaction."""
+
+    store = EventStore(conn)
+    return store.append_in_transaction(
+        conn,
+        campaign_id,
+        GameEvent(
+            event_type=EventType.CANON_CONTRADICTION_DETECTED.value,
+            payload=payload,
+        ),
+    )
 
 
 def apply_resolved_action(

@@ -225,6 +225,111 @@ def build_parser() -> argparse.ArgumentParser:
     pack_ingest.add_argument("--campaign", required=True)
     pack_ingest.set_defaults(handler=handlers.cmd_content_pack_ingest)
 
+    campaign_import = campaign_sub.add_parser(
+        "import",
+        help="Stage a structured external campaign or notes as proposals.",
+    )
+    campaign_import.add_argument("path")
+    campaign_import.add_argument("--campaign", required=True)
+    campaign_import.add_argument(
+        "--format",
+        choices=("auto", "json", "notes"),
+        default="auto",
+    )
+    campaign_import.add_argument("--import-root", default=None)
+    campaign_import.set_defaults(handler=handlers.cmd_campaign_import)
+
+    import_status = campaign_sub.add_parser(
+        "import-status",
+        help="Show staged import batch status.",
+    )
+    import_status.add_argument("--import-id", required=True)
+    import_status.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        dest="output_format",
+    )
+    import_status.set_defaults(handler=handlers.cmd_campaign_import_status)
+
+    import_apply = campaign_sub.add_parser(
+        "import-apply",
+        help="Accept a staged import item into authoritative campaign state.",
+    )
+    import_apply.add_argument("item_id")
+    import_apply.set_defaults(handler=handlers.cmd_campaign_import_apply)
+
+    import_review = campaign_sub.add_parser(
+        "import-review",
+        help="Reject or mark a staged import item unapplyable.",
+    )
+    import_review.add_argument("item_id")
+    review_group = import_review.add_mutually_exclusive_group(required=True)
+    review_group.add_argument("--reject", action="store_true")
+    review_group.add_argument("--mark-unapplyable", action="store_true")
+    import_review.set_defaults(handler=handlers.cmd_campaign_import_review)
+
+    resume = campaign_sub.add_parser(
+        "resume",
+        help="Show a read-only resume snapshot without inventing unknowns.",
+    )
+    resume.add_argument("campaign_id", nargs="?", default=None)
+    resume.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        dest="output_format",
+    )
+    resume.set_defaults(handler=handlers.cmd_campaign_resume)
+
+    validate = campaign_sub.add_parser(
+        "validate",
+        help="Report campaign readiness errors, warnings, and notices.",
+    )
+    validate.add_argument("--id", dest="campaign_id", default=None)
+    validate.add_argument("--require-reviewed", action="store_true")
+    validate.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        dest="output_format",
+    )
+    validate.set_defaults(handler=handlers.cmd_campaign_validate)
+
+    readiness = campaign_sub.add_parser(
+        "readiness",
+        help="Alias for campaign validate.",
+    )
+    readiness.add_argument("--id", dest="campaign_id", default=None)
+    readiness.add_argument("--require-reviewed", action="store_true")
+    readiness.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        dest="output_format",
+    )
+    readiness.set_defaults(handler=handlers.cmd_campaign_validate)
+
+    start = campaign_sub.add_parser(
+        "start",
+        help="Validate then delegate launch to scripts/omega or compose.",
+    )
+    start.add_argument("campaign_id")
+    start_group = start.add_mutually_exclusive_group(required=True)
+    start_group.add_argument("--gm", action="store_true")
+    start_group.add_argument("--participant", dest="participant_id", default=None)
+    start.set_defaults(handler=handlers.cmd_campaign_start)
+
+    stop = campaign_sub.add_parser(
+        "stop",
+        help="Delegate stop to scripts/omega or compose.",
+    )
+    stop.add_argument("campaign_id")
+    stop_group = stop.add_mutually_exclusive_group(required=True)
+    stop_group.add_argument("--gm", action="store_true")
+    stop_group.add_argument("--participant", dest="participant_id", default=None)
+    stop.set_defaults(handler=handlers.cmd_campaign_stop)
+
     return parser
 
 

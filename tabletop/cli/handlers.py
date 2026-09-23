@@ -14,10 +14,18 @@ from tabletop.api.events import GameEvent
 from tabletop.api.plugin import GameSystemPlugin, is_compatible_api_version
 from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.membership import MembershipStore, validate_participant_id
+<<<<<<< HEAD
+from tabletop.campaign.readiness import readiness_report
+from tabletop.campaign.resume import resume_snapshot
 from tabletop.campaign.selection import (
     clear_active_campaign_file,
     write_active_campaign_file,
 )
+=======
+from tabletop.campaign.readiness import readiness_report
+from tabletop.campaign.resume import resume_snapshot
+from tabletop.campaign.selection import write_active_campaign_file
+>>>>>>> 482c361 (Stage external and historical imports until explicit apply.)
 from tabletop.campaign.store import CampaignStore
 from tabletop.cli.runtime_factory import open_operator_runtime, resolve_campaign_id
 from tabletop.cli.util import (
@@ -32,6 +40,13 @@ from tabletop.documents.ingest import IngestContext
 from tabletop.documents.markdown import MarkdownIngestor
 from tabletop.export.manifest import PackageError
 from tabletop.export.package import export_campaign, fork_package, restore_package
+from tabletop.importing.apply import ApplyBlockedError, apply_item, review_item
+from tabletop.importing.json_adapter import JsonCampaignImporter
+from tabletop.importing.notes_adapter import stage_notes
+from tabletop.importing.store import (
+    ImportStore,
+    import_status_report,
+)
 from tabletop.storage.sqlite import transaction
 
 
@@ -687,4 +702,184 @@ def cmd_system_inspect(args: argparse.Namespace) -> int:
                 print(f"state_issue: {issue.code}: {issue.message}")
             return 1
         print("state: valid")
+    return 0
+
+
+def cmd_campaign_import(args: argparse.Namespace) -> int:
+    campaign_id = validate_campaign_id(args.campaign)
+    path = Path(args.path).expanduser()
+    fmt = args.format
+    if fmt == "auto":
+        suffix = path.suffix.lower()
+        if suffix == ".json":
+            fmt = "json"
+        else:
+            fmt = "notes"
+    conn = open_database()
+    try:
+        if CampaignStore(conn).get_campaign(campaign_id) is None:
+            raise SystemExit(f"campaign {campaign_id!r} not found")
+        if fmt == "json":
+            batch = JsonCampaignImporter().load(str(path))
+            import_id = ImportStore(conn).stage_batch(campaign_id, batch)
+            count = len(batch.items)
+        else:
+            root = Path(args.import_root).expanduser() if args.import_root else path.parent
+            import_id = stage_notes(
+                conn, campaign_id, str(path), import_root=root
+            )
+            count = len(ImportStore(conn).list_items(import_id))
+    finally:
+        conn.close()
+    print(f"staged import {import_id} with {count} items")
+    return 0
+
+
+def cmd_campaign_import_status(args: argparse.Namespace) -> int:
+    conn = open_database()
+    try:
+        report = import_status_report(conn, args.import_id)
+        items = ImportStore(conn).list_items(args.import_id)
+    finally:
+        conn.close()
+    if getattr(args, "output_format", "text") == "json":
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    print(f"status: {report['status']}")
+    print(f"items: {len(items)}")
+    print(f"Staging: {report['staging']['conflicts']} staged conflicts")
+    print(
+        f"Campaign: {report['campaign']['unresolved_contradictions']} "
+        "unresolved contradiction"
+    )
+    counts = report["counts"]
+    print(
+        "counts: "
+        f"pending={counts['pending_review']} applied={counts['applied']} "
+        f"rejected={counts['rejected']} unapplyable={counts['unapplyable']}"
+    )
+    for item in items:
+        print(
+            f"  {item['item_id']}\t{item['kind']}\t{item['review_state']}\t"
+            f"{item.get('proposed_key') or '-'}"
+        )
+    return 0
+
+
+def cmd_campaign_import_apply(args: argparse.Namespace) -> int:
+    conn = open_database()
+    try:
+        result = apply_item(conn, args.item_id)
+    except ApplyBlockedError as exc:
+        print(f"apply blocked: {exc}")
+        return 1
+    except (LookupError, ValueError) as exc:
+        print(f"apply failed: {exc}")
+        return 1
+    finally:
+        conn.close()
+    print(
+        f"status: {result['status']} item={result['item_id']} "
+        f"target={result.get('applied_target_id')}"
+    )
+    return 0
+
+
+def cmd_campaign_import_review(args: argparse.Namespace) -> int:
+    conn = open_database()
+    try:
+        review_item(
+            conn,
+            args.item_id,
+            reject=bool(args.reject),
+            mark_unapplyable=bool(args.mark_unapplyable),
+        )
+    except (LookupError, ValueError) as exc:
+        print(f"review failed: {exc}")
+        return 1
+    finally:
+        conn.close()
+    state = "rejected" if args.reject else "unapplyable"
+    print(f"reviewed {args.item_id} -> {state}")
+    return 0
+
+
+def cmd_campaign_resume(args: argparse.Namespace) -> int:
+    campaign_id = resolve_campaign_id(campaign_id=args.campaign_id)
+    conn = open_database()
+    try:
+        snap = resume_snapshot(conn, campaign_id)
+    finally:
+        conn.close()
+    if getattr(args, "output_format", "text") == "json":
+        print(json.dumps(snap, indent=2, sort_keys=True))
+        return 0
+    print(f"campaign: {snap['campaign_id']}")
+    print(f"in_world_date: {snap['in_world_date']}")
+    print(f"scene: {snap['scene']}")
+    print(f"authoritative_contradictions: {snap['authoritative_contradictions']}")
+    print(f"pending_imports: {snap['pending_imports']}")
+    print(f"pending_import_conflicts: {snap['pending_import_conflicts']}")
+    if snap.get("latest_session"):
+        print(f"latest_session: {snap['latest_session']['session_id']}")
+    return 0
+
+
+def cmd_campaign_validate(args: argparse.Namespace) -> int:
+    campaign_id = resolve_campaign_id(campaign_id=args.campaign_id)
+    conn = open_database()
+    try:
+        report = readiness_report(
+            conn,
+            campaign_id,
+            require_reviewed=bool(getattr(args, "require_reviewed", False)),
+        )
+    finally:
+        conn.close()
+    if getattr(args, "output_format", "text") == "json":
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"campaign: {report['campaign_id']}")
+        print(f"ok: {report['ok']}")
+        for label in ("errors", "warnings", "notices"):
+            for item in report[label]:
+                print(f"{label[:-1]}: {item}")
+    return 1 if report["exit_nonzero"] else 0
+
+
+def cmd_campaign_start(args: argparse.Namespace) -> int:
+    campaign_id = validate_campaign_id(args.campaign_id)
+    conn = open_database()
+    try:
+        report = readiness_report(conn, campaign_id, require_reviewed=True)
+    finally:
+        conn.close()
+    if report["exit_nonzero"]:
+        print("start refused: readiness errors")
+        for item in report["errors"]:
+            print(f"error: {item}")
+        return 1
+    if args.gm:
+        service = "omega"
+        print(f"launch: scripts/omega (service={service} campaign={campaign_id})")
+    else:
+        participant_id = validate_participant_id(args.participant_id)
+        service = f"omega-player-{participant_id}"
+        print(
+            f"launch: docker compose up {service} "
+            f"(campaign={campaign_id} participant={participant_id})"
+        )
+    return 0
+
+
+def cmd_campaign_stop(args: argparse.Namespace) -> int:
+    campaign_id = validate_campaign_id(args.campaign_id)
+    if args.gm:
+        print(f"stop: scripts/omega (service=omega campaign={campaign_id})")
+    else:
+        participant_id = validate_participant_id(args.participant_id)
+        print(
+            f"stop: docker compose stop omega-player-{participant_id} "
+            f"(campaign={campaign_id})"
+        )
     return 0

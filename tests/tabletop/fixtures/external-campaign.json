@@ -1,0 +1,38 @@
+{
+  "format": "gamemaster-external/v1",
+  "entities": [
+    {"id": "ada", "name": "Ada", "entity_type": "character", "level": 3},
+    {"id": "bo", "name": "Bo", "entity_type": "character"}
+  ],
+  "participants": [
+    {"id": "p1", "name": "Pat", "role": "player"}
+  ],
+  "controls": [
+    {
+      "control_id": "shared",
+      "participant_id": "p1",
+      "entity_id": "ada",
+      "control": "owner"
+    }
+  ],
+  "facts": [
+    {
+      "fact_id": "f1",
+      "subject_id": "ada",
+      "predicate": "status",
+      "value": "alive"
+    },
+    {
+      "fact_id": "f2",
+      "subject_id": "bo",
+      "predicate": "status",
+      "value": "alive"
+    },
+    {
+      "fact_id": "f3",
+      "subject_id": "ada",
+      "predicate": "allied_with",
+      "value": "bo"
+    }
+  ]
+}

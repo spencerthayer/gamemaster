@@ -1,0 +1,30 @@
+{
+  "gate": "g-review-and-resume-contradiction-integration",
+  "recorded_at": "2026-09-23",
+  "branch": "user-ready-g-historical-import",
+  "audit": {
+    "append_contradiction_events": [
+      "tabletop.campaign.event_store.record_contradiction",
+      "tabletop.campaign.event_store.record_contradiction_in_transaction",
+      "tabletop.campaign.contradictions.check_claim (calls record_contradiction)"
+    ],
+    "transaction_behavior": {
+      "record_contradiction": "opens its own BEGIN IMMEDIATE via transaction()",
+      "record_contradiction_in_transaction": "joins caller transaction",
+      "promote_fact": "opens its own transaction; promote_fact_in_transaction joins",
+      "import_extraction": "opens its own transaction; import_extraction_in_transaction joins",
+      "MembershipStore.add_participant / grant_control": "open own transactions; *_in_transaction join",
+      "CampaignStore.upsert_entity": "opens own transaction; upsert_entity_in_transaction joins"
+    },
+    "detection_without_write": "tabletop.campaign.contradictions.detect_claim_conflict",
+    "resolution_modes_safe_for_cli": [],
+    "notes": [
+      "Existing contradiction domain is advisory detection plus event append; it does not expose overwrite, force, or winner-selection modes.",
+      "Apply preflight uses detect_claim_conflict inside the apply transaction. A blocking conflict raises ApplyBlockedError, rolls back authoritative writes, and records error_json/review_json in a separate staging-metadata transaction.",
+      "No --conflict-resolution CLI flag is exposed because the audit found no safe resolution mode on the existing domain API.",
+      "Importer calls domain APIs only; it does not duplicate fact or membership SQL."
+    ]
+  },
+  "adaptation": "domain writers gained *_in_transaction variants so apply can compose detection, import_extraction, promote_fact, membership, and item transition in one authoritative transaction",
+  "result": "pass"
+}

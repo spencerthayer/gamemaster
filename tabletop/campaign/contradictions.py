@@ -55,6 +55,36 @@ def check_claim(
 ) -> ConflictCandidate | None:
     """Return and record a predicate-level conflict for an established subject."""
 
+    candidate = detect_claim_conflict(conn, claim)
+    if candidate is None:
+        return None
+    record_contradiction(
+        conn,
+        claim.campaign_id,
+        {
+            "claim": {
+                "subject_id": claim.subject_id,
+                "predicate": claim.predicate,
+                "value": claim.value,
+            },
+            "existing_fact_id": candidate.existing_fact.fact_id,
+            "existing_value": candidate.existing_fact.value,
+            "reason": candidate.reason,
+            "visibility": candidate.visibility,
+            "resolved": candidate.resolved,
+            "claim_session_id": claim.session_id,
+            "existing_session_id": candidate.session,
+        },
+    )
+    return candidate
+
+
+def detect_claim_conflict(
+    conn: sqlite3.Connection,
+    claim: Claim,
+) -> ConflictCandidate | None:
+    """Detect a predicate-level conflict without writing events or facts."""
+
     if not _subject_exists(conn, claim.campaign_id, claim.subject_id):
         return None
 
@@ -90,7 +120,7 @@ def check_claim(
         f"Established canon has {claim.predicate}={existing_fact.value!r}; "
         f"the claim proposes {claim.value!r}."
     )
-    candidate = ConflictCandidate(
+    return ConflictCandidate(
         existing_fact=existing_fact,
         source=FactSource(
             document_id=existing_fact.source_document_id,
@@ -101,25 +131,6 @@ def check_claim(
         session=existing_session_id,
         reason=reason,
     )
-    record_contradiction(
-        conn,
-        claim.campaign_id,
-        {
-            "claim": {
-                "subject_id": claim.subject_id,
-                "predicate": claim.predicate,
-                "value": claim.value,
-            },
-            "existing_fact_id": existing_fact.fact_id,
-            "existing_value": existing_fact.value,
-            "reason": reason,
-            "visibility": candidate.visibility,
-            "resolved": candidate.resolved,
-            "claim_session_id": claim.session_id,
-            "existing_session_id": existing_session_id,
-        },
-    )
-    return candidate
 
 
 def _subject_exists(

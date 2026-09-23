@@ -42,32 +42,51 @@ class MembershipStore:
         *,
         created_at: str | None = None,
     ) -> None:
+        with transaction(self.conn):
+            self.add_participant_in_transaction(
+                campaign_id,
+                participant_id,
+                display_name,
+                role,
+                created_at=created_at,
+            )
+
+    def add_participant_in_transaction(
+        self,
+        campaign_id: str,
+        participant_id: str,
+        display_name: str,
+        role: str,
+        *,
+        created_at: str | None = None,
+    ) -> None:
+        """Insert a participant using a transaction already owned by the caller."""
+
         participant_id = validate_participant_id(participant_id)
         if role not in _ROLES:
             raise ValueError(f"role must be one of {sorted(_ROLES)}")
         if created_at is None:
             created_at = datetime.now(timezone.utc).isoformat()
-        with transaction(self.conn):
-            self.conn.execute(
-                "INSERT INTO participants "
-                "(participant_id, campaign_id, display_name, role, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (participant_id, campaign_id, display_name, role, created_at),
-            )
-            self._events.append_in_transaction(
-                self.conn,
-                campaign_id,
-                GameEvent(
-                    event_type=EventType.PARTICIPANT_ADDED.value,
-                    payload={
-                        "participant_id": participant_id,
-                        "display_name": display_name,
-                        "role": role,
-                        "created_at": created_at,
-                    },
-                ),
-                occurred_at=created_at,
-            )
+        self.conn.execute(
+            "INSERT INTO participants "
+            "(participant_id, campaign_id, display_name, role, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (participant_id, campaign_id, display_name, role, created_at),
+        )
+        self._events.append_in_transaction(
+            self.conn,
+            campaign_id,
+            GameEvent(
+                event_type=EventType.PARTICIPANT_ADDED.value,
+                payload={
+                    "participant_id": participant_id,
+                    "display_name": display_name,
+                    "role": role,
+                    "created_at": created_at,
+                },
+            ),
+            occurred_at=created_at,
+        )
 
     def remove_participant(self, campaign_id: str, participant_id: str) -> None:
         ended_at = datetime.now(timezone.utc).isoformat()
@@ -166,42 +185,63 @@ class MembershipStore:
         control_id: str | None = None,
         created_at: str | None = None,
     ) -> str:
+        with transaction(self.conn):
+            return self.grant_control_in_transaction(
+                campaign_id,
+                participant_id,
+                entity_id,
+                control,
+                control_id=control_id,
+                created_at=created_at,
+            )
+
+    def grant_control_in_transaction(
+        self,
+        campaign_id: str,
+        participant_id: str,
+        entity_id: str,
+        control: str,
+        *,
+        control_id: str | None = None,
+        created_at: str | None = None,
+    ) -> str:
+        """Grant control using a transaction already owned by the caller."""
+
         if control not in _CONTROLS:
             raise ValueError(f"control must be one of {sorted(_CONTROLS)}")
         if control_id is None:
             control_id = str(uuid.uuid4())
         if created_at is None:
             created_at = datetime.now(timezone.utc).isoformat()
-        with transaction(self.conn):
-            self.conn.execute(
-                "INSERT INTO character_controls "
-                "(control_id, campaign_id, participant_id, entity_id, control, "
-                "created_at, ended_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, NULL)",
-                (
-                    control_id,
-                    campaign_id,
-                    participant_id,
-                    entity_id,
-                    control,
-                    created_at,
-                ),
-            )
-            self._events.append_in_transaction(
-                self.conn,
+        self.conn.execute(
+            "INSERT INTO character_controls "
+            "(control_id, campaign_id, participant_id, entity_id, control, "
+            "created_at, ended_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, NULL)",
+            (
+                control_id,
                 campaign_id,
-                GameEvent(
-                    event_type=EventType.CHARACTER_CONTROL_GRANTED.value,
-                    payload={
-                        "control_id": control_id,
-                        "participant_id": participant_id,
-                        "entity_id": entity_id,
-                        "control": control,
-                        "created_at": created_at,
-                    },
-                ),
-                occurred_at=created_at,
-            )
+                participant_id,
+                entity_id,
+                control,
+                created_at,
+            ),
+        )
+        self._events.append_in_transaction(
+            self.conn,
+            campaign_id,
+            GameEvent(
+                event_type=EventType.CHARACTER_CONTROL_GRANTED.value,
+                payload={
+                    "control_id": control_id,
+                    "participant_id": participant_id,
+                    "entity_id": entity_id,
+                    "control": control,
+                    "created_at": created_at,
+                },
+            ),
+            occurred_at=created_at,
+        )
         return control_id
 
     def revoke_control(
