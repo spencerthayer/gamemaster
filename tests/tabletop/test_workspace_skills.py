@@ -338,14 +338,19 @@ def test_metta_skill_names_match_workspace_skill_specs() -> None:
     )[0]
     # Campaign block ends before the first skill implementation equation.
     campaign_block = text.split("(= (register-workspace-skills campaign)", 1)[1].split(
+        "(= (register-workspace-skills player)", 1
+    )[0]
+    player_block = text.split("(= (register-workspace-skills player)", 1)[1].split(
         "(= (query-setting", 1
     )[0]
 
     setting_metta = re.findall(r"\(add-skill ([^\s)]+)", setting_block)
     campaign_metta = re.findall(r"\(add-skill ([^\s)]+)", campaign_block)
+    player_metta = re.findall(r"\(add-skill ([^\s)]+)", player_block)
 
     assert setting_metta == [skill.name for skill in Workspace.SETTING.skills]
     assert campaign_metta == [skill.name for skill in Workspace.CAMPAIGN.skills]
+    assert player_metta == [skill.name for skill in Workspace.PLAYER.skills]
 
 
 def test_metta_registers_from_workspace_payload_not_a_flat_global_list() -> None:

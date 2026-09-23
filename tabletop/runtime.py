@@ -28,7 +28,7 @@ from tabletop.api.errors import (
 )
 from tabletop.api.events import GameEvent
 from tabletop.api.resolution import StateChange, StateOperation
-from tabletop.api.visibility import gm_viewpoint
+from tabletop.api.visibility import Viewpoint, gm_viewpoint, parse_scope
 from tabletop.api.workspace import Workspace, parse_workspace, skill_registration_entries
 from tabletop.campaign.event_store import (
     EventStore,
@@ -36,6 +36,7 @@ from tabletop.campaign.event_store import (
     promote_fact as promote_campaign_fact,
     reveal_fact as reveal_campaign_fact,
 )
+from tabletop.campaign.membership import MembershipStore
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.relationships import resolve_relationship_overlay
 from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
@@ -45,6 +46,7 @@ from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
 from tabletop.orchestration.prompt_context import (
     PromptContextSnapshot,
+    build_player_prompt_context_snapshot,
     build_prompt_context_snapshot,
 )
 from tabletop.orchestration.prompt_receipt import record_prompt_context_receipt
@@ -64,6 +66,7 @@ CAMPAIGN_PATHS_ENV_VAR = "TABLETOP_CAMPAIGN_PATHS"
 CAMPAIGN_ENV_VAR = "TABLETOP_CAMPAIGN"
 WORKSPACE_ENV_VAR = "TABLETOP_WORKSPACE"
 DATABASE_PATH_ENV_VAR = "TABLETOP_DATABASE_PATH"
+PARTICIPANT_ENV_VAR = "TABLETOP_PARTICIPANT"
 
 
 class TabletopRuntime:
@@ -85,6 +88,7 @@ class TabletopRuntime:
         plugin_roots: Iterable[Path | str] | None = None,
         active_campaign: str | None = None,
         connection: sqlite3.Connection | None = None,
+        participant_id: str | None = None,
     ) -> None:
         if not isinstance(workspace, Workspace):
             raise TypeError("workspace must be a Workspace enum member")
@@ -106,6 +110,7 @@ class TabletopRuntime:
         # root explicitly, and from_environment plus __init__ can both add it.
         self.plugin_roots = tuple(dict.fromkeys(self._normalize_roots(roots)))
         self.active_campaign = active_campaign
+        self.participant_id = participant_id
         self._connection = connection
         self._campaigns: tuple[str, ...] = ()
         self._registry = PluginRegistry()
@@ -119,14 +124,39 @@ class TabletopRuntime:
         return self._workspace
 
     def prompt_context_snapshot(self) -> PromptContextSnapshot:
-        """Return the GM prompt snapshot for this process. Writes nothing."""
+        """Return the prompt snapshot for this process. Writes nothing."""
 
+        if self._workspace is Workspace.PLAYER:
+            return build_player_prompt_context_snapshot(
+                self._connection,
+                workspace=self._workspace,
+                campaign_id=self.active_campaign,
+                setting_id=self._owned_setting_id(),
+                viewpoint=self._player_viewpoint(),
+            )
         return build_prompt_context_snapshot(
             self._connection,
             workspace=self._workspace,
             campaign_id=self.active_campaign,
             setting_id=self._owned_setting_id(),
         )
+
+    def _player_viewpoint(self) -> Viewpoint:
+        if self._connection is None or not self.active_campaign or not self.participant_id:
+            return Viewpoint(scope=parse_scope("PUBLIC"))
+        character_ids = MembershipStore(self._connection).controlled_entity_ids(
+            self.active_campaign,
+            self.participant_id,
+        )
+        return Viewpoint(
+            scope=parse_scope("PUBLIC"),
+            character_ids=character_ids,
+        )
+
+    def _active_viewpoint(self) -> Viewpoint:
+        if self._workspace is Workspace.PLAYER:
+            return self._player_viewpoint()
+        return gm_viewpoint()
 
     def prompt_context_snapshot_with_receipt(self) -> str:
         """Build one snapshot, store its receipt, and return the snapshot text.
@@ -184,6 +214,7 @@ class TabletopRuntime:
         env_plugin_roots = cls._paths_from_env(env.get(PLUGIN_PATH_ENV_VAR), defaults=())
         plugin_roots = tuple(dict.fromkeys((*env_plugin_roots, root / "systems")))
         active_campaign = env.get(CAMPAIGN_ENV_VAR) or None
+        participant_id = env.get(PARTICIPANT_ENV_VAR) or None
         connection = None
         database_path_value = env.get(DATABASE_PATH_ENV_VAR)
         if database_path_value:
@@ -208,6 +239,7 @@ class TabletopRuntime:
                 plugin_roots=plugin_roots,
                 active_campaign=active_campaign,
                 connection=connection,
+                participant_id=participant_id,
             )
         except BaseException:
             if connection is not None:
@@ -406,7 +438,7 @@ class TabletopRuntime:
                 "Active campaign was not found.",
                 data={"campaign": campaign_id},
             )
-        viewpoint = gm_viewpoint()
+        viewpoint = self._active_viewpoint()
         needle = query.strip().lower()
         facts = store.get_facts(campaign_id, viewpoint=viewpoint)
         if needle:
@@ -491,6 +523,20 @@ class TabletopRuntime:
                 "Active campaign is archived.",
                 data={"campaign": campaign_id},
             )
+        try:
+            game_action = parse_game_action(payload)
+        except (InvalidActionError, ValueError) as exc:
+            return self._error("resolve-action", "invalid_action", str(exc))
+        if self._workspace is Workspace.PLAYER:
+            actor_id = game_action.actor.id
+            controlled = self._player_viewpoint().character_ids
+            if actor_id not in controlled:
+                return self._error(
+                    "resolve-action",
+                    "actor_not_controlled",
+                    "Player may only resolve actions for controlled characters.",
+                    data={"actor": actor_id},
+                )
         scene_id = payload.get("scene_id")
         if scene_id is not None and (
             not isinstance(scene_id, str) or not scene_id.strip()
@@ -501,7 +547,6 @@ class TabletopRuntime:
                 "scene_id must be a non-empty string when provided.",
             )
         try:
-            game_action = parse_game_action(payload)
             result = play_turn(
                 self._registry,
                 self._connection,
@@ -564,7 +609,7 @@ class TabletopRuntime:
         chunk = load_visible_chunk(
             self._connection,
             chunk_key,
-            viewpoint=gm_viewpoint(),
+            viewpoint=self._active_viewpoint(),
         )
         if chunk is None:
             return self._error(
@@ -640,7 +685,7 @@ class TabletopRuntime:
                 setting_id=self._owned_setting_id(),
                 entity_id=entity_key,
                 as_of=as_of,
-                viewpoint=gm_viewpoint(),
+                viewpoint=self._active_viewpoint(),
             )
         except (LookupError, ValueError) as exc:
             return self._error("get-relationships", "relationships_not_queried", str(exc))

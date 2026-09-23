@@ -79,6 +79,7 @@ class Viewpoint:
     party_member: bool = False
     faction_ids: frozenset[str] = field(default_factory=frozenset)
     group_ids: frozenset[str] = field(default_factory=frozenset)
+    character_ids: frozenset[str] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         if not isinstance(self.scope, VisibilityScope):
@@ -87,6 +88,7 @@ class Viewpoint:
             raise VisibilityScopeError("party membership must be a boolean")
         object.__setattr__(self, "faction_ids", frozenset(self.faction_ids))
         object.__setattr__(self, "group_ids", frozenset(self.group_ids))
+        object.__setattr__(self, "character_ids", frozenset(self.character_ids))
 
 
 def parse_scope(text: str) -> VisibilityScope:
@@ -130,7 +132,12 @@ def can_see(viewer: Viewpoint, scope: VisibilityScope) -> bool:
         return viewer.party_member
     if scope.kind is VisibilityKind.GM:
         return False
-    if scope.kind in {VisibilityKind.CHARACTER, VisibilityKind.NPC}:
+    if scope.kind is VisibilityKind.CHARACTER:
+        return (
+            viewer.scope.kind is VisibilityKind.CHARACTER
+            and viewer.scope.target == scope.target
+        ) or (scope.target is not None and scope.target in viewer.character_ids)
+    if scope.kind is VisibilityKind.NPC:
         return viewer.scope.kind is scope.kind and viewer.scope.target == scope.target
     if scope.kind is VisibilityKind.FACTION:
         return (

@@ -11,7 +11,7 @@ import hashlib
 import sqlite3
 from dataclasses import dataclass
 
-from tabletop.api.visibility import gm_viewpoint
+from tabletop.api.visibility import Viewpoint, gm_viewpoint
 from tabletop.api.workspace import Workspace
 from tabletop.campaign.models import FactScope
 from tabletop.campaign.store import CampaignStore
@@ -118,6 +118,61 @@ def build_prompt_context_snapshot(
             source=_LibraryContextSource(connection, setting_id),
             workspace=workspace,
             viewpoint=gm_viewpoint(),
+            campaign_id=campaign_id,
+            query="",
+            model_context_size=PROMPT_CONTEXT_MODEL_TOKENS,
+            prompt_reserve=0,
+            response_reserve=0,
+            session_reserve=0,
+            per_entry_ceiling=PROMPT_CONTEXT_ENTRY_CEILING,
+        )
+    )
+    text = render_allocated_context(context)
+    selected_count = sum(1 for entry in context.entries if not entry.compacted)
+    compacted_count = sum(1 for entry in context.entries if entry.compacted)
+    dropped_count = sum(1 for item in context.trace if item.action == "dropped")
+    source_kinds = tuple(
+        source.value
+        for source in ContextSource
+        if any(entry.source is source for entry in context.entries)
+    )
+    return PromptContextSnapshot(
+        text=text,
+        campaign_id=campaign_id,
+        workspace=workspace.value,
+        context_budget=budget,
+        considered_count=selected_count + compacted_count + dropped_count,
+        selected_count=selected_count,
+        compacted_count=compacted_count,
+        dropped_count=dropped_count,
+        estimated_tokens=context.used_tokens,
+        source_kinds=source_kinds,
+        context_sha256=_digest(text),
+    )
+
+
+def build_player_prompt_context_snapshot(
+    connection: sqlite3.Connection | None,
+    *,
+    workspace: Workspace,
+    campaign_id: str | None,
+    viewpoint: Viewpoint,
+    setting_id: str | None = None,
+) -> PromptContextSnapshot:
+    """Build a player snapshot from an explicit non-GM viewpoint."""
+
+    if viewpoint.scope.kind.value == "GM" and not viewpoint.character_ids:
+        # Refuse the pure GM constructor path.
+        if viewpoint == gm_viewpoint():
+            raise ValueError("player prompt refuses gm_viewpoint()")
+    if workspace is Workspace.PLAYER and not campaign_id:
+        return _snapshot_without_context(workspace, NO_CAMPAIGN_TEXT, campaign_id=None)
+    budget = compute_budget(PROMPT_CONTEXT_MODEL_TOKENS, 0, 0, 0)
+    context = build_context(
+        ContextRequest(
+            source=_LibraryContextSource(connection, setting_id),
+            workspace=workspace,
+            viewpoint=viewpoint,
             campaign_id=campaign_id,
             query="",
             model_context_size=PROMPT_CONTEXT_MODEL_TOKENS,

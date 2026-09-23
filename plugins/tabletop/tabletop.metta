@@ -30,6 +30,7 @@
 (= (register-workspace-skills "workspace-unavailable") ())
 (= (register-workspace-skills "setting") (register-workspace-skills setting))
 (= (register-workspace-skills "campaign") (register-workspace-skills campaign))
+(= (register-workspace-skills "player") (register-workspace-skills player))
 
 (= (register-workspace-skills setting)
    (progn
@@ -139,6 +140,52 @@
      (add-skill reveal-fact
        "Reveal one confirmed campaign fact in the active campaign"
        (fact_id_in_quotes))
+     ()))
+
+(= (register-workspace-skills player)
+   (progn
+     (add-skill query-setting
+       "Query setting metadata and setting-scoped world facts visible in the current setting workspace"
+       (query_in_quotes))
+     (add-skill get-world-entity
+       "Return one setting-owned world entity by stable identifier"
+       (entity_id_in_quotes))
+     (add-skill query-world-history
+       "Query setting-scoped world history and durable world facts"
+       (query_in_quotes))
+     (add-skill get-chunk
+       "Reload one retrieved source chunk by its stable identifier"
+       (chunk_id_in_quotes))
+     (add-skill read-session
+       "Read one campaign session record by session identifier"
+       (session_id_in_quotes))
+     (add-skill current-campaign
+       "Return the active tabletop campaign or an explicit configuration error"
+       ())
+     (add-skill query-campaign
+       "Query authoritative campaign information visible to the current viewpoint"
+       (query_in_quotes))
+     (add-skill query-rules
+       "Query active tabletop rules and return source-aware runtime results"
+       (query_in_quotes))
+     (add-skill resolve-action
+       "Resolve a structured game action through the active game-system plugin"
+       (action_in_quotes))
+     (add-skill roll
+       "Roll a system-agnostic dice expression through the deterministic runtime dice engine"
+       (expression_in_quotes))
+     (add-skill get-entity
+       "Return one campaign entity by stable identifier with visibility filtering"
+       (entity_id_in_quotes))
+     (add-skill get-fact
+       "Return one campaign or owned-setting fact by stable identifier"
+       (fact_id_in_quotes))
+     (add-skill get-relationships
+       "Return visible relationships for one campaign entity"
+       (entity_id_in_quotes))
+     (add-skill get-ruling
+       "Return one ruling in the active campaign by stable identifier"
+       (ruling_id_in_quotes))
      ()))
 
 (= (query-setting $query)

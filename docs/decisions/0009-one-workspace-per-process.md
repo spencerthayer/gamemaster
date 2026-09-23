@@ -15,7 +15,8 @@ conversation in that process.
 ## Decision
 
 Select exactly one workspace at runtime startup with
-`TABLETOP_WORKSPACE=setting` or `TABLETOP_WORKSPACE=campaign`. Register that
+`TABLETOP_WORKSPACE=setting`, `TABLETOP_WORKSPACE=campaign`, or
+`TABLETOP_WORKSPACE=player` (see ADR 0012). Register that
 workspace's skills once and do not switch workspaces while the process is
 running.
 

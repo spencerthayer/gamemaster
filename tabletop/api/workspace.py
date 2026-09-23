@@ -249,11 +249,38 @@ _CAMPAIGN_ONLY_SKILLS: tuple[SkillSpec, ...] = (
 )
 
 
+_PLAYER_SKILL_NAMES = frozenset(
+    {
+        "query-campaign",
+        "query-rules",
+        "query-setting",
+        "query-world-history",
+        "get-chunk",
+        "get-world-entity",
+        "get-entity",
+        "get-fact",
+        "get-relationships",
+        "get-ruling",
+        "resolve-action",
+        "roll",
+        "current-campaign",
+        "read-session",
+    }
+)
+
+_PLAYER_SKILLS: tuple[SkillSpec, ...] = tuple(
+    skill
+    for skill in (*_SETTING_READ_SKILLS, *_CAMPAIGN_ONLY_SKILLS)
+    if skill.name in _PLAYER_SKILL_NAMES
+)
+
+
 class Workspace(str, Enum):
     """Runtime capability surface selected once at process startup."""
 
     SETTING = "setting"
     CAMPAIGN = "campaign"
+    PLAYER = "player"
 
     @property
     def skills(self) -> tuple[SkillSpec, ...]:
@@ -262,6 +289,8 @@ class Workspace(str, Enum):
                 return _SETTING_SKILLS
             case Workspace.CAMPAIGN:
                 return (*_SETTING_READ_SKILLS, *_CAMPAIGN_ONLY_SKILLS)
+            case Workspace.PLAYER:
+                return _PLAYER_SKILLS
             case _:
                 assert_never(self)
 
@@ -271,15 +300,16 @@ def parse_workspace(value: str | None) -> Workspace:
 
     if value is None or not str(value).strip():
         raise ValueError(
-            "TABLETOP_WORKSPACE is required and must be 'setting' or 'campaign'; "
-            "refusing to default to the larger skill surface"
+            "TABLETOP_WORKSPACE is required and must be 'setting', 'campaign', "
+            "or 'player'; refusing to default to the larger skill surface"
         )
     normalized = str(value).strip().lower()
     try:
         return Workspace(normalized)
     except ValueError as exc:
         raise ValueError(
-            f"unknown TABLETOP_WORKSPACE {value!r}; expected 'setting' or 'campaign'"
+            f"unknown TABLETOP_WORKSPACE {value!r}; expected 'setting', "
+            f"'campaign', or 'player'"
         ) from exc
 
 
