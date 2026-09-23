@@ -10,6 +10,7 @@ from typing import Sequence
 
 from tabletop.api.errors import PluginNotFoundError
 from tabletop.api.plugin import is_compatible_api_version
+from tabletop.campaign.selection import write_active_campaign_file
 from tabletop.campaign.store import CampaignStore
 from tabletop.cli.util import (
     DATABASE_PATH_ENV_VAR,
@@ -61,6 +62,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_cmd.add_argument("campaign_id")
     inspect_cmd.set_defaults(handler=_cmd_campaign_inspect)
+
+    select_cmd = campaign_sub.add_parser(
+        "select",
+        help="Select the active campaign for the next process start.",
+    )
+    select_cmd.add_argument("campaign_id")
+    select_cmd.set_defaults(handler=_cmd_campaign_select)
 
     system = subparsers.add_parser(
         "system",
@@ -153,6 +161,21 @@ def _cmd_campaign_inspect(args: argparse.Namespace) -> int:
         "created_at",
     ):
         print(f"{key}: {campaign.get(key)}")
+    return 0
+
+
+def _cmd_campaign_select(args: argparse.Namespace) -> int:
+    campaign_id = validate_campaign_id(args.campaign_id)
+    database_path = require_database_path()
+    conn = open_database()
+    try:
+        campaign = CampaignStore(conn).get_campaign(campaign_id)
+    finally:
+        conn.close()
+    if campaign is None:
+        raise SystemExit(f"campaign {campaign_id!r} not found")
+    write_active_campaign_file(database_path, campaign_id)
+    print(f"selected campaign {campaign_id}")
     return 0
 
 
