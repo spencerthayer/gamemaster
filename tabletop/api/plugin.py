@@ -164,6 +164,19 @@ class GameSystemPlugin(ABC):
         """Validate system-owned state. Accepts everything by default."""
         return ValidationResult.ok()
 
+    def validate_entity_state(
+        self,
+        entity_type: str,
+        state: Mapping[str, Any],
+    ) -> ValidationResult:
+        """Validate opaque entity state for one entity type.
+
+        Defaults to accept so existing plugins stay compatible. Game-system
+        plugins override this for character, companion, vehicle, and other
+        kinds without a core change.
+        """
+        return ValidationResult.ok()
+
     def character_schema(self) -> Mapping[str, Any]:
         """Describe character state owned by the system. Opaque; empty by default."""
         return {}

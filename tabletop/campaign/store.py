@@ -38,6 +38,7 @@ class CampaignStore:
         setting_id: str | None = None,
         created_at: str | None = None,
         system_state: Mapping[str, Any] | None = None,
+        system_version: str | None = None,
     ) -> None:
         if created_at is None:
             created_at = datetime.now(timezone.utc).isoformat()
@@ -45,8 +46,9 @@ class CampaignStore:
         with transaction(self.conn):
             self.conn.execute(
                 "INSERT INTO campaigns "
-                "(campaign_id, name, system_id, setting_id, created_at, system_state) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(campaign_id, name, system_id, setting_id, created_at, system_state, "
+                "system_version) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     campaign_id,
                     name,
@@ -54,23 +56,63 @@ class CampaignStore:
                     setting_id,
                     created_at,
                     encoded_state,
+                    system_version,
                 ),
             )
 
     def get_campaign(self, campaign_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT campaign_id, name, system_id, setting_id, created_at, system_state "
+            "SELECT campaign_id, name, system_id, setting_id, created_at, system_state, "
+            "system_version, archived_at "
             "FROM campaigns WHERE campaign_id = ?",
             (campaign_id,),
         ).fetchone()
         return _campaign_from_row(row) if row is not None else None
 
-    def list_campaigns(self) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT campaign_id, name, system_id, setting_id, created_at, system_state "
-            "FROM campaigns ORDER BY created_at, campaign_id"
-        ).fetchall()
+    def list_campaigns(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
+        if include_archived:
+            rows = self.conn.execute(
+                "SELECT campaign_id, name, system_id, setting_id, created_at, system_state, "
+                "system_version, archived_at "
+                "FROM campaigns ORDER BY created_at, campaign_id"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT campaign_id, name, system_id, setting_id, created_at, system_state, "
+                "system_version, archived_at "
+                "FROM campaigns WHERE archived_at IS NULL "
+                "ORDER BY created_at, campaign_id"
+            ).fetchall()
         return [_campaign_from_row(row) for row in rows]
+
+    def archive_campaign(self, campaign_id: str, *, archived_at: str | None = None) -> str:
+        """Mark a campaign archived. Caller appends the event in the same transaction."""
+        if archived_at is None:
+            archived_at = datetime.now(timezone.utc).isoformat()
+        cursor = self.conn.execute(
+            "UPDATE campaigns SET archived_at = ? "
+            "WHERE campaign_id = ? AND archived_at IS NULL",
+            (archived_at, campaign_id),
+        )
+        if cursor.rowcount != 1:
+            raise LookupError(f"campaign {campaign_id!r} cannot be archived")
+        return archived_at
+
+    def restore_campaign(self, campaign_id: str) -> None:
+        cursor = self.conn.execute(
+            "UPDATE campaigns SET archived_at = NULL "
+            "WHERE campaign_id = ? AND archived_at IS NOT NULL",
+            (campaign_id,),
+        )
+        if cursor.rowcount != 1:
+            raise LookupError(f"campaign {campaign_id!r} cannot be restored")
+
+    def has_open_session(self, campaign_id: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM sessions WHERE campaign_id = ? AND ended_at IS NULL LIMIT 1",
+            (campaign_id,),
+        ).fetchone()
+        return row is not None
 
     def upsert_entity(
         self,

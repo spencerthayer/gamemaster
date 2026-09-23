@@ -47,6 +47,8 @@ REPLAY_REQUIRED = frozenset(
         EventType.SESSION_STARTED,
         EventType.SESSION_ENDED,
         EventType.QUEST_MUTATED,
+        EventType.CAMPAIGN_ARCHIVED,
+        EventType.CAMPAIGN_RESTORED,
     }
 )
 AUDIT_ONLY = frozenset(
@@ -248,6 +250,23 @@ def _sequence(event_type: EventType) -> tuple[tuple[PersistedEvent, ...], tuple[
             event(
                 EventType.SESSION_ENDED,
                 {"session_id": "s1", "ended_at": "2026-09-22T01:00:00Z"},
+                sequence=2,
+            ),
+        )
+    if event_type is EventType.CAMPAIGN_ARCHIVED:
+        return (), (
+            event(
+                EventType.CAMPAIGN_ARCHIVED,
+                {"archived_at": "2026-09-22T02:00:00Z"},
+            ),
+        )
+    if event_type is EventType.CAMPAIGN_RESTORED:
+        archived = _sequence(EventType.CAMPAIGN_ARCHIVED)[1][0]
+        return (archived,), (
+            archived,
+            event(
+                EventType.CAMPAIGN_RESTORED,
+                {"restored_at": "2026-09-22T03:00:00Z"},
                 sequence=2,
             ),
         )

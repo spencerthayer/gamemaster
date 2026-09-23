@@ -39,6 +39,7 @@ from tabletop.campaign.event_store import (
 from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.relationships import resolve_relationship_overlay
 from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
+from tabletop.campaign.selection import read_active_campaign_file
 from tabletop.campaign.setting_events import SettingEventStore, SettingEventType
 from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
@@ -188,6 +189,11 @@ class TabletopRuntime:
         if database_path_value:
             database_path = Path(database_path_value).expanduser()
             database_path.parent.mkdir(parents=True, exist_ok=True)
+            if not active_campaign:
+                try:
+                    active_campaign = read_active_campaign_file(database_path)
+                except ValueError as exc:
+                    raise StorageError(str(exc)) from exc
             connection = connect_database(database_path)
             try:
                 migrate(connection)
@@ -295,29 +301,33 @@ class TabletopRuntime:
         }
 
     def current_campaign(self) -> dict[str, Any]:
+        if self._connection is None:
+            return self._storage_required("current-campaign")
+        store = CampaignStore(self._connection)
+        available = [row["campaign_id"] for row in store.list_campaigns()]
         if self.active_campaign:
-            if self.active_campaign in self._campaigns:
+            if store.get_campaign(self.active_campaign) is not None:
                 return self._ok("current-campaign", {"campaign": self.active_campaign})
             return self._error(
                 "current-campaign",
-                "configured_campaign_not_found",
-                "Configured campaign was not discovered.",
-                data={"campaign": self.active_campaign, "available": list(self._campaigns)},
+                "campaign_not_found",
+                "Configured campaign was not found in SQLite.",
+                data={"campaign": self.active_campaign, "available": available},
             )
-        if len(self._campaigns) == 1:
-            return self._ok("current-campaign", {"campaign": self._campaigns[0]})
-        if not self._campaigns:
+        if len(available) == 1:
+            return self._ok("current-campaign", {"campaign": available[0]})
+        if not available:
             return self._error(
                 "current-campaign",
                 "campaign_not_configured",
-                "No campaign is configured or discoverable.",
+                "No campaign is configured or stored.",
                 data={"available": []},
             )
         return self._error(
             "current-campaign",
             "campaign_selection_required",
-            "Multiple campaigns are discoverable and none is selected.",
-            data={"available": list(self._campaigns)},
+            "Multiple campaigns are stored and none is selected.",
+            data={"available": available},
         )
 
     def shutdown(self) -> dict[str, Any]:
@@ -472,6 +482,13 @@ class TabletopRuntime:
                 "resolve-action",
                 "campaign_not_found",
                 "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        if campaign.get("archived_at"):
+            return self._error(
+                "resolve-action",
+                "campaign_archived",
+                "Active campaign is archived.",
                 data={"campaign": campaign_id},
             )
         scene_id = payload.get("scene_id")
@@ -925,6 +942,15 @@ class TabletopRuntime:
                 "start-session",
                 "campaign_not_found",
                 "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        assert campaign is not None
+        if campaign.get("archived_at"):
+            return self._error(
+                "start-session",
+                "campaign_archived",
+                "Active campaign is archived.",
                 data={"campaign": campaign_id},
             )
         started_at = str(

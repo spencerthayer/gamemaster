@@ -9,7 +9,9 @@ from pathlib import Path
 import yaml
 
 from tabletop.api.workspace import Workspace
+from tabletop.campaign.store import CampaignStore
 from tabletop.runtime import DATABASE_PATH_ENV_VAR, TabletopRuntime
+from tabletop.storage.sqlite import connect, migrate
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADAPTER_PATH = _REPO_ROOT / "plugins" / "tabletop" / "omega_tabletop_adapter.py"
@@ -57,20 +59,64 @@ def test_bootstrap_campaign_discovery_stays_shallow(tmp_path):
 
 
 def test_current_campaign_requires_explicit_choice_when_ambiguous(tmp_path):
-    root = tmp_path / "campaigns"
-    (root / "alpha").mkdir(parents=True)
-    (root / "beta").mkdir()
+    database = tmp_path / "campaign.db"
+    conn = connect(database)
+    migrate(conn)
+    store = CampaignStore(conn)
+    store.create_campaign("alpha", "Alpha", "freeform")
+    store.create_campaign("beta", "Beta", "freeform")
     runtime = TabletopRuntime(
         tmp_path,
-        campaign_roots=[root],
+        campaign_roots=[],
         plugin_roots=[],
         workspace=Workspace.CAMPAIGN,
+        connection=conn,
     )
 
     result = runtime.current_campaign()
     assert result["ok"] is False
     assert result["error"]["code"] == "campaign_selection_required"
     assert result["data"]["available"] == ["alpha", "beta"]
+    runtime.shutdown()
+    conn.close()
+
+
+def test_current_campaign_uses_sole_sqlite_row(tmp_path):
+    database = tmp_path / "campaign.db"
+    conn = connect(database)
+    migrate(conn)
+    CampaignStore(conn).create_campaign("only", "Only", "freeform")
+    (tmp_path / "campaigns" / "directory-only").mkdir(parents=True)
+    runtime = TabletopRuntime(
+        tmp_path,
+        campaign_roots=[tmp_path / "campaigns"],
+        plugin_roots=[],
+        workspace=Workspace.CAMPAIGN,
+        connection=conn,
+    )
+    result = runtime.current_campaign()
+    assert result["ok"] is True
+    assert result["data"]["campaign"] == "only"
+    runtime.shutdown()
+    conn.close()
+
+
+def test_current_campaign_none_configured_without_rows(tmp_path):
+    database = tmp_path / "campaign.db"
+    conn = connect(database)
+    migrate(conn)
+    runtime = TabletopRuntime(
+        tmp_path,
+        campaign_roots=[],
+        plugin_roots=[],
+        workspace=Workspace.CAMPAIGN,
+        connection=conn,
+    )
+    result = runtime.current_campaign()
+    assert result["ok"] is False
+    assert result["error"]["code"] == "campaign_not_configured"
+    runtime.shutdown()
+    conn.close()
 
 
 def test_roll_operation_is_available(tmp_path):
