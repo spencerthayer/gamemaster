@@ -75,6 +75,7 @@ def test_creates_reads_and_lists_campaigns(store: CampaignStore) -> None:
         "created_at": "2026-09-22T00:00:00Z",
         "system_state": {},
         "system_version": None,
+        "archived_at": None,
     }
     assert store.list_campaigns() == [campaign]
 

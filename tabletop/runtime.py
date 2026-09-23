@@ -484,6 +484,13 @@ class TabletopRuntime:
                 "Active campaign was not found.",
                 data={"campaign": campaign_id},
             )
+        if campaign.get("archived_at"):
+            return self._error(
+                "resolve-action",
+                "campaign_archived",
+                "Active campaign is archived.",
+                data={"campaign": campaign_id},
+            )
         scene_id = payload.get("scene_id")
         if scene_id is not None and (
             not isinstance(scene_id, str) or not scene_id.strip()
@@ -935,6 +942,15 @@ class TabletopRuntime:
                 "start-session",
                 "campaign_not_found",
                 "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        assert campaign is not None
+        if campaign.get("archived_at"):
+            return self._error(
+                "start-session",
+                "campaign_archived",
+                "Active campaign is archived.",
                 data={"campaign": campaign_id},
             )
         started_at = str(

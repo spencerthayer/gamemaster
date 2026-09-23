@@ -49,6 +49,8 @@ class EventType(str, Enum):
     SESSION_STARTED = "session.started"
     SESSION_ENDED = "session.ended"
     QUEST_MUTATED = "quest.mutated"
+    CAMPAIGN_ARCHIVED = "campaign.archived"
+    CAMPAIGN_RESTORED = "campaign.restored"
 
 
 def event_domain(event_type: EventType) -> str:
@@ -74,6 +76,8 @@ def event_domain(event_type: EventType) -> str:
             | EventType.SESSION_STARTED
             | EventType.SESSION_ENDED
             | EventType.QUEST_MUTATED
+            | EventType.CAMPAIGN_ARCHIVED
+            | EventType.CAMPAIGN_RESTORED
         ):
             return "play"
         case _:

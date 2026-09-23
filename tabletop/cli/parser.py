@@ -3,22 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sqlite3
-from pathlib import Path
 from typing import Sequence
 
-from tabletop.api.errors import PluginNotFoundError
-from tabletop.api.plugin import is_compatible_api_version
-from tabletop.campaign.selection import write_active_campaign_file
-from tabletop.campaign.store import CampaignStore
-from tabletop.cli.util import (
-    DATABASE_PATH_ENV_VAR,
-    load_plugin_registry,
-    open_database,
-    require_database_path,
-    validate_campaign_id,
-)
+from tabletop.cli import handlers
+from tabletop.cli.util import DATABASE_PATH_ENV_VAR, require_database_path
 
 __all__ = [
     "DATABASE_PATH_ENV_VAR",
@@ -48,37 +36,92 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--id", required=True, dest="campaign_id")
     create.add_argument("--name", required=True)
     create.add_argument("--system", required=True, dest="system_id")
-    create.set_defaults(handler=_cmd_campaign_create)
+    create.set_defaults(handler=handlers.cmd_campaign_create)
 
-    list_cmd = campaign_sub.add_parser(
-        "list",
-        help="List campaigns stored in SQLite.",
+    list_cmd = campaign_sub.add_parser("list", help="List campaigns stored in SQLite.")
+    list_cmd.add_argument(
+        "--all",
+        action="store_true",
+        help="Include archived campaigns.",
     )
-    list_cmd.set_defaults(handler=_cmd_campaign_list)
+    list_cmd.set_defaults(handler=handlers.cmd_campaign_list)
 
     inspect_cmd = campaign_sub.add_parser(
         "inspect",
         help="Inspect one campaign from SQLite.",
     )
     inspect_cmd.add_argument("campaign_id")
-    inspect_cmd.set_defaults(handler=_cmd_campaign_inspect)
+    inspect_cmd.set_defaults(handler=handlers.cmd_campaign_inspect)
 
     select_cmd = campaign_sub.add_parser(
         "select",
         help="Select the active campaign for the next process start.",
     )
     select_cmd.add_argument("campaign_id")
-    select_cmd.set_defaults(handler=_cmd_campaign_select)
+    select_cmd.set_defaults(handler=handlers.cmd_campaign_select)
+
+    archive = campaign_sub.add_parser("archive", help="Archive a campaign (ADR 0010).")
+    archive.add_argument("--id", dest="campaign_id", default=None)
+    archive.set_defaults(handler=handlers.cmd_campaign_archive)
+
+    restore = campaign_sub.add_parser("restore", help="Restore an archived campaign.")
+    restore.add_argument("--id", dest="campaign_id", default=None)
+    restore.set_defaults(handler=handlers.cmd_campaign_restore)
+
+    session = campaign_sub.add_parser("session", help="Start, inspect, and end sessions.")
+    session_sub = session.add_subparsers(dest="session_command")
+    session_start = session_sub.add_parser("start", help="Start a session.")
+    session_start.add_argument("--session-id", required=True)
+    session_start.set_defaults(handler=handlers.cmd_session_start)
+    session_inspect = session_sub.add_parser("inspect", help="Inspect a session.")
+    session_inspect.add_argument("--session-id", default=None)
+    session_inspect.set_defaults(handler=handlers.cmd_session_inspect)
+    session_end = session_sub.add_parser("end", help="End the open session.")
+    session_end.set_defaults(handler=handlers.cmd_session_end)
+
+    entity = campaign_sub.add_parser("entity", help="Create or update campaign entities.")
+    entity_sub = entity.add_subparsers(dest="entity_command")
+    entity_create = entity_sub.add_parser("create", help="Create a campaign entity.")
+    entity_create.add_argument("--id", required=True, dest="entity_id")
+    entity_create.add_argument("--kind", required=True)
+    entity_create.add_argument("--name", required=True)
+    entity_create.add_argument("--state", default=None)
+    entity_create.add_argument("--replace", action="store_true")
+    entity_create.add_argument("--campaign", default=None)
+    entity_create.set_defaults(handler=handlers.cmd_entity_create)
+    entity_update = entity_sub.add_parser("update", help="Update a campaign entity.")
+    entity_update.add_argument("--id", required=True, dest="entity_id")
+    entity_update.add_argument("--kind", default=None)
+    entity_update.add_argument("--name", default=None)
+    entity_update.add_argument("--state", default=None)
+    entity_update.add_argument("--campaign", default=None)
+    entity_update.set_defaults(handler=handlers.cmd_entity_update)
+
+    state = campaign_sub.add_parser("state", help="Validate or apply campaign system state.")
+    state_sub = state.add_subparsers(dest="state_command")
+    state_validate = state_sub.add_parser("validate", help="Validate opaque system state.")
+    state_validate.add_argument("--state", required=True)
+    state_validate.add_argument("--campaign", default=None)
+    state_validate.set_defaults(handler=handlers.cmd_state_validate)
+    state_apply = state_sub.add_parser("apply", help="Apply opaque system state.")
+    state_apply.add_argument("--state", required=True)
+    state_apply.add_argument("--campaign", default=None)
+    state_apply.set_defaults(handler=handlers.cmd_state_apply)
+
+    document = campaign_sub.add_parser("document", help="Add documents to a campaign.")
+    document_sub = document.add_subparsers(dest="document_command")
+    document_add = document_sub.add_parser("add", help="Ingest a markdown document.")
+    document_add.add_argument("path")
+    document_add.add_argument("--campaign", default=None)
+    document_add.set_defaults(handler=handlers.cmd_document_add)
 
     system = subparsers.add_parser(
         "system",
         help="List and inspect installed game-system plugins.",
     )
     system_sub = system.add_subparsers(dest="system_command")
-
     system_list = system_sub.add_parser("list", help="List installed system plugins.")
-    system_list.set_defaults(handler=_cmd_system_list)
-
+    system_list.set_defaults(handler=handlers.cmd_system_list)
     system_inspect = system_sub.add_parser(
         "inspect",
         help="Inspect one installed system plugin.",
@@ -89,131 +132,32 @@ def build_parser() -> argparse.ArgumentParser:
         dest="state_path",
         help="Optional JSON file validated with validate_state.",
     )
-    system_inspect.set_defaults(handler=_cmd_system_inspect)
+    system_inspect.set_defaults(handler=handlers.cmd_system_inspect)
+
+    library = subparsers.add_parser("library", help="Ingest library documents.")
+    library_sub = library.add_subparsers(dest="library_command")
+    library_ingest = library_sub.add_parser("ingest", help="Ingest a markdown document.")
+    library_ingest.add_argument("path")
+    library_ingest.add_argument("--campaign", required=True)
+    library_ingest.set_defaults(handler=handlers.cmd_library_ingest)
+
+    content_pack = subparsers.add_parser(
+        "content-pack",
+        help="Validate, list, and ingest content packs.",
+    )
+    content_pack_sub = content_pack.add_subparsers(dest="content_pack_command")
+    pack_validate = content_pack_sub.add_parser("validate", help="Validate a content pack.")
+    pack_validate.add_argument("directory")
+    pack_validate.set_defaults(handler=handlers.cmd_content_pack_validate)
+    pack_list = content_pack_sub.add_parser("list", help="List discovered content packs.")
+    pack_list.add_argument("--root", default=None)
+    pack_list.set_defaults(handler=handlers.cmd_content_pack_list)
+    pack_ingest = content_pack_sub.add_parser("ingest", help="Ingest a content pack.")
+    pack_ingest.add_argument("directory")
+    pack_ingest.add_argument("--campaign", required=True)
+    pack_ingest.set_defaults(handler=handlers.cmd_content_pack_ingest)
 
     return parser
-
-
-def _cmd_campaign_create(args: argparse.Namespace) -> int:
-    campaign_id = validate_campaign_id(args.campaign_id)
-    registry = load_plugin_registry()
-    try:
-        plugin = registry.get(args.system_id)
-    except PluginNotFoundError as exc:
-        raise SystemExit(f"unknown system plugin {args.system_id!r}") from exc
-    if not is_compatible_api_version(plugin.info.api_version):
-        raise SystemExit(
-            f"system plugin {args.system_id!r} api_version "
-            f"{plugin.info.api_version!r} is incompatible"
-        )
-
-    conn = open_database()
-    try:
-        store = CampaignStore(conn)
-        if store.get_campaign(campaign_id) is not None:
-            raise SystemExit(f"campaign {campaign_id!r} already exists")
-        try:
-            store.create_campaign(
-                campaign_id=campaign_id,
-                name=args.name,
-                system_id=plugin.info.id,
-                system_version=plugin.info.version,
-            )
-        except sqlite3.IntegrityError as exc:
-            raise SystemExit(f"campaign {campaign_id!r} already exists") from exc
-    finally:
-        conn.close()
-    print(f"created campaign {campaign_id}")
-    return 0
-
-
-def _cmd_campaign_list(_args: argparse.Namespace) -> int:
-    conn = open_database()
-    try:
-        campaigns = CampaignStore(conn).list_campaigns()
-    finally:
-        conn.close()
-    if not campaigns:
-        print("no campaigns")
-        return 0
-    for campaign in campaigns:
-        print(
-            f"{campaign['campaign_id']}\t{campaign['name']}\t"
-            f"{campaign['system_id']}"
-        )
-    return 0
-
-
-def _cmd_campaign_inspect(args: argparse.Namespace) -> int:
-    conn = open_database()
-    try:
-        campaign = CampaignStore(conn).get_campaign(args.campaign_id)
-    finally:
-        conn.close()
-    if campaign is None:
-        raise SystemExit(f"campaign {args.campaign_id!r} not found")
-    for key in (
-        "campaign_id",
-        "name",
-        "system_id",
-        "system_version",
-        "setting_id",
-        "created_at",
-    ):
-        print(f"{key}: {campaign.get(key)}")
-    return 0
-
-
-def _cmd_campaign_select(args: argparse.Namespace) -> int:
-    campaign_id = validate_campaign_id(args.campaign_id)
-    database_path = require_database_path()
-    conn = open_database()
-    try:
-        campaign = CampaignStore(conn).get_campaign(campaign_id)
-    finally:
-        conn.close()
-    if campaign is None:
-        raise SystemExit(f"campaign {campaign_id!r} not found")
-    write_active_campaign_file(database_path, campaign_id)
-    print(f"selected campaign {campaign_id}")
-    return 0
-
-
-def _cmd_system_list(_args: argparse.Namespace) -> int:
-    registry = load_plugin_registry()
-    for plugin in registry.list():
-        version = plugin.info.version or "-"
-        print(f"{plugin.info.id}\t{plugin.info.name}\t{version}")
-    return 0
-
-
-def _cmd_system_inspect(args: argparse.Namespace) -> int:
-    registry = load_plugin_registry()
-    try:
-        plugin = registry.get(args.system_id)
-    except PluginNotFoundError as exc:
-        raise SystemExit(f"unknown system plugin {args.system_id!r}") from exc
-
-    print(f"id: {plugin.info.id}")
-    print(f"name: {plugin.info.name}")
-    print(f"version: {plugin.info.version}")
-    print(f"api_version: {plugin.info.api_version}")
-    print(f"description: {plugin.info.description}")
-    caps = sorted(cap.value for cap in plugin.capabilities())
-    print(f"capabilities: {', '.join(caps) if caps else '(none)'}")
-    print(f"character_schema: {json.dumps(dict(plugin.character_schema()), sort_keys=True)}")
-    print(f"state_schema: {json.dumps(dict(plugin.state_schema()), sort_keys=True)}")
-    print("entity_validation: available")
-    if args.state_path:
-        path = Path(args.state_path)
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        result = plugin.validate_state(payload)
-        if not result.valid:
-            for issue in result.issues:
-                print(f"state_issue: {issue.code}: {issue.message}")
-            return 1
-        print("state: valid")
-    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
