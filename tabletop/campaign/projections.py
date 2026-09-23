@@ -80,6 +80,7 @@ class CampaignProjection:
     campaign_system: Mapping[str, Any] = field(default_factory=dict)
     rulings: Mapping[str, ProjectedRuling] = field(default_factory=dict)
     sessions: Mapping[str, ProjectedSession] = field(default_factory=dict)
+    archived_at: str | None = None
 
 
 def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
@@ -94,6 +95,7 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
     sessions: dict[str, ProjectedSession] = {}
     campaign_id: str | None = None
     sequence: int | None = None
+    archived_at: str | None = None
 
     for event in events:
         if campaign_id is not None and event.campaign_id != campaign_id:
@@ -174,6 +176,14 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     sessions[started.session_id] = started
             case EventType.SESSION_ENDED:
                 sessions = _end_projected_session(event, sessions)
+            case EventType.CAMPAIGN_ARCHIVED:
+                raw = event.payload.get("archived_at")
+                if isinstance(raw, str) and raw:
+                    archived_at = raw
+                elif event.event_schema_version >= 1:
+                    raise ValueError("campaign.archived requires archived_at")
+            case EventType.CAMPAIGN_RESTORED:
+                archived_at = None
             case EventType.SCENE_OPENED | EventType.SCENE_CLOSED:
                 pass
             case _:
@@ -194,6 +204,7 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
         campaign_system=copy.deepcopy(campaign_system),
         rulings=dict(rulings),
         sessions=dict(sessions),
+        archived_at=archived_at,
     )
 
 
