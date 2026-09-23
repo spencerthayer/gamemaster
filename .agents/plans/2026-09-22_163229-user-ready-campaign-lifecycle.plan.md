@@ -5,7 +5,6 @@ todos:
   - id: a-cli-entry
     content: Add the operator CLI entry point over the existing tabletop library
     status: pending
-    dependencies: []
   - id: a-create-campaign
     content: Create a campaign from the CLI with an explicit id and installed system plugin
     status: pending
@@ -55,7 +54,7 @@ todos:
       - a-create-campaign
   - id: a-boundary-stop
     content: Open the lifecycle PR and stop for a human merge
-    status: pending
+    status: completed
     dependencies:
       - a-archive-restore
       - a-system-plugins
@@ -74,7 +73,7 @@ todos:
       - b-membership-model
   - id: b-boundary-stop
     content: Open the membership PR and stop for a human merge
-    status: pending
+    status: waiting_for_human_merge
     dependencies:
       - b-membership-commands
   - id: c-adr-0012
@@ -105,7 +104,7 @@ todos:
       - c-player-reads-and-actions
   - id: c-boundary-stop
     content: Open the player workspace PR and stop for a human merge
-    status: pending
+    status: waiting_for_human_merge
     dependencies:
       - c-player-prompt
   - id: d-adr-0013
@@ -125,7 +124,7 @@ todos:
       - d-sender-principal
   - id: d-boundary-stop
     content: Open the sender identity PR and stop for a human merge
-    status: pending
+    status: waiting_for_human_merge
     dependencies:
       - d-bind-and-revoke
   - id: f-native-package
@@ -145,7 +144,7 @@ todos:
       - f-native-package
   - id: f-boundary-stop
     content: Open the native export PR and stop for a human merge
-    status: pending
+    status: waiting_for_human_merge
     dependencies:
       - f-round-trip
       - f-fork
@@ -161,7 +160,7 @@ todos:
       - e-concurrency-proof
   - id: e-boundary-stop
     content: Open the process topology PR and stop for a human merge
-    status: pending
+    status: waiting_for_human_merge
     dependencies:
       - e-compose-topology
   - id: g-structured-import
@@ -181,7 +180,7 @@ todos:
       - g-historical-import
   - id: g-boundary-stop
     content: Open the historical import PR and stop for a human merge
-    status: pending
+    status: waiting_for_human_merge
     dependencies:
       - g-review-and-resume
   - id: h-readiness
@@ -202,7 +201,7 @@ todos:
       - h-readme
   - id: h-boundary-stop
     content: Open the README PR and stop for a human merge
-    status: pending
+    status: waiting_for_human_merge
     dependencies:
       - h-smoke-and-docs
 isProject: true
@@ -548,12 +547,12 @@ Three claims in this plan are empirical, not derived from reading the code: the 
 
 | Field | Current state |
 |---|---|
-| Phase | Execution ran without the adaptive loop. All eight boundary branches and PRs (#11–#18) are open on base `main` and none is merged. Recovery in progress. See the 2026-09-23 twelfth review entry |
-| Active task | None started under the plan loop. Waiting on the first explicit human merge instruction before `a-boundary-stop` can leave `waiting_for_human_merge` |
-| Last confirmed result | `main` and `origin/main` still `f49247ddeb26ba5de7d8eeca38bbab2975e3a630`; nothing merged. The plan file was never updated during execution because the executor was told not to modify it: every task still `pending`, no evidence or checkpoint rows written. PRs are #11 A, #12 B, #13 C, #14 D (`partial` in its own title, D3 blocked on the unrecorded `contextvar_survives` gate), #15 F, #16 E, #17 G, #18 H |
-| Current approach | Recover the intended gates: merge boundaries in dependency order (A, then B, then C and F, then D and G, then E and G, then H), verifying each merged result on `main` and recording its evidence row before the next. The three empirical gates still apply before their boundary may be marked complete |
-| Blockers / open decisions | The adaptive loop was skipped under contradicting launch instructions (see branch rules). D's D2/D3 evidence row is unrecorded and D's PR self-declares `partial`. The three empirical gates must still produce their rows before D/E/G complete. H is staged on unmerged G |
-| Next action | On explicit human instruction, review PR #11 (A), merge it after its checks pass, verify A's commits on `main`, record the evidence row, then continue in dependency order |
+| Phase | Boundary A is on `origin/main`. Boundaries B through H are still open. PR #12 was rebased onto A and its checks passed. Its OpenCode review did not post |
+| Active task | `b-boundary-stop` is `waiting_for_human_merge`. `a-boundary-stop` is `completed` |
+| Last confirmed result | `origin/main` is `8fdf3e8c6b360393d56688a0b44112f3e3f5ba57` (`User-ready A: campaign lifecycle CLI (#11)`). PR #11 squash-merged at 2026-09-23T21:37:29Z after a clean round-2 OpenCode review of `b90eeb2`. Local `main` has diverged: it still has unpushed docs commit `5053abe` and is behind `origin/main` by the squash. PR #12 head is `3e7ceb25e1d55d89ca1157e41a8c304607c8b2f1` (membership commit only). Its container and linux/amd64 autotests passed. No OpenCode review body exists on PR #12 |
+| Current approach | Continue in dependency order. Do not squash-merge a boundary without a clean OpenCode review of its current head. After B merges, rebase C and F onto that `main` before reviewing them |
+| Blockers / open decisions | The OpenCode review of PR #12 produced no output for 16 minutes and posted no review. D still lacks the `contextvar_survives` evidence row. H's branch does not contain C, D, or E |
+| Next action | Retry the OpenCode review of PR #12. On a clean review and green checks, squash-merge it, verify the commit on `origin/main`, then rebase and review C and F |
 
 ## Remaining empirical gates
 
@@ -2313,6 +2312,10 @@ Decision, 2026-09-22: `build_prompt_context_snapshot` is not given a viewpoint p
 Decision, 2026-09-23 eleventh review, before implementation: a `*-boundary-stop` task that opens a PR moves to `waiting_for_human_merge`, not `completed`; it becomes `completed` only after an explicit human merge instruction and an executor verification that `main` contains the merged boundary, and no downstream dependency is satisfied because the PR exists. Membership schema is hardened: `participant_principals` gains `principal_id PRIMARY KEY` plus `UNIQUE(campaign_id, participant_id, channel)` beside the existing `UNIQUE(campaign_id, channel, external_id)`; `import_batches(import_id PRIMARY KEY)` and `import_items(item_id PRIMARY KEY, import_id REFERENCES import_batches ON DELETE CASCADE)`; deletes cascade explicitly; at most one GM per campaign via a partial unique index, with readiness requiring exactly one GM before any channel launch. Channel authorization for a channel-originated turn is a five-stage chain — platform authentication, generic channel expected-sender gate (DB-agnostic), tabletop active-binding check against SQLite before the payload becomes a `receive` result, return of the human turn to Omega, model, skill-time ContextVar check — so removal or unbinding takes effect on the next inbound turn before model execution; the trusted-local path is structurally distinct (explicit operator CLI/shell invocation), a `None` sender never grants operator trust including on the GM process, and rebinding `42 -> 43` rejects `42` from the next turn but requires a restart for `43` to be accepted. D2's sender-gate assertions are parameterized over the full channel matrix (Telegram, Slack, Mattermost, IRC, WebSocket). C5 must not invent a C migration: a receipt-identity schema need stops the task and revises the migration graph first. `participant_id` is a slug (`omega-player-<participant-id>` service names). E2 generates per-participant Compose overrides from participant rows with `campaign start/stop <id> --gm|--participant <id>`, always emits `TABLETOP_CAMPAIGN`, and D3 fails startup for a participant-bound channel process without it. Fork omits `participant_principals` (the fork policy map gains the omit disposition beside preserve and regenerate) and requires explicit re-binding; restore treats the pristine shell as an ID reservation and atomically replaces shell campaign metadata with package metadata, with no second shell-fill rule. `package_digest` is defined literally (manifest_hash over the manifest without `package_digest`, raw-byte file hashes, sorted canonical object) with canonical serialization required for every exported JSON/JSONL file before hashing; `setting_digest`'s table set is asserted as a complete schema invariant; `event_schema_too_new` pre-write rule added alongside `package_schema_too_new`. A8 uses resolved-path containment, not a lexical `..` rejection. Affected tasks: A8, B1, B2, B3, C5, C6, D1, D2, D3, D4, E2, F1, F2, F3, F4, H1. Checks to rerun: greps for the absence of stale `accepted` state, senderless operator-trust phrasings, and `shell-fill` / "either match" wording, and the presence of the new constraints.
 
 Decision, 2026-09-23 twelfth review, during execution (recovery): the executor did not run the adaptive loop. It was launched without reading this plan first and was given instructions that contradict the adaptive execution contract — "do not edit the plan file itself" (read as a ban on the status, evidence, and checkpoint writes that are execution work) and "finish every todo without stopping" (read as never pausing at boundary stops). Old assumption: each `*-boundary-stop` would open one PR and stop in `waiting_for_human_merge` until an explicit human merge, and the plan file would record every status, evidence row, and checkpoint. Finding (evidence): the plan file was never updated — every task still `pending`, the checkpoint still said implementation has not started — while the executor committed all eight boundaries on stacked branches and opened eight PRs (#11 A, #12 B, #13 C, #14 D self-labeled `partial` with D3 blocked pending the unrecorded `d-sender-principal` evidence row, #15 F, #16 E, #17 G, #18 H) on base `main`, with `main` and `origin/main` still `f49247d`. Branch topology is a fork at B: B→C→D→E and B→F→G→H, cut from unmerged tips, so later-phase work exists before its predecessors merged (G before F merged, H before E and G merged). Revised approach: such launch instructions are void for this plan; status/evidence/checkpoint writes are execution, and the first act of an executor is to read this plan and reconcile. Recovery: merge the eight PRs in dependency order — A, then B, then C and F, then D (needs C) and G (needs F), then E (needs D) and H (needs both E and G) — verifying each boundary's merged commits on `main` and recording the evidence row before the next merge; base `main` can stay put because the PRs are already cut from their predecessors, so each merge lands the boundary's own commits on top of the previous. D's PR is not merge-eligible as-is: its DoD requires the D2 evidence row recording `contextvar_survives` first, then bind-and-revoke, or the PR is reworked. No boundary is completed by its PR existing; `completed` is recorded only after the explicit human merge instruction and the verified merge on `main`. Affected tasks: all A–H tasks, every boundary-stop, and the three empirical gates. Checks to rerun: `gh pr list` bases; `git log main..<branch>` per boundary after each merge; the D2 gate before D merges; the E1 table and G3 audit before E/G complete.
+
+Decision, 2026-09-23 thirteenth review, execution reconcile before any new code: launch instruction was "build this" against the plan file. Expectation: if `main` still lacks boundary A, do not start `a-cli-entry` again and do not merge. Observation: checkout is a normal repo on local `main` `5053abec9f5a9f0f93f5a1bfc41b1eeeb931de9e`, one unpushed commit ahead of `origin/main` `f49247ddeb26ba5de7d8eeca38bbab2975e3a630` (`docs: update user-ready campaign lifecycle plan with executor binding details`). Working tree change before this row was deletion of an empty `dependencies: []` under `a-cli-entry`. Branches `user-ready-a` through `user-ready-h` exist locally and on `origin`. `gh pr list` shows #11–#18 open, base `main`, mergeable. PR #11 head `60cd2ef9fd9c36abdebb3a8f99924018de69513d` has five commits (CLI entry, create, list/plugins, select/resume, archive and library). Its required-looking checks passed: container and linux/amd64 autotests; Sonar and `build / common` skipped. `tabletop/storage/migrations/` on `main` still ends at `0016_prompt_context_receipts.sql`. Outcome: pass. No product code written. Boundary-stop statuses set to `waiting_for_human_merge`. Implementation tasks stay `pending` until each boundary is verified on `main`. Next action unchanged: explicit human instruction to merge PR #11, then verify A's commits on `main` and record that evidence row before B. D stays blocked on the unrecorded `contextvar_survives` row. Affected tasks: all boundary-stop tasks. Checks to rerun after a merge instruction: PR #11 checks again, then `git log` on `main` for the A commits.
+
+Decision, 2026-09-23 fourteenth review, after the explicit squash-merge instruction: expectation was a clean OpenCode review of each open PR, then squash-merge in dependency order, verifying each result on `origin/main`. Observation: PR #11 round 1 posted four comments. Two were fixed in `b90eeb2` (archived select and writes; missing plugin exits as an operator error). Two were rejected (content-pack system mismatch is outside A10; `start_session` double-fetch does not change behavior). Round 2 review body: "No new issues found in the delta." Suppressed findings: 0. Unresolved threads: 0. Checks passed. Squash merge `8fdf3e8c6b360393d56688a0b44112f3e3f5ba57` is `origin/main`. `a-boundary-stop` is `completed`. PR #12 was rebased onto that main (`3e7ceb2`, membership commit only) after an import conflict in `tabletop/cli/handlers.py`. Membership, select, and entity tests passed (19). PR #12 checks passed. `opencode run` for PR #12 produced no review and no further output for 16 minutes, so it was stopped. Outcome: A pass. B inconclusive. PR #12 was not merged. Affected tasks: `a-boundary-stop`, `b-boundary-stop`. Next: retry the PR #12 review, then squash-merge only if that review is clean.
 
 ## Acceptance trace
 
