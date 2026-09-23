@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Operator CLI wrapper. Delegates to python -m tabletop.cli.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+exec "${PYTHON:-python3}" -m tabletop.cli "$@"
