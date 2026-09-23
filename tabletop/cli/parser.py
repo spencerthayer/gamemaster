@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
+from pathlib import Path
 from typing import Sequence
 
 from tabletop.api.errors import PluginNotFoundError
@@ -47,11 +49,39 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--system", required=True, dest="system_id")
     create.set_defaults(handler=_cmd_campaign_create)
 
+    list_cmd = campaign_sub.add_parser(
+        "list",
+        help="List campaigns stored in SQLite.",
+    )
+    list_cmd.set_defaults(handler=_cmd_campaign_list)
+
+    inspect_cmd = campaign_sub.add_parser(
+        "inspect",
+        help="Inspect one campaign from SQLite.",
+    )
+    inspect_cmd.add_argument("campaign_id")
+    inspect_cmd.set_defaults(handler=_cmd_campaign_inspect)
+
     system = subparsers.add_parser(
         "system",
         help="List and inspect installed game-system plugins.",
     )
-    system.add_subparsers(dest="system_command")
+    system_sub = system.add_subparsers(dest="system_command")
+
+    system_list = system_sub.add_parser("list", help="List installed system plugins.")
+    system_list.set_defaults(handler=_cmd_system_list)
+
+    system_inspect = system_sub.add_parser(
+        "inspect",
+        help="Inspect one installed system plugin.",
+    )
+    system_inspect.add_argument("system_id")
+    system_inspect.add_argument(
+        "--state",
+        dest="state_path",
+        help="Optional JSON file validated with validate_state.",
+    )
+    system_inspect.set_defaults(handler=_cmd_system_inspect)
 
     return parser
 
@@ -86,6 +116,80 @@ def _cmd_campaign_create(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print(f"created campaign {campaign_id}")
+    return 0
+
+
+def _cmd_campaign_list(_args: argparse.Namespace) -> int:
+    conn = open_database()
+    try:
+        campaigns = CampaignStore(conn).list_campaigns()
+    finally:
+        conn.close()
+    if not campaigns:
+        print("no campaigns")
+        return 0
+    for campaign in campaigns:
+        print(
+            f"{campaign['campaign_id']}\t{campaign['name']}\t"
+            f"{campaign['system_id']}"
+        )
+    return 0
+
+
+def _cmd_campaign_inspect(args: argparse.Namespace) -> int:
+    conn = open_database()
+    try:
+        campaign = CampaignStore(conn).get_campaign(args.campaign_id)
+    finally:
+        conn.close()
+    if campaign is None:
+        raise SystemExit(f"campaign {args.campaign_id!r} not found")
+    for key in (
+        "campaign_id",
+        "name",
+        "system_id",
+        "system_version",
+        "setting_id",
+        "created_at",
+    ):
+        print(f"{key}: {campaign.get(key)}")
+    return 0
+
+
+def _cmd_system_list(_args: argparse.Namespace) -> int:
+    registry = load_plugin_registry()
+    for plugin in registry.list():
+        version = plugin.info.version or "-"
+        print(f"{plugin.info.id}\t{plugin.info.name}\t{version}")
+    return 0
+
+
+def _cmd_system_inspect(args: argparse.Namespace) -> int:
+    registry = load_plugin_registry()
+    try:
+        plugin = registry.get(args.system_id)
+    except PluginNotFoundError as exc:
+        raise SystemExit(f"unknown system plugin {args.system_id!r}") from exc
+
+    print(f"id: {plugin.info.id}")
+    print(f"name: {plugin.info.name}")
+    print(f"version: {plugin.info.version}")
+    print(f"api_version: {plugin.info.api_version}")
+    print(f"description: {plugin.info.description}")
+    caps = sorted(cap.value for cap in plugin.capabilities())
+    print(f"capabilities: {', '.join(caps) if caps else '(none)'}")
+    print(f"character_schema: {json.dumps(dict(plugin.character_schema()), sort_keys=True)}")
+    print(f"state_schema: {json.dumps(dict(plugin.state_schema()), sort_keys=True)}")
+    print("entity_validation: available")
+    if args.state_path:
+        path = Path(args.state_path)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        result = plugin.validate_state(payload)
+        if not result.valid:
+            for issue in result.issues:
+                print(f"state_issue: {issue.code}: {issue.message}")
+            return 1
+        print("state: valid")
     return 0
 
 
