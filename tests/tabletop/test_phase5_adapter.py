@@ -137,6 +137,9 @@ def test_adapter_returns_json_and_contains_runtime_exceptions():
     adapter = _load_adapter()
 
     class BrokenRuntime:
+        def authorize_channel_turn(self, _sender):
+            return None
+
         def roll(self, expression):
             raise RuntimeError("secret detail")
 
@@ -153,6 +156,9 @@ def test_adapter_rejects_unsupported_response_types():
     adapter = _load_adapter()
 
     class UnsafeRuntime:
+        def authorize_channel_turn(self, _sender):
+            return None
+
         def current_scene(self):
             return object()
 

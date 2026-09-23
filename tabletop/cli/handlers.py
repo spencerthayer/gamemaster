@@ -385,24 +385,6 @@ def _run_compose(service: str, action: str, campaign_id: str) -> int:
     return int(completed.returncode)
 
 
-def cmd_campaign_start_process(args: argparse.Namespace) -> int:
-    campaign_id = validate_campaign_id(args.campaign_id)
-    service = _compose_service_name(gm=bool(args.gm), participant_id=args.participant)
-    code = _run_compose(service, "up", campaign_id)
-    if code == 0:
-        print(f"started {service} for campaign {campaign_id}")
-    return code
-
-
-def cmd_campaign_stop_process(args: argparse.Namespace) -> int:
-    campaign_id = validate_campaign_id(args.campaign_id)
-    service = _compose_service_name(gm=bool(args.gm), participant_id=args.participant)
-    code = _run_compose(service, "stop", campaign_id)
-    if code == 0:
-        print(f"stopped {service} for campaign {campaign_id}")
-    return code
-
-
 def _resolve_inside_cwd(path_arg: str) -> Path:
     cwd = Path.cwd().resolve()
     resolved = Path(path_arg).expanduser().resolve()
@@ -903,27 +885,23 @@ def cmd_campaign_start(args: argparse.Namespace) -> int:
         for item in report["errors"]:
             print(f"error: {item}")
         return 1
-    if args.gm:
-        service = "omega"
-        print(f"launch: scripts/omega (service={service} campaign={campaign_id})")
-    else:
-        participant_id = validate_participant_id(args.participant_id)
-        service = f"omega-player-{participant_id}"
-        print(
-            f"launch: docker compose up {service} "
-            f"(campaign={campaign_id} participant={participant_id})"
-        )
-    return 0
+    participant_id = getattr(args, "participant_id", None)
+    if participant_id:
+        participant_id = validate_participant_id(participant_id)
+    service = _compose_service_name(gm=bool(args.gm), participant_id=participant_id)
+    code = _run_compose(service, "up", campaign_id)
+    if code == 0:
+        print(f"started {service} for campaign {campaign_id}")
+    return code
 
 
 def cmd_campaign_stop(args: argparse.Namespace) -> int:
     campaign_id = validate_campaign_id(args.campaign_id)
-    if args.gm:
-        print(f"stop: scripts/omega (service=omega campaign={campaign_id})")
-    else:
-        participant_id = validate_participant_id(args.participant_id)
-        print(
-            f"stop: docker compose stop omega-player-{participant_id} "
-            f"(campaign={campaign_id})"
-        )
-    return 0
+    participant_id = getattr(args, "participant_id", None)
+    if participant_id:
+        participant_id = validate_participant_id(participant_id)
+    service = _compose_service_name(gm=bool(args.gm), participant_id=participant_id)
+    code = _run_compose(service, "stop", campaign_id)
+    if code == 0:
+        print(f"stopped {service} for campaign {campaign_id}")
+    return code
