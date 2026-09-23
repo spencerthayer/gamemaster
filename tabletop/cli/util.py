@@ -21,6 +21,10 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def migrations_dir() -> Path:
+    return repo_root() / "tabletop" / "storage" / "migrations"
+
+
 def require_database_path(environ: Mapping[str, str] | None = None) -> Path:
     env = os.environ if environ is None else environ
     value = env.get(DATABASE_PATH_ENV_VAR)

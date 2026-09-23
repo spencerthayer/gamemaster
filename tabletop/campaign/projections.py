@@ -234,6 +234,8 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     }
                 elif event.event_schema_version >= 1:
                     raise ValueError("character_control.ended requires control_id")
+            case EventType.CAMPAIGN_FORKED:
+                pass
             case EventType.SCENE_OPENED | EventType.SCENE_CLOSED:
                 pass
             case _:

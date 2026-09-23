@@ -55,6 +55,7 @@ class EventType(str, Enum):
     PARTICIPANT_REMOVED = "participant.removed"
     CHARACTER_CONTROL_GRANTED = "character_control.granted"
     CHARACTER_CONTROL_ENDED = "character_control.ended"
+    CAMPAIGN_FORKED = "campaign.forked"
 
 
 def event_domain(event_type: EventType) -> str:
@@ -71,6 +72,8 @@ def event_domain(event_type: EventType) -> str:
             return "canon"
         case EventType.PROVENANCE_PURGED | EventType.DOCUMENT_PURGED:
             return "provenance"
+        case EventType.CAMPAIGN_FORKED:
+            return "audit"
         case (
             EventType.ACTION_RESOLVED
             | EventType.RULING_RECORDED

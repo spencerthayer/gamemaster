@@ -104,6 +104,8 @@ def _report(
             (owner_id,),
         )
     )
+    # A fork's copied baseline is not reconstructible from the new event log.
+    forked = scope == "campaign" and "campaign.forked" in by_type
     return FidelityReport(
         scope=scope,
         owner_id=owner_id,
@@ -111,7 +113,7 @@ def _report(
         by_type=by_type,
         by_generation=by_generation,
         generation_zero=generation_zero,
-        complete_reconstruction=generation_zero == 0,
+        complete_reconstruction=generation_zero == 0 and not forked,
         blocking_types=blocking,
     )
 

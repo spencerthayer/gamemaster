@@ -59,6 +59,7 @@ AUDIT_ONLY = frozenset(
     {
         EventType.DOCUMENT_PURGED,
         EventType.CANON_CONTRADICTION_DETECTED,
+        EventType.CAMPAIGN_FORKED,
     }
 )
 DECLARED_BUT_UNEMITTED = frozenset(
@@ -114,6 +115,7 @@ def test_event_types_are_classified_exactly_once() -> None:
     assert AUDIT_ONLY == {
         EventType.DOCUMENT_PURGED,
         EventType.CANON_CONTRADICTION_DETECTED,
+        EventType.CAMPAIGN_FORKED,
     }
 
 

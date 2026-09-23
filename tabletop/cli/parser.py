@@ -68,6 +68,28 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--id", dest="campaign_id", default=None)
     restore.set_defaults(handler=handlers.cmd_campaign_restore)
 
+    export_cmd = campaign_sub.add_parser(
+        "export", help="Export a campaign as a native package."
+    )
+    export_cmd.add_argument("campaign_id")
+    export_cmd.add_argument("--out", required=True, dest="output_dir")
+    export_cmd.set_defaults(handler=handlers.cmd_campaign_export)
+
+    restore_package = campaign_sub.add_parser(
+        "restore-package",
+        help="Restore a native campaign package into the database.",
+    )
+    restore_package.add_argument("package_dir")
+    restore_package.set_defaults(handler=handlers.cmd_campaign_restore_package)
+
+    fork_cmd = campaign_sub.add_parser(
+        "fork",
+        help="Fork a native package into a new campaign id.",
+    )
+    fork_cmd.add_argument("package_dir")
+    fork_cmd.add_argument("--id", required=True, dest="campaign_id")
+    fork_cmd.set_defaults(handler=handlers.cmd_campaign_fork)
+
     session = campaign_sub.add_parser("session", help="Start, inspect, and end sessions.")
     session_sub = session.add_subparsers(dest="session_command")
     session_start = session_sub.add_parser("start", help="Start a session.")

@@ -22,6 +22,7 @@ from tabletop.campaign.store import CampaignStore
 from tabletop.cli.runtime_factory import open_operator_runtime, resolve_campaign_id
 from tabletop.cli.util import (
     load_plugin_registry,
+    migrations_dir,
     open_database,
     require_database_path,
     validate_campaign_id,
@@ -29,6 +30,8 @@ from tabletop.cli.util import (
 from tabletop.documents.content_pack import load_content_pack
 from tabletop.documents.ingest import IngestContext
 from tabletop.documents.markdown import MarkdownIngestor
+from tabletop.export.manifest import PackageError
+from tabletop.export.package import export_campaign, fork_package, restore_package
 from tabletop.storage.sqlite import transaction
 
 
@@ -287,6 +290,57 @@ def cmd_campaign_restore(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print(f"restored campaign {campaign_id}")
+    return 0
+
+
+def cmd_campaign_export(args: argparse.Namespace) -> int:
+    campaign_id = validate_campaign_id(args.campaign_id)
+    output_dir = Path(args.output_dir).expanduser()
+    conn = open_database()
+    try:
+        try:
+            manifest = export_campaign(
+                conn,
+                campaign_id,
+                output_dir,
+                migrations_dir=migrations_dir(),
+            )
+        except PackageError as exc:
+            raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(f"exported campaign {campaign_id} digest={manifest['package_digest']}")
+    return 0
+
+
+def cmd_campaign_restore_package(args: argparse.Namespace) -> int:
+    package_dir = Path(args.package_dir).expanduser()
+    conn = open_database()
+    try:
+        try:
+            manifest = restore_package(conn, package_dir)
+        except PackageError as exc:
+            raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(f"restored package campaign {manifest['campaign_id']}")
+    return 0
+
+
+def cmd_campaign_fork(args: argparse.Namespace) -> int:
+    new_id = validate_campaign_id(args.campaign_id)
+    package_dir = Path(args.package_dir).expanduser()
+    conn = open_database()
+    try:
+        try:
+            result = fork_package(conn, package_dir, new_id)
+        except PackageError as exc:
+            raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(
+        f"forked campaign {result['forked_from']} -> {result['campaign_id']}"
+    )
     return 0
 
 
