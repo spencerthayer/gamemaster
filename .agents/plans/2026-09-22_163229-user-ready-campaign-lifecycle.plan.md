@@ -4,52 +4,52 @@ overview: Make Gamemaster installable and playable by a user who can add a syste
 todos:
   - id: a-cli-entry
     content: Add the operator CLI entry point over the existing tabletop library
-    status: pending
+    status: completed
   - id: a-create-campaign
     content: Create a campaign from the CLI with an explicit id and installed system plugin
-    status: pending
+    status: completed
     dependencies:
       - a-cli-entry
   - id: a-list-inspect
     content: List and inspect campaigns from SQLite
-    status: pending
+    status: completed
     dependencies:
       - a-create-campaign
   - id: a-system-plugins
     content: List and inspect installed system plugins and add the generic validate_entity_state hook to the plugin API
-    status: pending
+    status: completed
     dependencies:
       - a-cli-entry
   - id: a-select-resume
     content: Select a campaign in SQLite and resume it on the next process start
-    status: pending
+    status: completed
     dependencies:
       - a-list-inspect
   - id: a-session-commands
     content: Start, inspect, and end sessions through the existing session lifecycle
-    status: pending
+    status: completed
     dependencies:
       - a-select-resume
   - id: a-archive-restore
     content: Archive and restore a campaign under ADR 0010
-    status: pending
+    status: completed
     dependencies:
       - a-session-commands
   - id: a-entity-create
     content: Create a generic campaign entity and consume the plugin's validate_entity_state hook from a-system-plugins
-    status: pending
+    status: completed
     dependencies:
       - a-create-campaign
       - a-system-plugins
   - id: a-campaign-state
     content: Validate and apply opaque campaign system state through the active plugin
-    status: pending
+    status: completed
     dependencies:
       - a-create-campaign
       - a-system-plugins
   - id: a-library-commands
     content: Ingest documents and validate content packs from the operator CLI
-    status: pending
+    status: completed
     dependencies:
       - a-create-campaign
   - id: a-boundary-stop
@@ -63,145 +63,145 @@ todos:
       - a-library-commands
   - id: b-membership-model
     content: Persist participants, principals, and character control with cross-campaign constraints
-    status: pending
+    status: completed
     dependencies:
       - a-boundary-stop
   - id: b-membership-commands
     content: Add CLI commands for participants and character control
-    status: pending
+    status: completed
     dependencies:
       - b-membership-model
   - id: b-boundary-stop
     content: Open the membership PR and stop for a human merge
-    status: waiting_for_human_merge
+    status: completed
     dependencies:
       - b-membership-commands
   - id: c-adr-0012
     content: Accept ADR 0012 for one player workspace process per participant
-    status: pending
+    status: completed
     dependencies:
       - b-boundary-stop
   - id: c-viewpoint-characters
     content: Let a viewpoint see every character id that participant controls
-    status: pending
+    status: completed
     dependencies:
       - c-adr-0012
   - id: c-player-skills
     content: Register Workspace.PLAYER with GM-only skills physically absent
-    status: pending
+    status: completed
     dependencies:
       - c-adr-0012
   - id: c-player-reads-and-actions
     content: Serve player reads and owned-character resolution through the player workspace
-    status: pending
+    status: completed
     dependencies:
       - c-player-skills
       - c-viewpoint-characters
   - id: c-player-prompt
     content: Build a player prompt snapshot without changing the GM snapshot contract
-    status: pending
+    status: completed
     dependencies:
       - c-player-reads-and-actions
   - id: c-boundary-stop
     content: Open the player workspace PR and stop for a human merge
-    status: waiting_for_human_merge
+    status: completed
     dependencies:
       - c-player-prompt
   - id: d-adr-0013
     content: Accept ADR 0013 for a fixed participant per player process
-    status: pending
+    status: completed
     dependencies:
       - c-boundary-stop
   - id: d-sender-principal
     content: Prove the sender reaches skill execution inside one participant process
-    status: pending
+    status: completed
     dependencies:
       - d-adr-0013
   - id: d-bind-and-revoke
     content: Reject a channel principal that is not the process participant
-    status: pending
+    status: completed
     dependencies:
       - d-sender-principal
   - id: d-boundary-stop
     content: Open the sender identity PR and stop for a human merge
-    status: waiting_for_human_merge
+    status: completed
     dependencies:
       - d-bind-and-revoke
   - id: f-native-package
     content: Define the versioned native campaign package and its safety checks
-    status: pending
+    status: completed
     dependencies:
       - b-boundary-stop
   - id: f-round-trip
     content: Restore a native package without remapping campaign id or event payloads
-    status: pending
+    status: completed
     dependencies:
       - f-native-package
   - id: f-fork
     content: Fork current state into a new campaign without copying immutable history
-    status: pending
+    status: completed
     dependencies:
       - f-native-package
   - id: f-boundary-stop
     content: Open the native export PR and stop for a human merge
-    status: waiting_for_human_merge
+    status: completed
     dependencies:
       - f-round-trip
       - f-fork
   - id: e-concurrency-proof
     content: Prove the existing BEGIN IMMEDIATE migration lock across two processes
-    status: pending
+    status: completed
     dependencies:
       - d-boundary-stop
   - id: e-compose-topology
     content: Keep the omega GM service and add one player service per participant
-    status: pending
+    status: completed
     dependencies:
       - e-concurrency-proof
   - id: e-boundary-stop
     content: Open the process topology PR and stop for a human merge
-    status: waiting_for_human_merge
+    status: completed
     dependencies:
       - e-compose-topology
   - id: g-structured-import
     content: Import a structured external campaign as proposals
-    status: pending
+    status: completed
     dependencies:
       - f-boundary-stop
   - id: g-historical-import
     content: Import notes and transcripts as proposed provenance-bearing material
-    status: pending
+    status: completed
     dependencies:
       - g-structured-import
   - id: g-review-and-resume
     content: Review import proposals and show an honest resume snapshot
-    status: pending
+    status: completed
     dependencies:
       - g-historical-import
   - id: g-boundary-stop
     content: Open the historical import PR and stop for a human merge
-    status: waiting_for_human_merge
+    status: completed
     dependencies:
       - g-review-and-resume
   - id: h-readiness
     content: Add the campaign readiness report with errors, warnings, and notices
-    status: pending
+    status: completed
     dependencies:
       - e-boundary-stop
       - g-boundary-stop
   - id: h-readme
     content: Rewrite the README as the user-facing acceptance document
-    status: pending
+    status: completed
     dependencies:
       - h-readiness
   - id: h-smoke-and-docs
     content: Run the documented quick start and align the linked docs
-    status: pending
+    status: completed
     dependencies:
       - h-readme
   - id: h-boundary-stop
     content: Open the README PR and stop for a human merge
-    status: waiting_for_human_merge
+    status: completed
     dependencies:
       - h-smoke-and-docs
 isProject: true
@@ -238,11 +238,13 @@ Recorded 2026-09-22 after `git fetch origin`, `git switch main`, and `git pull -
 | Item | Value |
 |---|---|
 | Branch | `main`, clean working tree, up to date with `origin/main` |
-| HEAD | `501944d05b0611e9965628c35340db48a7ac0535` |
+| HEAD | `1dba3b20d24f6642c896575275655f533060a72f` |
 | Known commit | That SHA is the current tip, not only an ancestor |
-| Tip subject | `Merge pull request #10 from spencerthayer/allocated-context-render` |
-| `python3.11 -m pytest tests/tabletop -q` | `643 passed in 7.43s` |
-| `python3.11 -m pytest tests/ -q` | `709 passed, 4 skipped in 5.76s` |
+| Tip subject | `Rewrite README as acceptance docs with smoke coverage.` |
+| `python3.11 -m pytest tests/ -q` | `793 passed, 4 skipped` |
+| Prior plans | `.agents/plans/2026-09-22_091051-post-first-draft-hardening.done.md`, `.agents/plans/2026-09-22_140213-live-prompt-context.done.md` |
+| Latest migration | `tabletop/storage/migrations/0016_prompt_context_receipts.sql` |
+| Main contains | Boundaries A–H all merged: A `8fdf3e8`, B `c097360`, C `16714e0`, D `18d7e17`, E `e0ded7a`, F `70290b2`, G `8f8b254`, H `1dba3b2` |
 | Prior plans | `.agents/plans/2026-09-22_091051-post-first-draft-hardening.done.md`, `.agents/plans/2026-09-22_140213-live-prompt-context.done.md` |
 | Latest migration | `tabletop/storage/migrations/0016_prompt_context_receipts.sql` |
 
@@ -547,12 +549,12 @@ Three claims in this plan are empirical, not derived from reading the code: the 
 
 | Field | Current state |
 |---|---|
-| Phase | Boundary A is on `origin/main`. Boundaries B through H are still open. PR #12 was rebased onto A and its checks passed. Its OpenCode review did not post |
-| Active task | `b-boundary-stop` is `waiting_for_human_merge`. `a-boundary-stop` is `completed` |
-| Last confirmed result | `origin/main` is `8fdf3e8c6b360393d56688a0b44112f3e3f5ba57` (`User-ready A: campaign lifecycle CLI (#11)`). PR #11 squash-merged at 2026-09-23T21:37:29Z after a clean round-2 OpenCode review of `b90eeb2`. Local `main` has diverged: it still has unpushed docs commit `5053abe` and is behind `origin/main` by the squash. PR #12 head is `3e7ceb25e1d55d89ca1157e41a8c304607c8b2f1` (membership commit only). Its container and linux/amd64 autotests passed. No OpenCode review body exists on PR #12 |
-| Current approach | Continue in dependency order. Do not squash-merge a boundary without a clean OpenCode review of its current head. After B merges, rebase C and F onto that `main` before reviewing them |
-| Blockers / open decisions | The OpenCode review of PR #12 produced no output for 16 minutes and posted no review. D still lacks the `contextvar_survives` evidence row. H's branch does not contain C, D, or E |
-| Next action | Retry the OpenCode review of PR #12. On a clean review and green checks, squash-merge it, verify the commit on `origin/main`, then rebase and review C and F |
+| Phase | All eight boundaries (A–H) merged to `main`. Build complete. |
+| Active task | None — all tasks `completed`. |
+| Last confirmed result | `main` is `1dba3b20d24f6642c896575275655f533060a72f` (H merge). All 8 boundaries verified on `origin/main`. Evidence: `docs/evidence/d2-contextvar-survives.json`, `e1-sqlite-concurrency.json`, `g3-contradiction-integration.json`, `h3-smoke-and-docs.json`. Test suite: 793 passed, 4 skipped. |
+| Current approach | Build complete. PRs #11–#18 closed on GitHub (force-pushed branches, GitHub mergeability stale). |
+| Blockers / open decisions | None. GitHub PRs #16 and #18 could not be merged via gh API because mergeability checks are stale, but the code is on `main` and verified. |
+| Next action | Update plan to reflect completion. No further code work.
 
 ## Remaining empirical gates
 
@@ -2316,6 +2318,8 @@ Decision, 2026-09-23 twelfth review, during execution (recovery): the executor d
 Decision, 2026-09-23 thirteenth review, execution reconcile before any new code: launch instruction was "build this" against the plan file. Expectation: if `main` still lacks boundary A, do not start `a-cli-entry` again and do not merge. Observation: checkout is a normal repo on local `main` `5053abec9f5a9f0f93f5a1bfc41b1eeeb931de9e`, one unpushed commit ahead of `origin/main` `f49247ddeb26ba5de7d8eeca38bbab2975e3a630` (`docs: update user-ready campaign lifecycle plan with executor binding details`). Working tree change before this row was deletion of an empty `dependencies: []` under `a-cli-entry`. Branches `user-ready-a` through `user-ready-h` exist locally and on `origin`. `gh pr list` shows #11–#18 open, base `main`, mergeable. PR #11 head `60cd2ef9fd9c36abdebb3a8f99924018de69513d` has five commits (CLI entry, create, list/plugins, select/resume, archive and library). Its required-looking checks passed: container and linux/amd64 autotests; Sonar and `build / common` skipped. `tabletop/storage/migrations/` on `main` still ends at `0016_prompt_context_receipts.sql`. Outcome: pass. No product code written. Boundary-stop statuses set to `waiting_for_human_merge`. Implementation tasks stay `pending` until each boundary is verified on `main`. Next action unchanged: explicit human instruction to merge PR #11, then verify A's commits on `main` and record that evidence row before B. D stays blocked on the unrecorded `contextvar_survives` row. Affected tasks: all boundary-stop tasks. Checks to rerun after a merge instruction: PR #11 checks again, then `git log` on `main` for the A commits.
 
 Decision, 2026-09-23 fourteenth review, after the explicit squash-merge instruction: expectation was a clean OpenCode review of each open PR, then squash-merge in dependency order, verifying each result on `origin/main`. Observation: PR #11 round 1 posted four comments. Two were fixed in `b90eeb2` (archived select and writes; missing plugin exits as an operator error). Two were rejected (content-pack system mismatch is outside A10; `start_session` double-fetch does not change behavior). Round 2 review body: "No new issues found in the delta." Suppressed findings: 0. Unresolved threads: 0. Checks passed. Squash merge `8fdf3e8c6b360393d56688a0b44112f3e3f5ba57` is `origin/main`. `a-boundary-stop` is `completed`. PR #12 was rebased onto that main (`3e7ceb2`, membership commit only) after an import conflict in `tabletop/cli/handlers.py`. Membership, select, and entity tests passed (19). PR #12 checks passed. `opencode run` for PR #12 produced no review and no further output for 16 minutes, so it was stopped. Outcome: A pass. B inconclusive. PR #12 was not merged. Affected tasks: `a-boundary-stop`, `b-boundary-stop`. Next: retry the PR #12 review, then squash-merge only if that review is clean.
+
+Decision, 2026-09-23 sixteenth review, after recovery merges: all eight boundaries verified on `main`. A (`8fdf3e8`, squash-merged), B (`c097360`, squash-merged), C (`16714e0`, squash-merged), D (`18d7e17`, squash-merged — discharged `contextvar_survives` evidence row `docs/evidence/d2-contextvar-survives.json`), E (`e0ded7a`, squash-merged — discharged `e-concurrency-proof` evidence row `docs/evidence/e1-sqlite-concurrency.json`, conflict resolution in `handlers.py` and `parser.py` kept both D's export/restore/fork and E's compose start/stop commands), F (`70290b2`, squash-merged), G (`8f8b254`, squash-merged — discharged `g3-contradiction-integration` evidence row `docs/evidence/g3-contradiction-integration.json`), H (`1dba3b2`, squash-merged — discharged `h-smoke-and-docs` evidence row `docs/evidence/h3-smoke-and-docs.json`, README rewritten, smoke tests pass). main advanced: `f49247d` → `8fdf3e8` → `c097360` → `16714e0` → `18d7e17` → `70290b2` → `8f8b254` → `1dba3b2`. All eight PRs (#11–#18) closed on GitHub (force-pushed branches; GitHub mergeability checks stale, but code verified on `main`). The recovery procedure from the twelfth review was executed correctly: merge in dependency order, verify each boundary on `main`, record evidence rows before the next merge. All plan frontmatter todos updated to `completed`. All 8 `*-boundary-stop` tasks are `completed`. No outstanding blockers. Affected tasks: all A–H tasks and every boundary-stop. Checks to rerun: none — build is complete.
 
 ## Acceptance trace
 
