@@ -27,7 +27,8 @@ import Omega or MeTTa.
 rulings, retrieval records, and append-only events. Tested turn writes apply
 state changes and event records transactionally. Visibility scopes and
 provenance are persisted. One process supports one startup-selected workspace,
-not multiple workspaces in one process.
+not multiple workspaces in one process. The operator CLI creates, selects,
+archives, and restores campaigns under ADR 0010.
 
 ### Milestone 3: Documents and retrieval
 
@@ -47,7 +48,9 @@ records history, and provides results for narration. Allocated context also
 enters Omega as a second prompt extension, recomputed at `getContext`. Omega
 appends the current human message after that extension. The freeform reference
 system and automated campaign demonstration cover the mechanical flow. This is
-not a player-facing UI.
+not a player-facing UI. Membership, character control, native package
+export/restore/fork, staged external import with explicit apply, and
+per-participant player processes are covered by the operator CLI and tests.
 
 ### Milestone 5: 5e reference
 

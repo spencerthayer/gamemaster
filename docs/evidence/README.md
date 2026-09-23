@@ -23,5 +23,6 @@ Machine-readable proofs for empirical gates in the user-ready campaign lifecycle
 | Gate | File | Result |
 |------|------|--------|
 | G3 contradiction integration | [g3-contradiction-integration.json](g3-contradiction-integration.json) | pass |
+| H3 smoke and docs | [h3-smoke-and-docs.json](h3-smoke-and-docs.json) | 793 passed, 4 skipped |
 
 Sender ContextVar survival and SQLite concurrency proofs land on branches D and E when those PRs merge.

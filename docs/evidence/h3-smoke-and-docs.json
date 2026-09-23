@@ -1,0 +1,22 @@
+{
+  "gate": "h-smoke-and-docs",
+  "recorded_at": "2026-09-23",
+  "branch": "user-ready-h-readme-and-readiness",
+  "commands": {
+    "readme_smoke": {
+      "command": "python3.11 -m pytest tests/tabletop/test_readme_smoke.py -q",
+      "result": "2 passed"
+    },
+    "tabletop": {
+      "command": "python3.11 -m pytest tests/tabletop -q",
+      "result": "727 passed"
+    },
+    "full_suite": {
+      "command": "python3.11 -m pytest tests/ -q",
+      "result": "793 passed, 4 skipped"
+    }
+  },
+  "notes": [
+    "Docker topology test not rerun in this H evidence record; run separately when the daemon flag is available."
+  ]
+}

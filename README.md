@@ -4,20 +4,186 @@
 
 # Gamemaster
 
-Gamemaster is an early tabletop role-playing game runtime built on
-[SingularityNET Omega](https://github.com/singnet/Omega). It separates the
-agent loop from game mechanics, source material, and campaign state. The
-repository contains a working first draft of that separation, not a finished
-game-master product.
+Gamemaster is a tabletop role-playing game runtime on
+[SingularityNET Omega](https://github.com/singnet/Omega). Omega owns the agent
+loop, model providers, channels, memory, and tools. Gamemaster adds campaign
+truth in SQLite, game-system plugins, document ingestion, and an operator CLI.
+System plugins own mechanics. The core runtime does not invent rules numbers.
 
-## Why Omega is the foundation
+## What you can do
 
-Omega already supplies the agent loop, model-provider integration, channels,
-memory, tools, and plugin loading. Gamemaster adds one Omega-facing adapter in
-`plugins/tabletop/` and keeps tabletop code in a separate Python runtime. This
-lets the project add campaign behavior without replacing Omega's core loop.
+- Create and select campaigns with an installed system plugin
+- Import native packages (`export` / `restore-package` / `fork`) and stage
+  external JSON or historical notes for review
+- Run a GM process and one player process per participant
+- Ingest sourcebooks and notes with provenance
+- Open and end sessions, record rulings, archive and restore campaigns
+- Install additional game-system plugins under configured roots
 
-## Layers
+## Requirements
+
+- Python 3.11 for the operator CLI and tabletop tests
+- Docker Compose when launching Omega services from this repository
+- Provider credentials and a distinct channel credential for the GM process and
+  for each player process
+- `TABLETOP_DATABASE_PATH` pointing at a writable SQLite file for CLI work
+
+## Quick start
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+# Edit .env: provider keys, OMEGA_AUTH_SECRET, and a distinct channel for the
+# GM and for each player process (channel setup needs a configured channel).
+export TABLETOP_DATABASE_PATH=/tmp/gamemaster-smoke.sqlite3
+python -m tabletop.cli system list
+python -m tabletop.cli campaign create --id night --name "Night Watch" --system freeform
+python -m tabletop.cli campaign select night
+python -m tabletop.cli campaign entity create --id ada --kind character --name Ada
+python -m tabletop.cli campaign participant add --id gm1 --name "GM" --role gm
+python -m tabletop.cli campaign validate --id night
+python -m tabletop.cli campaign start night --gm
+```
+
+`campaign start` checks readiness with `--require-reviewed` semantics and then
+prints the launch delegation for `scripts/omega` or Compose. Starting an
+interactive channel still needs provider and channel configuration.
+
+## Choose or install a game system
+
+Bundled plugins under `systems/`:
+
+- `freeform`: generic checks, opposed checks, dice, and resources
+- `dnd5e`: partial D&D 5e (2014) reference mechanics
+- `gurps`: minimal GURPS surface for experimentation
+
+Third-party plugins load from roots in `TABLETOP_PLUGIN_PATH`. Validate with
+`python -m tabletop.cli system list` and `system inspect`. Restart the process
+after plugin changes. See [docs/plugin-api.md](docs/plugin-api.md).
+
+## Create a campaign
+
+```bash
+python -m tabletop.cli campaign create --id night --name "Night Watch" --system freeform
+python -m tabletop.cli campaign select night
+python -m tabletop.cli campaign list
+python -m tabletop.cli campaign inspect --id night
+```
+
+## Import an existing campaign
+
+Native package (same lineage or fork):
+
+```bash
+python -m tabletop.cli campaign export night --out /tmp/night-package
+python -m tabletop.cli campaign restore-package /tmp/night-package
+python -m tabletop.cli campaign fork /tmp/night-package --id dawn
+```
+
+`restore-package` keeps the campaign id and event payloads. `fork` creates a
+new campaign id without copying immutable history. Shared settings reuse the
+same `setting_id` when the setting digest matches and fail when it differs.
+
+External structured JSON and historical notes stage proposals only:
+
+```bash
+python -m tabletop.cli campaign import path/to/external.json --campaign night
+python -m tabletop.cli campaign import path/to/notes.md --campaign night --format notes
+python -m tabletop.cli campaign import-status --import-id <id>
+python -m tabletop.cli campaign import-review <item-id> --reject
+python -m tabletop.cli campaign import-apply <item-id>
+```
+
+Staging never changes campaign canon. Only an explicit
+`campaign import-apply` may create or confirm authoritative state.
+
+## Add players and characters
+
+```bash
+python -m tabletop.cli campaign participant add --id ada-player --name Ada --role player
+python -m tabletop.cli campaign participant bind --participant ada-player --channel telegram --external-id 12345
+python -m tabletop.cli campaign character grant --participant ada-player --entity ada --control owner
+```
+
+## Start the GM
+
+```bash
+python -m tabletop.cli campaign validate --id night
+python -m tabletop.cli campaign start night --gm
+# or, with Compose configured:
+docker compose up omega
+```
+
+## Start the player surface
+
+One `omega-player-<participant>` process per participant, each with its own
+channel credential. WebSocket is one authenticated connection per principal and
+requires `WS_TOKEN`.
+
+```bash
+python -m tabletop.cli campaign start night --participant ada-player
+docker compose up omega-player-ada
+```
+
+## Connect a channel
+
+Configure the channel in `.env` and follow
+[docs/reference-configuration.md](docs/reference-configuration.md). Set
+`OMEGA_EXPECTED_SENDER` for participant-bound processes.
+
+## Add sourcebooks and documents
+
+```bash
+python -m tabletop.cli library ingest path/to/source.md
+python -m tabletop.cli campaign document add path/to/notes.md --campaign night
+```
+
+Markdown and text-layer PDFs ingest with provenance. Scanned or image-only
+PDFs have no OCR path and need manual review.
+
+## Resume a campaign
+
+```bash
+python -m tabletop.cli campaign resume night
+```
+
+Resume is read-only. `in_world_date` and `scene` stay `unknown` when the
+runtime has no authoritative value. Authoritative contradictions and pending
+import items are reported as separate counts.
+
+## Archive, restore, export
+
+```bash
+python -m tabletop.cli campaign archive --id night
+python -m tabletop.cli campaign restore --id night
+python -m tabletop.cli campaign export night --out /tmp/night-package
+```
+
+Archive follows ADR 0010. Deletion is not supported.
+
+## Write a game-system plugin
+
+Create a directory with `plugin.yaml` and a `GameSystemPlugin` subclass. Keep
+the plugin free of Omega and MeTTa imports. Details:
+[docs/plugin-api.md](docs/plugin-api.md).
+
+## Write a content pack
+
+Data-only `content-pack.yaml` packs. No executable entrypoints. See
+`examples/campaigns/freeform-demo/content-pack/`.
+
+## Security model
+
+Three roles matter: operator (CLI), GM process, and player process. Each
+process has one workspace. Player processes omit GM-only skills. Staging an
+import never changes campaign canon. Only reviewed `campaign import-apply`
+creates or confirms authoritative state. Treat ingested text as untrusted.
+Only mount trusted plugins. Keep credentials out of packs and campaign files.
+See [docs/security.md](docs/security.md).
+
+## Architecture
 
 ```text
 Player or GM
@@ -29,245 +195,35 @@ plugins/tabletop adapter
 tabletop runtime
     |-- workspace-scoped skills and turn orchestration
     |-- SQLite campaign state and append-only events
-    |-- visibility, relationships, rulings, and sessions
-    |-- document ingestion and retrieval
+    |-- visibility, relationships, rulings, membership, sessions
+    |-- document ingestion, import staging, and retrieval
     |
     +-- game-system plugins in systems/
     +-- data-only content packs
 ```
 
-The generic API uses actions, entities, resolutions, events, and visibility
-scopes. System-specific concepts stay inside game-system plugins. A mechanic
-advertised by the active plugin is resolved through that plugin. Unsupported
-or unresolved mechanics produce an adjudication result without invented
-mechanical numbers.
+One process, one workspace. Use separate processes for GM and each player.
+See [docs/architecture.md](docs/architecture.md).
 
-Each process has one workspace, selected at startup with
-`TABLETOP_WORKSPACE=setting` or `TABLETOP_WORKSPACE=campaign`. The workspace
-cannot be changed on a running process. Use separate processes when both
-surfaces are needed at the same time.
+## Current limitations
 
-See [docs/architecture.md](docs/architecture.md) for the detailed boundaries.
+- No complete game system; `dnd5e` and `gurps` are partial
+- No OCR for scanned PDFs
+- No per-message WebSocket user identity beyond the process principal
+- No Foundry adapter
+- `current_scene` / in-world date may remain unavailable on resume
+- Scene events may still be unemitted
+- Compose is a deployment starting point, not a hardened multi-tenant service
 
-## Game-system plugins
-
-Game-system plugins are trusted Python code. Each plugin has a strict
-`plugin.yaml`, implements the `tabletop/v1` API, and advertises only the
-capabilities it implements. Built-in and configured external plugins use the
-same discovery and loading path. Plugins load at startup, so changes require a
-restart.
-
-The repository includes:
-
-- `freeform`, a small generic reference system for checks, opposed checks,
-  dice, and resource tracking.
-- `dnd5e`, a partial D&D 5e reference implementation for the 2014 revision.
-  It covers selected checks, attacks, damage, basic conditions, initiative,
-  movement, and rests. It does not provide full 5e support. Spells, classes,
-  feats, monster stat blocks, multiclassing, and other mechanics remain out of
-  scope.
-
-The 5e demo under `examples/campaigns/dnd5e-demo/` is an automated reference
-flow, not a complete playable rules implementation.
-
-## Content packs
-
-Content packs describe rules, settings, adventures, campaign seeds, or
-supplements. Their manifests are data only. The loader rejects executable
-entrypoints, unknown fields, unsafe YAML object tags, and GM-only paths that
-escape the pack directory.
-
-Content-pack loading currently validates metadata and trust boundaries. It
-does not install dependencies or turn an arbitrary pack into a ready campaign.
-
-## Persistence
-
-Campaign data is stored in SQLite. The schema covers campaigns, entities,
-facts, documents, relationships, sessions, rulings, retrieval records, and
-append-only event history. State changes and their event records are applied
-in one transaction during the tested turn flow.
-
-SQLite is the authority for campaign state. Human-readable campaign files are
-projections and source material, not a second writable source of truth.
-
-## Documents and retrieval
-
-Markdown and text-layer PDFs can be ingested into provenance-bearing chunks.
-PDF extraction preserves page numbers when text is present. Scanned or
-image-only PDFs have no OCR path in this draft. They are marked unsupported
-and need manual review.
-
-Retrieval has isolated namespaces and source references. Lexical search uses
-SQLite FTS5. Vector search is optional. When configured, it checks the
-embedding model and dimension and falls back to lexical search when the
-semantic tier is unavailable or incompatible. The current vector backend
-stores vectors in SQLite and computes similarity in Python, so it is intended
-for small corpora.
-
-Retrieval is never campaign truth. A retrieved campaign chunk is still a
-search result. Authoritative state remains in the structured campaign store
-and event history.
-
-## Current maturity
-
-This is a first draft for development and architecture validation.
-
-Implemented and covered by tests:
-
-- the Omega adapter and workspace-scoped skill registration
-- capability-based plugin loading and two reference plugins
-- SQLite campaign state, append-only events, sessions, visibility,
-  relationships, rulings, and provenance
-- Markdown and PDF text-layer ingestion
-- lexical retrieval and an optional vector-to-lexical cascade
-- freeform and partial 2014 5e end-to-end demonstration tests
-
-Also present, but not covered by a runtime behavior test: a Compose deployment
-definition for one Omega process with persistent state. Its configuration is
-checked with `docker compose config`.
-
-Important limits:
-
-- there is no complete game system
-- scanned PDFs need manual review
-- plugins are trusted code and require a restart after changes
-- one workspace runs per process
-- the Compose stack is a deployment starting point, not a hardened
-  multi-tenant service
-
-## Quick start
-
-Python 3.11 is required for the tabletop test suite. From the repository root:
+## Tests
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
 python -m pytest tests/tabletop -q
 ```
 
-Run the focused demonstrations with:
-
-```bash
-python -m pytest \
-  tests/tabletop/test_demo_freeform.py \
-  tests/tabletop/test_demo_dnd5e.py \
-  -q
-```
-
-These commands exercise the runtime directly. Running an interactive Omega
-channel also requires provider and channel configuration from the
-[Omega documentation](https://github.com/singnet/Omega#readme).
-
-## Docker Compose and Portainer
-
-Copy the environment template, review every value, create the bind-mount
-directories if needed, then start the stack:
-
-```bash
-cp .env.example .env
-mkdir -p library campaigns
-docker compose config
-docker compose up --build
-```
-
-At minimum, replace `OMEGA_AUTH_SECRET`, choose the provider and channel, and
-set the provider credential such as `ASI_API_KEY`. The Compose file defines
-one Omega service. Named volumes persist Omega memory and tabletop SQLite
-state. Plugin and library mounts are read-only. The campaigns mount is
-read-write. The entrypoint copies those three mounts onto the container
-filesystem before Omega applies Landlock, because that policy cannot read
-Docker Desktop bind mounts. The stack does not mount the Docker socket.
-
-For Portainer:
-
-1. Create a Git-backed stack from this repository.
-2. Copy the values from `.env.example` into the stack environment.
-3. Replace the example secret and provider settings.
-4. Make the host paths named by `TABLETOP_PLUGIN_HOST_PATH`,
-   `TABLETOP_LIBRARY_HOST_PATH`, and `TABLETOP_CAMPAIGNS_HOST_PATH` available
-   to the Docker host.
-5. Deploy the stack.
-
-Relative bind paths resolve from the stack directory. Portainer and Docker
-host path behavior varies by installation, so use absolute host paths if the
-relative defaults do not resolve as expected.
-
-## Write a game-system plugin
-
-Create one directory under a configured plugin root:
-
-```text
-my-system/
-|-- plugin.yaml
-`-- my_system/
-    |-- __init__.py
-    `-- plugin.py
-```
-
-Use a manifest like:
-
-```yaml
-id: my-system
-name: My System
-api_version: tabletop/v1
-version: 0.1.0
-entrypoint: my_system.plugin:MySystemPlugin
-description: Selected mechanics for My System
-```
-
-Subclass `tabletop.api.plugin.GameSystemPlugin`. Implement `info`,
-`capabilities()`, and `resolve()` for the mechanics the plugin supports.
-Return `UNSUPPORTED`, `UNRESOLVED`, or `RULING_REQUIRED` when code cannot
-produce a deterministic result. Do not advertise unfinished capabilities.
-
-Set `TABLETOP_PLUGIN_PATH` to the parent directory. Multiple roots use the
-operating system path separator. Restart the process after adding or changing
-a plugin. Full details are in [docs/plugin-api.md](docs/plugin-api.md).
-
-## Write a content pack
-
-Create a directory with `content-pack.yaml` and the source files:
-
-```yaml
-id: example-adventure
-name: Example Adventure
-pack_type: adventure
-system_id: freeform
-version: 0.1.0
-gm_only:
-  - secrets.md
-  - npc-agendas.md
-```
-
-Valid `pack_type` values are `rules`, `setting`, `adventure`,
-`campaign-seed`, and `supplement`. Keep every `gm_only` path relative to the
-pack directory. Do not add an `entrypoint`. Content packs cannot execute code.
-See `examples/campaigns/freeform-demo/content-pack/` for a small example.
-
-## Security warning
-
-Treat every ingested document as untrusted text. A sourcebook, PDF, note, or
-retrieved chunk can contain prompt-injection instructions. Never treat that
-text as a policy, tool command, visibility grant, or campaign-state update.
-Review extracted proposals before promotion to canon.
-
-Only mount trusted game-system plugins because plugin Python executes in the
-runtime process. Keep credentials out of plugins, content packs, document
-libraries, and campaign files. See [docs/security.md](docs/security.md) for
-the trust boundaries and deployment requirements.
-
-## Roadmap
-
-Planned work and deferred items belong in
-[docs/roadmap.md](docs/roadmap.md). That document may not exist on branches
-created before the roadmap task lands.
-
 ## Upstream attribution
 
-Gamemaster was bootstrapped from
+Bootstrapped from
 [SingularityNET Omega](https://github.com/singnet/Omega) commit
-`7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`. The upstream repository and local
-integration changes are recorded in [UPSTREAM.md](UPSTREAM.md).
-
-Omega and Gamemaster are licensed under Apache-2.0. See [LICENSE](LICENSE).
+`7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`. See [UPSTREAM.md](UPSTREAM.md).
+Licensed under Apache-2.0. See [LICENSE](LICENSE).

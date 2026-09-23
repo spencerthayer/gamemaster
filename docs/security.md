@@ -71,6 +71,10 @@ proposal data. The importer validates envelopes, rejects individual proposals
 that fail policy, and inserts survivors with parameterized SQL. Imported facts
 enter as non-canon until a separate promotion step.
 
+Operator staging (`campaign import`) stores proposals only in `import_items`.
+Staging never mutates campaign-authoritative tables. Only
+`campaign import-apply` creates or confirms authoritative state after review.
+
 Ingested document text is stored as values bound to SQL parameters. Static
 analysis of the Markdown and PDF ingestion modules and the importer rejects
 `eval`/`exec`/`compile`, and rejects SQL built with f-strings, `%`
@@ -78,12 +82,13 @@ interpolation, concatenation, or `str.format` in those modules.
 
 ## Compose deployment
 
-`docker-compose.yml` defines one Omega service with the tabletop plugin. Copy
-the documented defaults from `.env.example` into the Portainer stack
-environment and replace the example secret and provider credentials before
-deployment. The stack builds the repository Dockerfile, persists Omega memory
-and tabletop SQLite state in named volumes, and uses environment variables for
-every bind-mount source and container path.
+`docker-compose.yml` defines the GM Omega service and may define
+per-participant player services. Copy the documented defaults from
+`.env.example` into the Portainer stack environment and replace the example
+secret and provider credentials before deployment. The stack builds the
+repository Dockerfile, persists Omega memory and tabletop SQLite state in
+named volumes, and uses environment variables for every bind-mount source and
+container path.
 
 The compose file sets `read_only: true` on the plugin and library bind mounts.
 This is a compose mount flag; it is not a claim that the underlying host
