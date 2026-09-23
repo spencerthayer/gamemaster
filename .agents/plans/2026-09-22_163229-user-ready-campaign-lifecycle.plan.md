@@ -210,6 +210,20 @@ isProject: true
 
 # User-ready campaign lifecycle
 
+## Executor binding
+
+This file is the execution record. Before any code change, and again before stopping, update three places in this file:
+
+1. The active task `status` in the frontmatter. Allowed values are `pending`, `in_progress`, `waiting_for_human_merge`, and `completed`.
+2. The Execution checkpoint table.
+3. A new row in the Evidence and decisions log for every check.
+
+A session todo list does not replace those three writes.
+
+If a message says not to edit this file, stop before writing code and ask which of these writes to keep. Do not implement against a frozen checkpoint. Do not rewrite the goal, security gates, or task definitions under that message. The "Correct the plan" step is the only path that changes a decision, and it still writes the evidence row first.
+
+Execute one eligible task at a time. A task is eligible only when every dependency is `completed`. `waiting_for_human_merge` is not `completed`. Do not hand the remaining graph to one worker with instructions to finish every task. At each `*-boundary-stop`, open the pull request, set that task to `waiting_for_human_merge`, write the checkpoint, and stop. The next boundary stays ineligible until a human merge is confirmed on `main`.
+
 **Goal:** A person can install Gamemaster, install or develop a game-system plugin, create or import a campaign, configure participants, launch one GM process and isolated player processes (one player process per participant), play through a supported Omega channel, stop, and resume the same campaign without SQL or knowledge of the internal schema.
 
 **Architecture:** Keep Omega as the agent loop and channel host. Keep SQLite as the campaign authority and the append-only event log as history. Add an operator CLI in front of the existing tabletop library. Add `Workspace.PLAYER` as a third process-scoped skill surface under ADR 0009. Bind play to a trusted channel principal. Export and import a versioned native package by copying authoritative rows and immutable events. Import older notes as proposals through the existing extraction boundary. Do not rebuild prompt allocation, retrieval, plugins, or the Omega provider layer.
@@ -503,7 +517,11 @@ C and F may both be open after B merges. They touch different files. Do not stac
 
 Each `*-boundary-stop` task opens the PR and stops. Opening the PR moves the boundary-stop task into `waiting_for_human_merge`, not `completed`. It becomes `completed` only after an explicit human merge instruction in the execution conversation and after the executor verifies on `main` that the merged boundary is present (the boundary's commits are on `main`, confirmed against the merged branch state). No downstream dependency is satisfied merely because the PR exists: while a boundary-stop task is `waiting_for_human_merge`, every task that depends on it stays ineligible, and a boundary closes only when its merged result is confirmed on `main`. Do not enable auto-merge. Do not commit during this planning session.
 
+An execution launch for this plan must not contradict this section. Instructions such as "do not edit the plan file itself" and "finish every todo without stopping" are void when given to an executor for this plan: writing an item's status, the evidence rows, and the checkpoint is execution work, not plan authoring, and a boundary-stop task that opens a PR stops in `waiting_for_human_merge` no matter how many of its own or downstream todos remain. Read this plan, reconcile it with `git status`, `HEAD`, and the migration directory, and record the first check before the first commit. A boundary branch is opened from merged `main` after its predecessor boundary merges; a PR cut from another boundary's unmerged tip is not a substitute. If earlier-phase work was already stacked or run before a boundary merged, recover by merging in the dependency order below, verifying each boundary's merged result on `main` before the next, and recording each evidence row as it lands.
+
 ## Adaptive execution contract
+
+The Executor binding at the top of this plan is the same rule as this loop; read the binding first and treat both as one contract.
 
 Once implementation is authorized, repeat this loop:
 
@@ -530,12 +548,12 @@ Three claims in this plan are empirical, not derived from reading the code: the 
 
 | Field | Current state |
 |---|---|
-| Phase | Planning revised. Implementation has not started |
-| Active task | None |
-| Last confirmed result | `main` at `501944d05b0611e9965628c35340db48a7ac0535`. Tabletop `643 passed`. Full suite `709 passed, 4 skipped`. Working tree was clean before this plan file |
-| Current approach | CLI for operations. One GM process named `omega`. One player process per participant. Native restore keeps ids. Historical import stays staged until reviewed |
-| Blockers / open decisions | Three empirical gates, per the section below: `d-sender-principal` must record `contextvar_survives`; `e-concurrency-proof` must record the seven-scenario evidence table; the contradiction-integration portion of `g-review-and-resume` must record the API audit and transaction adaptation proof. None of the three reopens the topology |
-| Next action | After implementation is requested, create `user-ready-a-campaign-lifecycle` from `main` and start `a-cli-entry` |
+| Phase | Execution ran without the adaptive loop. All eight boundary branches and PRs (#11–#18) are open on base `main` and none is merged. Recovery in progress. See the 2026-09-23 twelfth review entry |
+| Active task | None started under the plan loop. Waiting on the first explicit human merge instruction before `a-boundary-stop` can leave `waiting_for_human_merge` |
+| Last confirmed result | `main` and `origin/main` still `f49247ddeb26ba5de7d8eeca38bbab2975e3a630`; nothing merged. The plan file was never updated during execution because the executor was told not to modify it: every task still `pending`, no evidence or checkpoint rows written. PRs are #11 A, #12 B, #13 C, #14 D (`partial` in its own title, D3 blocked on the unrecorded `contextvar_survives` gate), #15 F, #16 E, #17 G, #18 H |
+| Current approach | Recover the intended gates: merge boundaries in dependency order (A, then B, then C and F, then D and G, then E and G, then H), verifying each merged result on `main` and recording its evidence row before the next. The three empirical gates still apply before their boundary may be marked complete |
+| Blockers / open decisions | The adaptive loop was skipped under contradicting launch instructions (see branch rules). D's D2/D3 evidence row is unrecorded and D's PR self-declares `partial`. The three empirical gates must still produce their rows before D/E/G complete. H is staged on unmerged G |
+| Next action | On explicit human instruction, review PR #11 (A), merge it after its checks pass, verify A's commits on `main`, record the evidence row, then continue in dependency order |
 
 ## Remaining empirical gates
 
@@ -2251,7 +2269,7 @@ The phase is done when a human has merged H and the evidence log shows:
 - WebSocket play is one participant per connection.
 - In-world time and scene stay unknown unless future work emits scene events or a plugin stores a confirmed clock.
 - Third-party VTT adapters wait until the importer interface is on `main`.
-- Implementation has not started.
+- Implementation began 2026-09-23 without the plan loop: the executor was launched with instructions that contradict the adaptive contract, the plan file was never updated, and eight stacked PRs opened before any boundary merged. Corrected in the checkpoint and the 2026-09-23 twelfth review entry; recovery merges boundaries in dependency order.
 - An in-world clock is deferred product semantics, not an open design question. Resume reports the date as unknown until a later feature stores one on purpose.
 - One WebSocket connection maps to one principal. Multiplexing humans on one connection is unsupported in this phase.
 
@@ -2293,6 +2311,8 @@ Decision, 2026-09-22: no web UI. The operator surface is `python -m tabletop.cli
 Decision, 2026-09-22: `build_prompt_context_snapshot` is not given a viewpoint parameter. Player context is a sibling function. Affected tasks: `c-player-prompt`. Checks to rerun: `tests/tabletop/test_prompt_context.py`.
 
 Decision, 2026-09-23 eleventh review, before implementation: a `*-boundary-stop` task that opens a PR moves to `waiting_for_human_merge`, not `completed`; it becomes `completed` only after an explicit human merge instruction and an executor verification that `main` contains the merged boundary, and no downstream dependency is satisfied because the PR exists. Membership schema is hardened: `participant_principals` gains `principal_id PRIMARY KEY` plus `UNIQUE(campaign_id, participant_id, channel)` beside the existing `UNIQUE(campaign_id, channel, external_id)`; `import_batches(import_id PRIMARY KEY)` and `import_items(item_id PRIMARY KEY, import_id REFERENCES import_batches ON DELETE CASCADE)`; deletes cascade explicitly; at most one GM per campaign via a partial unique index, with readiness requiring exactly one GM before any channel launch. Channel authorization for a channel-originated turn is a five-stage chain — platform authentication, generic channel expected-sender gate (DB-agnostic), tabletop active-binding check against SQLite before the payload becomes a `receive` result, return of the human turn to Omega, model, skill-time ContextVar check — so removal or unbinding takes effect on the next inbound turn before model execution; the trusted-local path is structurally distinct (explicit operator CLI/shell invocation), a `None` sender never grants operator trust including on the GM process, and rebinding `42 -> 43` rejects `42` from the next turn but requires a restart for `43` to be accepted. D2's sender-gate assertions are parameterized over the full channel matrix (Telegram, Slack, Mattermost, IRC, WebSocket). C5 must not invent a C migration: a receipt-identity schema need stops the task and revises the migration graph first. `participant_id` is a slug (`omega-player-<participant-id>` service names). E2 generates per-participant Compose overrides from participant rows with `campaign start/stop <id> --gm|--participant <id>`, always emits `TABLETOP_CAMPAIGN`, and D3 fails startup for a participant-bound channel process without it. Fork omits `participant_principals` (the fork policy map gains the omit disposition beside preserve and regenerate) and requires explicit re-binding; restore treats the pristine shell as an ID reservation and atomically replaces shell campaign metadata with package metadata, with no second shell-fill rule. `package_digest` is defined literally (manifest_hash over the manifest without `package_digest`, raw-byte file hashes, sorted canonical object) with canonical serialization required for every exported JSON/JSONL file before hashing; `setting_digest`'s table set is asserted as a complete schema invariant; `event_schema_too_new` pre-write rule added alongside `package_schema_too_new`. A8 uses resolved-path containment, not a lexical `..` rejection. Affected tasks: A8, B1, B2, B3, C5, C6, D1, D2, D3, D4, E2, F1, F2, F3, F4, H1. Checks to rerun: greps for the absence of stale `accepted` state, senderless operator-trust phrasings, and `shell-fill` / "either match" wording, and the presence of the new constraints.
+
+Decision, 2026-09-23 twelfth review, during execution (recovery): the executor did not run the adaptive loop. It was launched without reading this plan first and was given instructions that contradict the adaptive execution contract — "do not edit the plan file itself" (read as a ban on the status, evidence, and checkpoint writes that are execution work) and "finish every todo without stopping" (read as never pausing at boundary stops). Old assumption: each `*-boundary-stop` would open one PR and stop in `waiting_for_human_merge` until an explicit human merge, and the plan file would record every status, evidence row, and checkpoint. Finding (evidence): the plan file was never updated — every task still `pending`, the checkpoint still said implementation has not started — while the executor committed all eight boundaries on stacked branches and opened eight PRs (#11 A, #12 B, #13 C, #14 D self-labeled `partial` with D3 blocked pending the unrecorded `d-sender-principal` evidence row, #15 F, #16 E, #17 G, #18 H) on base `main`, with `main` and `origin/main` still `f49247d`. Branch topology is a fork at B: B→C→D→E and B→F→G→H, cut from unmerged tips, so later-phase work exists before its predecessors merged (G before F merged, H before E and G merged). Revised approach: such launch instructions are void for this plan; status/evidence/checkpoint writes are execution, and the first act of an executor is to read this plan and reconcile. Recovery: merge the eight PRs in dependency order — A, then B, then C and F, then D (needs C) and G (needs F), then E (needs D) and H (needs both E and G) — verifying each boundary's merged commits on `main` and recording the evidence row before the next merge; base `main` can stay put because the PRs are already cut from their predecessors, so each merge lands the boundary's own commits on top of the previous. D's PR is not merge-eligible as-is: its DoD requires the D2 evidence row recording `contextvar_survives` first, then bind-and-revoke, or the PR is reworked. No boundary is completed by its PR existing; `completed` is recorded only after the explicit human merge instruction and the verified merge on `main`. Affected tasks: all A–H tasks, every boundary-stop, and the three empirical gates. Checks to rerun: `gh pr list` bases; `git log main..<branch>` per boundary after each merge; the D2 gate before D merges; the E1 table and G3 audit before E/G complete.
 
 ## Acceptance trace
 
