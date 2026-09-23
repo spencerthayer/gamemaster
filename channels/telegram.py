@@ -11,6 +11,7 @@ from src.logger import get_logger
 from delivery_queue import PendingMessages
 import channels
 from config import config_get_by_key
+from sender import SenderGate, expected_sender_from_environ, set_current_sender
 
 logger = get_logger(__name__)
 
@@ -43,13 +44,17 @@ _ROUTED_MESSAGE_RE = re.compile(
 _TARGET_ONLY_MESSAGE_RE = re.compile(r"^\s*\[(-?\d+)\]\s*(.*)$", re.DOTALL)
 
 
-def _enqueue_message(msg, chat_id, reply_to_id=None):
+def _enqueue_message(msg, chat_id, reply_to_id=None, sender_id=None):
+    gate = SenderGate(expected_sender_from_environ())
+    if not gate.allow(sender_id):
+        return
     with _msg_lock:
         _inbox.append(
             (
                 str(chat_id),
                 str(reply_to_id) if reply_to_id is not None else "",
                 str(msg),
+                str(sender_id) if sender_id is not None else "",
             )
         )
 
@@ -58,7 +63,14 @@ def getLastMessage():
     with _msg_lock:
         if not _inbox:
             return ""
-        chat_id, reply_to_id, message = _inbox.popleft()
+        item = _inbox.popleft()
+    if len(item) == 4:
+        chat_id, reply_to_id, message, sender_id = item
+    else:
+        chat_id, reply_to_id, message = item
+        sender_id = ""
+    if sender_id:
+        set_current_sender(sender_id)
     return f"[{chat_id}] [{reply_to_id}] {message}"
 
 
@@ -407,7 +419,7 @@ def _process_update(update):
 
     if state == "allow":
         _flush_deferred_default_outbox()
-        _enqueue_message(f"{display_name}: {text}", chat_id, message_id)
+        _enqueue_message(f"{display_name}: {text}", chat_id, message_id, sender_id=user_id)
     elif state == "auth_bound":
         send_message(
             f"Authentication successful. {display_name} is now the bot owner. "
