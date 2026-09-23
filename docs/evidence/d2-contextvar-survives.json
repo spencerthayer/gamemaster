@@ -1,0 +1,12 @@
+{
+  "python_version": "3.11.2 (main, May 12 2026, 05:17:27) [GCC 12.2.0]",
+  "channel": "metta-two-pycall-probe",
+  "thread_boundaries": "petta-swipl-py-call",
+  "asyncio_task_boundaries": "none",
+  "opaque_sender_at_receive": "42",
+  "current_sender_at_pycall": "42",
+  "contextvar_survives": true,
+  "omega_commit": "ac3d5c304f9c00bd4e6e257a524145a34be3ebe8",
+  "display_identity": "Bob",
+  "opaque_sender_applied_at_receive": "42"
+}

@@ -46,6 +46,19 @@ Deployment costs one process per participant. Rebinding requires regenerating
 the expected-sender environment and restarting the process for the new
 principal to be accepted.
 
+## Channel matrix
+
+| Channel | Authenticated principal |
+|---|---|
+| Telegram | Platform user id |
+| Slack | Platform user id |
+| Mattermost | Platform user id |
+| IRC | Normalized nick |
+| WebSocket | `websocket:` + SHA-256 of `WS_TOKEN` |
+
+A player WebSocket process requires `WS_TOKEN`. Two services must not share
+one bot token.
+
 ## Alternatives
 
 - Parse display names from `HUMAN-MSG`. Rejected as forgeable.

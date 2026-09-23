@@ -55,6 +55,7 @@ Delivery semantics
 """
 
 import json
+import hashlib
 import os
 import random
 import threading
@@ -74,6 +75,7 @@ try:
     import channels
 except ModuleNotFoundError:
     import src.channels as channels
+from sender import SenderGate, expected_sender_from_environ, set_current_sender
 
 logger = get_logger(__name__)
 
@@ -91,6 +93,14 @@ _ws_token = ""
 _inbox = deque(maxlen=256)
 _outbox = deque(maxlen=100)
 _last_seen_seq = None
+
+
+def websocket_principal(token: str) -> str | None:
+    token = str(token or "").strip()
+    if not token:
+        return None
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return f"websocket:{digest}"
 
 
 def _ensure_websockets_available():
@@ -164,12 +174,16 @@ def _send_json(payload, ws=None):
 
 
 def _enqueue_user_message(seq, text):
+    principal = websocket_principal(_ws_token)
+    gate = SenderGate(expected_sender_from_environ())
+    if not gate.allow(principal):
+        return False
     with _msg_lock:
         if _last_seen_seq is not None and seq <= _last_seen_seq:
             return False
         if _inbox and seq <= _inbox[-1][0]:
             return False
-        _inbox.append((seq, text))
+        _inbox.append((seq, text, principal or ""))
         return True
 
 
@@ -320,7 +334,20 @@ def getLastMessage():
         _inbox.clear()
         _last_seen_seq = batch[-1][0]
 
-    return " | ".join(text for _, text in batch)
+    last_principal = ""
+    texts = []
+    for item in batch:
+        if len(item) == 3:
+            _seq, text, principal = item
+        else:
+            _seq, text = item
+            principal = ""
+        texts.append(text)
+        if principal:
+            last_principal = principal
+    if last_principal:
+        set_current_sender(last_principal)
+    return " | ".join(texts)
 
 
 def send_message(text):

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
+
+import pytest
 
 _CHANNELS = Path(__file__).resolve().parents[1] / "channels"
 if str(_CHANNELS) not in sys.path:
@@ -46,3 +49,23 @@ def test_display_name_does_not_set_sender() -> None:
 def test_empty_receive_leaves_sender() -> None:
     set_current_sender("42")
     assert current_sender() == "42"
+
+
+@pytest.mark.parametrize(
+    ("adapter", "authenticated"),
+    [
+        ("telegram", "42"),
+        ("slack", "U123"),
+        ("mattermost", "mm-user"),
+        ("irc", "alice"),
+        (
+            "websocket",
+            "websocket:" + hashlib.sha256(b"token").hexdigest(),
+        ),
+    ],
+)
+def test_channel_matrix_gate_rejects_mismatch(adapter: str, authenticated: str) -> None:
+    gate = SenderGate(authenticated)
+    assert gate.accept_turn("wrong", f"via {adapter}") is None
+    assert gate.accept_turn(authenticated, f"via {adapter}") == f"via {adapter}"
+    assert current_sender() == authenticated

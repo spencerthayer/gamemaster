@@ -41,6 +41,11 @@ from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
 from tabletop.campaign.relationships import resolve_relationship_overlay
 from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
 from tabletop.campaign.selection import read_active_campaign_file
+from tabletop.campaign.sender_binding import (
+    SenderBindingError,
+    verify_startup_binding,
+    verify_turn_sender,
+)
 from tabletop.campaign.setting_events import SettingEventStore, SettingEventType
 from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
@@ -232,7 +237,7 @@ class TabletopRuntime:
                 connection.close()
                 raise
         try:
-            return cls(
+            runtime = cls(
                 root,
                 workspace=workspace,
                 campaign_roots=campaign_roots,
@@ -241,10 +246,45 @@ class TabletopRuntime:
                 connection=connection,
                 participant_id=participant_id,
             )
+            if connection is not None and participant_id:
+                verify_startup_binding(
+                    connection,
+                    workspace=workspace,
+                    campaign_id=active_campaign,
+                    participant_id=participant_id,
+                    environ=env,
+                )
+            return runtime
         except BaseException:
             if connection is not None:
                 connection.close()
             raise
+
+    def authorize_channel_turn(
+        self,
+        authenticated_sender: str | None,
+        *,
+        environ: Mapping[str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Return an error envelope when a channel turn must not run a skill."""
+
+        if self._connection is None:
+            return None
+        code = verify_turn_sender(
+            self._connection,
+            workspace=self._workspace,
+            campaign_id=self.active_campaign,
+            participant_id=self.participant_id,
+            authenticated_sender=authenticated_sender,
+            environ=environ,
+        )
+        if code is None:
+            return None
+        return self._error(
+            "authorize-turn",
+            code,
+            f"channel turn rejected: {code}",
+        )
 
     @staticmethod
     def _paths_from_env(value: str | None, *, defaults: tuple[Path, ...]) -> tuple[Path, ...]:

@@ -6,16 +6,18 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 import auth
 from src.logger import get_logger
 from delivery_queue import PendingMessages
 import channels
 from config import config_get_by_key
+from sender import SenderGate, expected_sender_from_environ, set_current_sender
 
 logger = get_logger(__name__)
 
 _running = False
-_last_message = ""
+_inbox = deque()
 _msg_lock = threading.Lock()
 _state_lock = threading.Lock()
 
@@ -98,21 +100,29 @@ def _download_file(url, timeout=30):
             attach = None
         return attach
         
-def _set_last(msg):
-    global _last_message
+def _enqueue_message(sender_id, msg):
+    gate = SenderGate(expected_sender_from_environ())
+    if not gate.allow(sender_id):
+        return
     with _msg_lock:
-        if _last_message == "":
-            _last_message = msg
-        else:
-            _last_message = _last_message + " | " + msg
+        _inbox.append((str(sender_id) if sender_id is not None else "", str(msg)))
 
 
 def getLastMessage():
-    global _last_message
     with _msg_lock:
-        tmp = _last_message
-        _last_message = ""
-        return tmp
+        if not _inbox:
+            return ""
+        batch = list(_inbox)
+        _inbox.clear()
+    texts = []
+    last_sender = ""
+    for sender_id, text in batch:
+        if sender_id:
+            last_sender = sender_id
+        texts.append(text)
+    if last_sender:
+        set_current_sender(last_sender)
+    return " | ".join(texts)
 
 
 def _parse_auth_candidate(msg):
@@ -442,7 +452,7 @@ def _poll_channel(channel_id):
                 else:
                     text = "\n".join(file_info)
 
-            _set_last(f"<@{user_id}> ({display_name}): {text}")
+            _enqueue_message(user_id, f"<@{user_id}> ({display_name}): {text}")
         elif state == "auth_bound":
             send_message(f"Authentication successful for {display_name}.")
 

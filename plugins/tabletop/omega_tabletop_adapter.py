@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_CHANNELS = _REPO_ROOT / "channels"
+if str(_CHANNELS) not in sys.path:
+    sys.path.insert(0, str(_CHANNELS))
+
+from sender import current_sender  # noqa: E402
+
 _RUNTIME = None
 _SKILLS_REGISTERED = False
 _CONTEXT_UNAVAILABLE = "Tabletop context is unavailable."
@@ -324,6 +330,9 @@ def allocated_context_text() -> str:
 def _invoke(method_name: str, *args: Any) -> str:
     try:
         runtime = initialize()
+        denied = runtime.authorize_channel_turn(current_sender())
+        if denied is not None:
+            return _encode(denied)
         method = getattr(runtime, method_name)
         result = method(*args)
         return _encode(result)
