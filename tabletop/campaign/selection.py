@@ -35,3 +35,16 @@ def write_active_campaign_file(database_path: Path, campaign_id: str) -> Path:
     path = active_campaign_path(database_path)
     path.write_text(f"{campaign_id}\n", encoding="utf-8")
     return path
+
+
+def clear_active_campaign_file(database_path: Path, campaign_id: str) -> None:
+    """Remove the selection file when it names ``campaign_id``."""
+    path = active_campaign_path(database_path)
+    if not path.is_file():
+        return
+    try:
+        current = read_active_campaign_file(database_path)
+    except ValueError:
+        return
+    if current == campaign_id:
+        path.unlink()

@@ -64,6 +64,22 @@ def test_library_ingest_and_document_add(tmp_path: Path) -> None:
     assert ingest.returncode == 0, ingest.stderr
     assert "ingested document" in ingest.stdout
 
+    archived = _run("campaign", "archive", "--id", "night", database=database, cwd=tmp_path)
+    assert archived.returncode == 0, archived.stderr
+    blocked = _run(
+        "library",
+        "ingest",
+        "notes.md",
+        "--campaign",
+        "night",
+        database=database,
+        cwd=tmp_path,
+    )
+    assert blocked.returncode != 0
+    assert "archived" in blocked.stderr
+    restored = _run("campaign", "restore", "--id", "night", database=database, cwd=tmp_path)
+    assert restored.returncode == 0, restored.stderr
+
     more = tmp_path / "more.md"
     more.write_text("# More\n\nAnother note.\n", encoding="utf-8")
     add = _run(

@@ -48,6 +48,21 @@ def _create(database: Path, campaign_id: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_select_rejects_archived_and_archive_clears_selection(tmp_path: Path) -> None:
+    database = tmp_path / "state" / "campaign.db"
+    database.parent.mkdir(parents=True)
+    _create(database, "night")
+    assert _run("campaign", "select", "night", database=database).returncode == 0
+    archive = _run("campaign", "archive", "--id", "night", database=database)
+    assert archive.returncode == 0, archive.stderr
+    active = database.parent / "active-campaign"
+    assert not active.exists()
+    selected = _run("campaign", "select", "night", database=database)
+    assert selected.returncode != 0
+    assert "archived" in selected.stderr
+    assert not active.exists()
+
+
 def test_select_writes_active_campaign_file(tmp_path: Path) -> None:
     database = tmp_path / "state" / "campaign.db"
     database.parent.mkdir(parents=True)

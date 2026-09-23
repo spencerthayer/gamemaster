@@ -63,6 +63,71 @@ def _prepare(database: Path, cwd: Path) -> None:
     )
 
 
+def test_entity_create_rejects_archived_campaign(tmp_path: Path) -> None:
+    database = tmp_path / "campaign.db"
+    _prepare(database, tmp_path)
+    assert (
+        _run("campaign", "archive", "--id", "night", database=database, cwd=tmp_path).returncode
+        == 0
+    )
+    state = tmp_path / "character.json"
+    state.write_text("{}", encoding="utf-8")
+    result = _run(
+        "campaign",
+        "entity",
+        "create",
+        "--campaign",
+        "night",
+        "--id",
+        "ada",
+        "--kind",
+        "character",
+        "--name",
+        "Ada",
+        "--state",
+        "character.json",
+        database=database,
+        cwd=tmp_path,
+    )
+    assert result.returncode != 0
+    assert "archived" in result.stderr
+
+
+def test_entity_create_missing_plugin_is_operator_error(tmp_path: Path) -> None:
+    database = tmp_path / "campaign.db"
+    _prepare(database, tmp_path)
+    conn = connect(database)
+    try:
+        migrate(conn)
+        conn.execute(
+            "UPDATE campaigns SET system_id = ? WHERE campaign_id = ?",
+            ("missing-system", "night"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    state = tmp_path / "character.json"
+    state.write_text("{}", encoding="utf-8")
+    result = _run(
+        "campaign",
+        "entity",
+        "create",
+        "--id",
+        "ada",
+        "--kind",
+        "character",
+        "--name",
+        "Ada",
+        "--state",
+        "character.json",
+        database=database,
+        cwd=tmp_path,
+    )
+    assert result.returncode != 0
+    assert "not installed" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_entity_create_and_reject_duplicate(tmp_path: Path) -> None:
     database = tmp_path / "campaign.db"
     _prepare(database, tmp_path)

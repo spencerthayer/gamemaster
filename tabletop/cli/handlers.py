@@ -11,9 +11,12 @@ from typing import Any, Mapping
 
 from tabletop.api.errors import ContentPackError, PluginNotFoundError
 from tabletop.api.events import GameEvent
-from tabletop.api.plugin import is_compatible_api_version
+from tabletop.api.plugin import GameSystemPlugin, is_compatible_api_version
 from tabletop.campaign.event_store import EventStore, EventType
-from tabletop.campaign.selection import write_active_campaign_file
+from tabletop.campaign.selection import (
+    clear_active_campaign_file,
+    write_active_campaign_file,
+)
 from tabletop.campaign.store import CampaignStore
 from tabletop.cli.runtime_factory import open_operator_runtime, resolve_campaign_id
 from tabletop.cli.util import (
@@ -26,6 +29,22 @@ from tabletop.documents.content_pack import load_content_pack
 from tabletop.documents.ingest import IngestContext
 from tabletop.documents.markdown import MarkdownIngestor
 from tabletop.storage.sqlite import transaction
+
+
+def _plugin_for_campaign(system_id: str, campaign_id: str) -> GameSystemPlugin:
+    try:
+        return load_plugin_registry().get(system_id)
+    except PluginNotFoundError as exc:
+        raise SystemExit(
+            f"system plugin for campaign {campaign_id!r} is not installed"
+        ) from exc
+
+
+def _reject_archived(campaign: Mapping[str, Any], campaign_id: str) -> None:
+    if campaign.get("archived_at"):
+        raise SystemExit(
+            f"campaign {campaign_id!r} is archived and cannot be modified"
+        )
 
 
 def _print_runtime_error(result: Mapping[str, Any]) -> int:
@@ -120,6 +139,10 @@ def cmd_campaign_select(args: argparse.Namespace) -> int:
         conn.close()
     if campaign is None:
         raise SystemExit(f"campaign {campaign_id!r} not found")
+    if campaign.get("archived_at"):
+        raise SystemExit(
+            f"campaign {campaign_id!r} is archived and cannot be selected"
+        )
     write_active_campaign_file(database_path, campaign_id)
     print(f"selected campaign {campaign_id}")
     return 0
@@ -214,6 +237,7 @@ def cmd_campaign_archive(args: argparse.Namespace) -> int:
             raise SystemExit(str(exc)) from exc
     finally:
         conn.close()
+    clear_active_campaign_file(require_database_path(), campaign_id)
     print(f"archived campaign {campaign_id}")
     return 0
 
@@ -276,8 +300,8 @@ def cmd_entity_create(args: argparse.Namespace) -> int:
         campaign = store.get_campaign(campaign_id)
         if campaign is None:
             raise SystemExit(f"campaign {campaign_id!r} not found")
-        registry = load_plugin_registry()
-        plugin = registry.get(campaign["system_id"])
+        _reject_archived(campaign, campaign_id)
+        plugin = _plugin_for_campaign(campaign["system_id"], campaign_id)
         validation = plugin.validate_entity_state(args.kind, state)
         if not validation.valid:
             for issue in validation.issues:
@@ -311,8 +335,8 @@ def cmd_entity_update(args: argparse.Namespace) -> int:
         existing = store.get_entity(campaign_id, args.entity_id)
         if existing is None:
             raise SystemExit(f"entity {args.entity_id!r} not found")
-        registry = load_plugin_registry()
-        plugin = registry.get(campaign["system_id"])
+        _reject_archived(campaign, campaign_id)
+        plugin = _plugin_for_campaign(campaign["system_id"], campaign_id)
         payload = state if state is not None else existing["system_state"]
         kind = args.kind or existing.get("entity_type") or "character"
         validation = plugin.validate_entity_state(kind, payload)
@@ -345,7 +369,7 @@ def cmd_state_validate(args: argparse.Namespace) -> int:
         conn.close()
     if campaign is None:
         raise SystemExit(f"campaign {campaign_id!r} not found")
-    plugin = load_plugin_registry().get(campaign["system_id"])
+    plugin = _plugin_for_campaign(campaign["system_id"], campaign_id)
     result = plugin.validate_state(payload)
     if not result.valid:
         for issue in result.issues:
@@ -364,7 +388,8 @@ def cmd_state_apply(args: argparse.Namespace) -> int:
         campaign = store.get_campaign(campaign_id)
         if campaign is None:
             raise SystemExit(f"campaign {campaign_id!r} not found")
-        plugin = load_plugin_registry().get(campaign["system_id"])
+        _reject_archived(campaign, campaign_id)
+        plugin = _plugin_for_campaign(campaign["system_id"], campaign_id)
         result = plugin.validate_state(payload)
         if not result.valid:
             for issue in result.issues:
@@ -388,6 +413,7 @@ def _ingest_markdown(path: Path, *, campaign_id: str, content_pack_id: str | Non
         campaign = CampaignStore(conn).get_campaign(campaign_id)
         if campaign is None:
             raise SystemExit(f"campaign {campaign_id!r} not found")
+        _reject_archived(campaign, campaign_id)
         context = IngestContext(
             connection=conn,
             content_pack_id=content_pack_id,
