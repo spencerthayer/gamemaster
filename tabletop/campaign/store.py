@@ -38,6 +38,7 @@ class CampaignStore:
         setting_id: str | None = None,
         created_at: str | None = None,
         system_state: Mapping[str, Any] | None = None,
+        system_version: str | None = None,
     ) -> None:
         if created_at is None:
             created_at = datetime.now(timezone.utc).isoformat()
@@ -45,8 +46,9 @@ class CampaignStore:
         with transaction(self.conn):
             self.conn.execute(
                 "INSERT INTO campaigns "
-                "(campaign_id, name, system_id, setting_id, created_at, system_state) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(campaign_id, name, system_id, setting_id, created_at, system_state, "
+                "system_version) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     campaign_id,
                     name,
@@ -54,12 +56,14 @@ class CampaignStore:
                     setting_id,
                     created_at,
                     encoded_state,
+                    system_version,
                 ),
             )
 
     def get_campaign(self, campaign_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT campaign_id, name, system_id, setting_id, created_at, system_state "
+            "SELECT campaign_id, name, system_id, setting_id, created_at, system_state, "
+            "system_version "
             "FROM campaigns WHERE campaign_id = ?",
             (campaign_id,),
         ).fetchone()
@@ -67,7 +71,8 @@ class CampaignStore:
 
     def list_campaigns(self) -> list[dict[str, Any]]:
         rows = self.conn.execute(
-            "SELECT campaign_id, name, system_id, setting_id, created_at, system_state "
+            "SELECT campaign_id, name, system_id, setting_id, created_at, system_state, "
+            "system_version "
             "FROM campaigns ORDER BY created_at, campaign_id"
         ).fetchall()
         return [_campaign_from_row(row) for row in rows]
