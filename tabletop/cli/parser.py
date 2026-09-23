@@ -97,6 +97,52 @@ def build_parser() -> argparse.ArgumentParser:
     entity_update.add_argument("--campaign", default=None)
     entity_update.set_defaults(handler=handlers.cmd_entity_update)
 
+    participant = campaign_sub.add_parser(
+        "participant",
+        help="Add and bind campaign participants.",
+    )
+    participant_sub = participant.add_subparsers(dest="participant_command")
+    participant_add = participant_sub.add_parser("add", help="Add a participant.")
+    participant_add.add_argument("--id", required=True, dest="participant_id")
+    participant_add.add_argument("--name", required=True)
+    participant_add.add_argument("--role", required=True, choices=("gm", "player"))
+    participant_add.add_argument("--campaign", default=None)
+    participant_add.set_defaults(handler=handlers.cmd_participant_add)
+    participant_bind = participant_sub.add_parser("bind", help="Bind a channel principal.")
+    participant_bind.add_argument("--participant", required=True)
+    participant_bind.add_argument("--channel", required=True)
+    participant_bind.add_argument("--external-id", required=True)
+    participant_bind.add_argument("--campaign", default=None)
+    participant_bind.set_defaults(handler=handlers.cmd_participant_bind)
+    participant_unbind = participant_sub.add_parser(
+        "unbind",
+        help="Remove a channel principal binding.",
+    )
+    participant_unbind.add_argument("--participant", required=True)
+    participant_unbind.add_argument("--channel", required=True)
+    participant_unbind.add_argument("--campaign", default=None)
+    participant_unbind.set_defaults(handler=handlers.cmd_participant_unbind)
+
+    character = campaign_sub.add_parser(
+        "character",
+        help="Grant and revoke character control.",
+    )
+    character_sub = character.add_subparsers(dest="character_command")
+    character_grant = character_sub.add_parser("grant", help="Grant character control.")
+    character_grant.add_argument("--participant", required=True)
+    character_grant.add_argument("--entity", required=True)
+    character_grant.add_argument(
+        "--control",
+        required=True,
+        choices=("owner", "shared", "gm", "temporary"),
+    )
+    character_grant.add_argument("--campaign", default=None)
+    character_grant.set_defaults(handler=handlers.cmd_character_grant)
+    character_revoke = character_sub.add_parser("revoke", help="Revoke character control.")
+    character_revoke.add_argument("--control-id", required=True)
+    character_revoke.add_argument("--campaign", default=None)
+    character_revoke.set_defaults(handler=handlers.cmd_character_revoke)
+
     state = campaign_sub.add_parser("state", help="Validate or apply campaign system state.")
     state_sub = state.add_subparsers(dest="state_command")
     state_validate = state_sub.add_parser("validate", help="Validate opaque system state.")

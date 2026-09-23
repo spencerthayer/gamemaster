@@ -51,6 +51,10 @@ class EventType(str, Enum):
     QUEST_MUTATED = "quest.mutated"
     CAMPAIGN_ARCHIVED = "campaign.archived"
     CAMPAIGN_RESTORED = "campaign.restored"
+    PARTICIPANT_ADDED = "participant.added"
+    PARTICIPANT_REMOVED = "participant.removed"
+    CHARACTER_CONTROL_GRANTED = "character_control.granted"
+    CHARACTER_CONTROL_ENDED = "character_control.ended"
 
 
 def event_domain(event_type: EventType) -> str:
@@ -78,6 +82,10 @@ def event_domain(event_type: EventType) -> str:
             | EventType.QUEST_MUTATED
             | EventType.CAMPAIGN_ARCHIVED
             | EventType.CAMPAIGN_RESTORED
+            | EventType.PARTICIPANT_ADDED
+            | EventType.PARTICIPANT_REMOVED
+            | EventType.CHARACTER_CONTROL_GRANTED
+            | EventType.CHARACTER_CONTROL_ENDED
         ):
             return "play"
         case _:

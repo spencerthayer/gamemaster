@@ -13,6 +13,7 @@ from tabletop.api.errors import ContentPackError, PluginNotFoundError
 from tabletop.api.events import GameEvent
 from tabletop.api.plugin import GameSystemPlugin, is_compatible_api_version
 from tabletop.campaign.event_store import EventStore, EventType
+from tabletop.campaign.membership import MembershipStore, validate_participant_id
 from tabletop.campaign.selection import (
     clear_active_campaign_file,
     write_active_campaign_file,
@@ -112,10 +113,14 @@ def cmd_campaign_inspect(args: argparse.Namespace) -> int:
     conn = open_database()
     try:
         campaign = CampaignStore(conn).get_campaign(args.campaign_id)
+        if campaign is None:
+            raise SystemExit(f"campaign {args.campaign_id!r} not found")
+        membership = MembershipStore(conn)
+        participants = membership.list_participants(args.campaign_id)
+        principals = membership.list_principals(args.campaign_id)
+        controls = membership.list_controls(args.campaign_id)
     finally:
         conn.close()
-    if campaign is None:
-        raise SystemExit(f"campaign {args.campaign_id!r} not found")
     for key in (
         "campaign_id",
         "name",
@@ -126,6 +131,18 @@ def cmd_campaign_inspect(args: argparse.Namespace) -> int:
         "archived_at",
     ):
         print(f"{key}: {campaign.get(key)}")
+    print(f"participants: {len(participants)}")
+    for row in participants:
+        print(f"  {row['participant_id']}\t{row['role']}\t{row['display_name']}")
+    print(f"principals: {len(principals)}")
+    for row in principals:
+        print(f"  {row['participant_id']}\t{row['channel']}\t{row['external_id']}")
+    print(f"controls: {len(controls)}")
+    for row in controls:
+        print(
+            f"  {row['control_id']}\t{row['participant_id']}\t"
+            f"{row['entity_id']}\t{row['control']}"
+        )
     return 0
 
 
@@ -494,6 +511,91 @@ def cmd_content_pack_ingest(args: argparse.Namespace) -> int:
         )
         ingested += 1
     print(f"ingested {ingested} files from content pack {manifest.id}")
+    return 0
+
+
+def cmd_participant_add(args: argparse.Namespace) -> int:
+    campaign_id = resolve_campaign_id(campaign_id=getattr(args, "campaign", None))
+    participant_id = validate_participant_id(args.participant_id)
+    conn = open_database()
+    try:
+        MembershipStore(conn).add_participant(
+            campaign_id,
+            participant_id,
+            args.name,
+            args.role,
+        )
+    except (sqlite3.IntegrityError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(f"added participant {participant_id}")
+    return 0
+
+
+def cmd_participant_bind(args: argparse.Namespace) -> int:
+    campaign_id = resolve_campaign_id(campaign_id=getattr(args, "campaign", None))
+    conn = open_database()
+    try:
+        MembershipStore(conn).bind_principal(
+            campaign_id,
+            args.participant,
+            args.channel,
+            args.external_id,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(f"bound {args.participant} on {args.channel}")
+    return 0
+
+
+def cmd_participant_unbind(args: argparse.Namespace) -> int:
+    campaign_id = resolve_campaign_id(campaign_id=getattr(args, "campaign", None))
+    conn = open_database()
+    try:
+        MembershipStore(conn).unbind_principal(
+            campaign_id,
+            args.participant,
+            args.channel,
+        )
+    except LookupError as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(f"unbound {args.participant} on {args.channel}")
+    return 0
+
+
+def cmd_character_grant(args: argparse.Namespace) -> int:
+    campaign_id = resolve_campaign_id(campaign_id=getattr(args, "campaign", None))
+    conn = open_database()
+    try:
+        control_id = MembershipStore(conn).grant_control(
+            campaign_id,
+            args.participant,
+            args.entity,
+            args.control,
+        )
+    except (sqlite3.IntegrityError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(f"granted control {control_id}")
+    return 0
+
+
+def cmd_character_revoke(args: argparse.Namespace) -> int:
+    campaign_id = resolve_campaign_id(campaign_id=getattr(args, "campaign", None))
+    conn = open_database()
+    try:
+        MembershipStore(conn).revoke_control(campaign_id, args.control_id)
+    except LookupError as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        conn.close()
+    print(f"revoked control {args.control_id}")
     return 0
 
 

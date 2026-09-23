@@ -49,6 +49,10 @@ REPLAY_REQUIRED = frozenset(
         EventType.QUEST_MUTATED,
         EventType.CAMPAIGN_ARCHIVED,
         EventType.CAMPAIGN_RESTORED,
+        EventType.PARTICIPANT_ADDED,
+        EventType.PARTICIPANT_REMOVED,
+        EventType.CHARACTER_CONTROL_GRANTED,
+        EventType.CHARACTER_CONTROL_ENDED,
     }
 )
 AUDIT_ONLY = frozenset(
@@ -267,6 +271,57 @@ def _sequence(event_type: EventType) -> tuple[tuple[PersistedEvent, ...], tuple[
             event(
                 EventType.CAMPAIGN_RESTORED,
                 {"restored_at": "2026-09-22T03:00:00Z"},
+                sequence=2,
+            ),
+        )
+    if event_type is EventType.PARTICIPANT_ADDED:
+        return (), (
+            event(
+                EventType.PARTICIPANT_ADDED,
+                {
+                    "participant_id": "p1",
+                    "display_name": "Ada",
+                    "role": "player",
+                    "created_at": "2026-09-22T00:00:00Z",
+                },
+            ),
+        )
+    if event_type is EventType.PARTICIPANT_REMOVED:
+        added = _sequence(EventType.PARTICIPANT_ADDED)[1][0]
+        return (added,), (
+            added,
+            event(
+                EventType.PARTICIPANT_REMOVED,
+                {"participant_id": "p1", "removed_at": "2026-09-22T01:00:00Z"},
+                sequence=2,
+            ),
+        )
+    if event_type is EventType.CHARACTER_CONTROL_GRANTED:
+        return (), (
+            event(
+                EventType.CHARACTER_CONTROL_GRANTED,
+                {
+                    "control_id": "c1",
+                    "participant_id": "p1",
+                    "entity_id": "ada",
+                    "control": "owner",
+                    "created_at": "2026-09-22T00:00:00Z",
+                },
+            ),
+        )
+    if event_type is EventType.CHARACTER_CONTROL_ENDED:
+        granted = _sequence(EventType.CHARACTER_CONTROL_GRANTED)[1][0]
+        return (granted,), (
+            granted,
+            event(
+                EventType.CHARACTER_CONTROL_ENDED,
+                {
+                    "control_id": "c1",
+                    "participant_id": "p1",
+                    "entity_id": "ada",
+                    "control": "owner",
+                    "ended_at": "2026-09-22T01:00:00Z",
+                },
                 sequence=2,
             ),
         )
