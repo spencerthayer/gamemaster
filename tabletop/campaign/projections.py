@@ -81,6 +81,8 @@ class CampaignProjection:
     rulings: Mapping[str, ProjectedRuling] = field(default_factory=dict)
     sessions: Mapping[str, ProjectedSession] = field(default_factory=dict)
     archived_at: str | None = None
+    participants: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    character_controls: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
 
 def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
@@ -96,6 +98,8 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
     campaign_id: str | None = None
     sequence: int | None = None
     archived_at: str | None = None
+    participants: dict[str, dict[str, Any]] = {}
+    character_controls: dict[str, dict[str, Any]] = {}
 
     for event in events:
         if campaign_id is not None and event.campaign_id != campaign_id:
@@ -184,6 +188,52 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     raise ValueError("campaign.archived requires archived_at")
             case EventType.CAMPAIGN_RESTORED:
                 archived_at = None
+            case EventType.PARTICIPANT_ADDED:
+                pid = event.payload.get("participant_id")
+                if isinstance(pid, str) and pid:
+                    participants[pid] = {
+                        "participant_id": pid,
+                        "display_name": event.payload.get("display_name"),
+                        "role": event.payload.get("role"),
+                        "created_at": event.payload.get("created_at"),
+                    }
+                elif event.event_schema_version >= 1:
+                    raise ValueError("participant.added requires participant_id")
+            case EventType.PARTICIPANT_REMOVED:
+                pid = event.payload.get("participant_id")
+                if isinstance(pid, str):
+                    participants.pop(pid, None)
+                elif event.event_schema_version >= 1:
+                    raise ValueError("participant.removed requires participant_id")
+            case EventType.CHARACTER_CONTROL_GRANTED:
+                cid = event.payload.get("control_id")
+                if isinstance(cid, str) and cid:
+                    character_controls[cid] = {
+                        "control_id": cid,
+                        "participant_id": event.payload.get("participant_id"),
+                        "entity_id": event.payload.get("entity_id"),
+                        "control": event.payload.get("control"),
+                        "created_at": event.payload.get("created_at"),
+                        "ended_at": None,
+                    }
+                elif event.event_schema_version >= 1:
+                    raise ValueError("character_control.granted requires control_id")
+            case EventType.CHARACTER_CONTROL_ENDED:
+                cid = event.payload.get("control_id")
+                if isinstance(cid, str) and cid in character_controls:
+                    existing = dict(character_controls[cid])
+                    existing["ended_at"] = event.payload.get("ended_at")
+                    character_controls[cid] = existing
+                elif isinstance(cid, str):
+                    character_controls[cid] = {
+                        "control_id": cid,
+                        "participant_id": event.payload.get("participant_id"),
+                        "entity_id": event.payload.get("entity_id"),
+                        "control": event.payload.get("control"),
+                        "ended_at": event.payload.get("ended_at"),
+                    }
+                elif event.event_schema_version >= 1:
+                    raise ValueError("character_control.ended requires control_id")
             case EventType.SCENE_OPENED | EventType.SCENE_CLOSED:
                 pass
             case _:
@@ -205,6 +255,8 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
         rulings=dict(rulings),
         sessions=dict(sessions),
         archived_at=archived_at,
+        participants=copy.deepcopy(participants),
+        character_controls=copy.deepcopy(character_controls),
     )
 
 
