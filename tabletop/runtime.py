@@ -417,8 +417,15 @@ class TabletopRuntime:
     def current_scene(self) -> dict[str, Any]:
         return self._unavailable("current-scene", phase=11)
 
-    def query_rules(self, query: str) -> dict[str, Any]:
-        """Search the system rules corpus with lexical retrieval."""
+    def query_rules(
+        self,
+        query: str,
+        *,
+        content_pack_id: str | None = None,
+        system_id: str | None = None,
+        visibility: str | None = None,
+    ) -> dict[str, Any]:
+        """Search system rules with optional campaign/content-pack scoping."""
         if self._connection is None:
             return self._storage_required("query-rules")
         needle = query.strip()
@@ -428,10 +435,19 @@ class TabletopRuntime:
                 "invalid_query",
                 "query-rules requires a non-empty query.",
             )
+        if system_id is None and self.active_campaign:
+            campaign = CampaignStore(self._connection).get_campaign(self.active_campaign)
+            if campaign is not None:
+                system_id = campaign.get("system_id")
         try:
             chunks = LexicalRetriever(self._connection).search(
                 needle,
-                RetrievalFilters(namespace=RetrievalNamespace.SYSTEM),
+                RetrievalFilters(
+                    namespace=RetrievalNamespace.SYSTEM,
+                    content_pack_id=content_pack_id,
+                    system_id=system_id,
+                    visibility=visibility,
+                ),
                 limit=10,
             )
         except (GameSystemError, sqlite3.Error, ValueError) as exc:
