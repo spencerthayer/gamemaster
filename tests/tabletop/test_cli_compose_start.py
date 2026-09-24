@@ -186,7 +186,7 @@ def test_runtime_env_expansion_handles_nested_defaults() -> None:
     assert handlers._expand_env_value(expression, {"MM_BOT_TOKEN": "outer"}) == "outer"
 
 
-def test_runtime_configuration_does_not_use_host_database_path(
+def test_runtime_configuration_uses_file_container_path_over_host_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = tmp_path / "runtime.env"
@@ -197,10 +197,11 @@ def test_runtime_configuration_does_not_use_host_database_path(
     )
     monkeypatch.setattr(handlers, "RUNTIME_ENV_FILE", runtime)
 
-    with pytest.raises(SystemExit, match="TABLETOP_CONTAINER_DATABASE_PATH"):
-        handlers._runtime_configuration(
-            {"TABLETOP_DATABASE_PATH": "/from-host"}
-        )
+    container_path, _ = handlers._runtime_configuration(
+        {"TABLETOP_DATABASE_PATH": "/from-host"}
+    )
+
+    assert container_path == "/from-file-container"
 
 
 def test_runtime_configuration_container_override_wins(

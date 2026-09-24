@@ -465,14 +465,14 @@ def _runtime_configuration(environ: Mapping[str, str] | None = None) -> tuple[st
     env = dict(os.environ if environ is None else environ)
     file_config = parse_runtime_env_file(RUNTIME_ENV_FILE, environ=env)
     container_path = env.get("TABLETOP_CONTAINER_DATABASE_PATH")
-    if not container_path and env.get("TABLETOP_DATABASE_PATH"):
-        raise SystemExit(
-            "TABLETOP_CONTAINER_DATABASE_PATH is required when "
-            "TABLETOP_DATABASE_PATH is exported"
-        )
     if not container_path:
         container_path = file_config.get("TABLETOP_CONTAINER_DATABASE_PATH")
     if not container_path:
+        if env.get("TABLETOP_DATABASE_PATH"):
+            raise SystemExit(
+                "TABLETOP_CONTAINER_DATABASE_PATH is required when "
+                "TABLETOP_DATABASE_PATH is exported"
+            )
         raise SystemExit("TABLETOP_CONTAINER_DATABASE_PATH is required for Compose launch")
     compose_dir = env.get("TABLETOP_COMPOSE_DIR") or file_config.get("TABLETOP_COMPOSE_DIR")
     compose_path = Path(compose_dir).expanduser() if compose_dir else DEFAULT_RUNTIME_COMPOSE_DIR
