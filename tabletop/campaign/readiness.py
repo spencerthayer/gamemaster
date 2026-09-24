@@ -100,7 +100,7 @@ def readiness_report(
         notices.append(
             f"participant {participant} expected sender {expected} on {channel}"
         )
-    if channel == "wschat" and not str(env.get("WS_TOKEN") or "").strip():
+    if channel in {"websocket", "wschat"} and not str(env.get("WS_TOKEN") or "").strip():
         errors.append("player workspace with WebSocket requires WS_TOKEN")
 
     open_session = conn.execute(

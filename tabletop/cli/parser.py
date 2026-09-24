@@ -312,17 +312,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     start = campaign_sub.add_parser(
         "start",
-        help="Validate then delegate launch to scripts/omega or compose.",
+        help="Validate then delegate launch to Compose.",
     )
     start.add_argument("campaign_id")
     start_group = start.add_mutually_exclusive_group(required=True)
     start_group.add_argument("--gm", action="store_true")
     start_group.add_argument("--participant", dest="participant_id", default=None)
+    start.add_argument(
+        "--channel",
+        required=True,
+        choices=tuple(handlers.CHANNELS),
+        help="Authoritative externally reachable channel.",
+    )
     start.set_defaults(handler=handlers.cmd_campaign_start)
-
     stop = campaign_sub.add_parser(
         "stop",
-        help="Delegate stop to scripts/omega or compose.",
+        help="Delegate stop to Compose.",
     )
     stop.add_argument("campaign_id")
     stop_group = stop.add_mutually_exclusive_group(required=True)
