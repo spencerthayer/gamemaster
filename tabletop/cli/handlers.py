@@ -125,7 +125,7 @@ _PARTICIPANT_CREDENTIAL_PREFIXES = tuple(
 )
 _ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _INTERPOLATION_PATTERN = re.compile(
-    r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-+?])([^}]*))?\}"
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-+?]))?"
 )
 
 
@@ -180,30 +180,66 @@ def _unescape_env_value(value: str, *, double_quoted: bool) -> str:
 
 
 def _expand_env_value(value: str, env: Mapping[str, str]) -> str:
-    def replace(match: re.Match[str]) -> str:
-        name, operator, argument = match.groups()
+    def find_closing_brace(start: int) -> int | None:
+        depth = 1
+        index = start
+        while index < len(value):
+            if value.startswith("${", index):
+                depth += 1
+                index += 2
+                continue
+            if value[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return index
+            index += 1
+        return None
+
+    expanded: list[str] = []
+    index = 0
+    while index < len(value):
+        start = value.find("${", index)
+        if start < 0:
+            expanded.append(value[index:])
+            break
+        expanded.append(value[index:start])
+        match = _INTERPOLATION_PATTERN.match(value, start)
+        if match is None:
+            expanded.append("${")
+            index = start + 2
+            continue
+        name, operator = match.groups()
+        if operator is None and value[match.end() : match.end() + 1] != "}":
+            expanded.append("${")
+            index = start + 2
+            continue
+        closing = find_closing_brace(match.end())
+        if closing is None:
+            expanded.append(value[start:])
+            break
+
+        argument = value[match.end() : closing]
         current = env.get(name)
         present = current is not None
         nonempty = present and bool(str(current).strip())
-        argument = argument or ""
         if operator in {":-", "-"}:
-            if operator == ":-" and not nonempty:
-                return argument
-            if operator == "-" and not present:
-                return argument
-            return str(current or "")
-        if operator in {":?", "?"}:
+            if (operator == ":-" and not nonempty) or (operator == "-" and not present):
+                expanded.append(_expand_env_value(argument, env))
+            else:
+                expanded.append(str(current or ""))
+        elif operator in {":?", "?"}:
             missing = not nonempty if operator == ":?" else not present
             if missing:
-                raise ValueError(argument or f"{name} is required")
-            return str(current or "")
-        if operator == ":+":
-            return argument if nonempty else ""
-        if operator == "+":
-            return argument if present else ""
-        return str(current or "")
-
-    return _INTERPOLATION_PATTERN.sub(replace, value)
+                raise ValueError(_expand_env_value(argument, env) or f"{name} is required")
+            expanded.append(str(current or ""))
+        elif operator == ":+":
+            expanded.append(_expand_env_value(argument, env) if nonempty else "")
+        elif operator == "+":
+            expanded.append(_expand_env_value(argument, env) if present else "")
+        else:
+            expanded.append(str(current or ""))
+        index = closing + 1
+    return "".join(expanded)
 
 
 def parse_runtime_env_file(

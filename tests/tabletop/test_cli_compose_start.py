@@ -180,6 +180,11 @@ def test_runtime_env_parser_matches_compose_fixture_syntax(tmp_path: Path) -> No
         "DEFAULT": "fallback",
     }
 
+def test_runtime_env_expansion_handles_nested_defaults() -> None:
+    expression = "${MM_BOT_TOKEN:-${MATTERMOST_TOKEN:-}}"
+    assert handlers._expand_env_value(expression, {}) == ""
+    assert handlers._expand_env_value(expression, {"MM_BOT_TOKEN": "outer"}) == "outer"
+
 
 def test_start_env_resolves_participant_credentials_and_scrubs_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
