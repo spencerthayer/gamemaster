@@ -333,6 +333,12 @@ def test_stop_environment_is_a_structural_whitelist(monkeypatch: pytest.MonkeyPa
         "ASI_API_KEY": "secret",
         "OMEGA_AUTH_SECRET": "secret",
         "TABLETOP_LOCAL_OPERATOR": "1",
+        "DOCKER_HOST": "tcp://docker.example:2375",
+        "DOCKER_CONTEXT": "remote",
+        "DOCKER_CONFIG": "/tmp/docker-config",
+        "DOCKER_TLS_VERIFY": "1",
+        "DOCKER_CERT_PATH": "/tmp/docker-certs",
+        "HOME": "/tmp/operator-home",
     }.items():
         monkeypatch.setenv(name, value)
     env = handlers.build_launch_env(
@@ -349,6 +355,12 @@ def test_stop_environment_is_a_structural_whitelist(monkeypatch: pytest.MonkeyPa
         "TABLETOP_CAMPAIGN": "night",
         "TABLETOP_DATABASE_PATH": "/container/db",
         "TABLETOP_PARTICIPANT": "ada-player",
+        "DOCKER_HOST": "tcp://docker.example:2375",
+        "DOCKER_CONTEXT": "remote",
+        "DOCKER_CONFIG": "/tmp/docker-config",
+        "DOCKER_TLS_VERIFY": "1",
+        "DOCKER_CERT_PATH": "/tmp/docker-certs",
+        "HOME": "/tmp/operator-home",
     }
 
 

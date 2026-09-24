@@ -446,6 +446,17 @@ def build_launch_env(
             "TABLETOP_CAMPAIGN": campaign_id,
             "TABLETOP_DATABASE_PATH": container_database_path,
         }
+        for name in (
+            "DOCKER_HOST",
+            "DOCKER_CONTEXT",
+            "DOCKER_CONFIG",
+            "DOCKER_TLS_VERIFY",
+            "DOCKER_CERT_PATH",
+            "HOME",
+        ):
+            value = os.environ.get(name)
+            if value is not None:
+                launch_env[name] = value
         if participant_id is not None:
             launch_env["TABLETOP_PARTICIPANT"] = participant_id
     else:
