@@ -123,8 +123,8 @@ def test_readme_quick_start_smoke(tmp_path: Path) -> None:
     ]
     for needle in required:
         assert needle in block, f"missing {needle!r} in quick start"
-    assert "campaign start night --gm" in block
-    assert "configured channel" in block
+    assert "campaign start night --gm --channel" in block
+    assert "campaign stop night --gm" in readme
 
     native_section = readme.split("## Import an existing campaign", 1)[1].split(
         "## ", 1

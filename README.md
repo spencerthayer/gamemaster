@@ -36,20 +36,22 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
 # Edit .env: provider keys, OMEGA_AUTH_SECRET, and a distinct channel for the
-# GM and for each player process (channel setup needs a configured channel).
+# GM and for each player process.
 export TABLETOP_DATABASE_PATH=/tmp/gamemaster-smoke.sqlite3
 python -m tabletop.cli system list
 python -m tabletop.cli campaign create --id night --name "Night Watch" --system freeform
 python -m tabletop.cli campaign select night
 python -m tabletop.cli campaign entity create --id ada --kind character --name Ada
 python -m tabletop.cli campaign participant add --id gm1 --name "GM" --role gm
+python -m tabletop.cli campaign participant bind --participant gm1 --channel irc --external-id gm1
 python -m tabletop.cli campaign validate --id night
-python -m tabletop.cli campaign start night --gm
+python -m tabletop.cli campaign start night --gm --channel irc
 ```
 
-`campaign start` checks readiness with `--require-reviewed` semantics and then
-prints the launch delegation for `scripts/omega` or Compose. Starting an
-interactive channel still needs provider and channel configuration.
+`campaign start` requires an explicit channel, resolves the participant binding,
+passes the selected channel credentials to Compose, and starts the matching
+service. Use `campaign stop night --gm` or
+`campaign stop night --participant <id>` without a channel.
 
 ## Choose or install a game system
 
@@ -111,27 +113,27 @@ python -m tabletop.cli campaign character grant --participant ada-player --entit
 
 ```bash
 python -m tabletop.cli campaign validate --id night
-python -m tabletop.cli campaign start night --gm
-# or, with Compose configured:
-docker compose up omega
+python -m tabletop.cli campaign start night --gm --channel irc
+# Stop does not need a channel or a current participant row.
+python -m tabletop.cli campaign stop night --gm
 ```
 
 ## Start the player surface
 
-One `omega-player-<participant>` process per participant, each with its own
-channel credential. WebSocket is one authenticated connection per principal and
-requires `WS_TOKEN`.
+One `omega-player-<participant>` process is generated per validated participant.
+WebSocket is one authenticated connection per principal and requires `WS_TOKEN`.
 
 ```bash
-python -m tabletop.cli campaign start night --participant ada-player
-docker compose up omega-player-ada
+python -m tabletop.cli campaign start night --participant ada-player --channel telegram
+python -m tabletop.cli campaign stop night --participant ada-player
 ```
 
 ## Connect a channel
 
-Configure the channel in `.env` and follow
-[docs/reference-configuration.md](docs/reference-configuration.md). Set
-`OMEGA_EXPECTED_SENDER` for participant-bound processes.
+Configure channel credentials in `.env` and follow
+[docs/reference-configuration.md](docs/reference-configuration.md). The CLI
+derives `OMEGA_EXPECTED_SENDER` from the participant binding for the requested
+channel.
 
 ## Add sourcebooks and documents
 

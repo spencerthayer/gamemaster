@@ -33,24 +33,78 @@ def readiness_report(
     *,
     environ: dict[str, str] | None = None,
     require_reviewed: bool = False,
+    check_persisted: bool = True,
+    check_environment: bool = True,
 ) -> dict[str, Any]:
     env = os.environ if environ is None else environ
     errors: list[str] = []
     warnings: list[str] = []
     notices: list[str] = []
+    breakdown = {
+        "pending_review": 0,
+        "applied": 0,
+        "rejected": 0,
+        "unapplyable": 0,
+    }
 
-    campaign = CampaignStore(conn).get_campaign(campaign_id)
-    if campaign is None:
-        errors.append(f"campaign {campaign_id!r} not found")
-        return {
-            "campaign_id": campaign_id,
-            "errors": errors,
-            "warnings": warnings,
-            "notices": notices,
-            "ok": False,
-            "exit_nonzero": True,
-        }
+    if check_persisted:
+        campaign = CampaignStore(conn).get_campaign(campaign_id)
+        if campaign is None:
+            errors.append(f"campaign {campaign_id!r} not found")
+        else:
+            _check_persisted_state(
+                conn,
+                campaign_id,
+                campaign,
+                errors=errors,
+                warnings=warnings,
+                notices=notices,
+                require_reviewed=require_reviewed,
+                breakdown=breakdown,
+            )
+    if check_environment:
+        _check_environment(env, errors=errors, notices=notices)
+    has_errors = bool(errors)
+    return {
+        "campaign_id": campaign_id,
+        "errors": errors,
+        "warnings": warnings,
+        "notices": notices,
+        "ok": not has_errors,
+        "exit_nonzero": has_errors,
+        "import_breakdown": breakdown,
+    }
 
+
+def _check_environment(
+    env: dict[str, str], *, errors: list[str], notices: list[str]
+) -> None:
+    channel = str(env.get(CHANNEL_ENV_VAR) or "").strip() or None
+    expected = str(env.get(EXPECTED_SENDER_ENV_VAR) or "").strip() or None
+    participant = env.get("TABLETOP_PARTICIPANT")
+    if channel and not expected:
+        errors.append(
+            f"{EXPECTED_SENDER_ENV_VAR} missing for channel {channel}"
+        )
+    if participant and channel and expected:
+        notices.append(
+            f"participant {participant} expected sender {expected} on {channel}"
+        )
+    if channel in {"websocket", "wschat"} and not str(env.get("WS_TOKEN") or "").strip():
+        errors.append("player workspace with WebSocket requires WS_TOKEN")
+
+
+def _check_persisted_state(
+    conn: sqlite3.Connection,
+    campaign_id: str,
+    campaign: dict[str, Any],
+    *,
+    errors: list[str],
+    warnings: list[str],
+    notices: list[str],
+    require_reviewed: bool,
+    breakdown: dict[str, int],
+) -> None:
     if campaign.get("archived_at"):
         errors.append("campaign is archived")
 
@@ -89,20 +143,6 @@ def readiness_report(
             )
         seen.add(key)
 
-    channel = str(env.get(CHANNEL_ENV_VAR) or "").strip() or None
-    expected = str(env.get(EXPECTED_SENDER_ENV_VAR) or "").strip() or None
-    participant = env.get("TABLETOP_PARTICIPANT")
-    if channel and not expected:
-        errors.append(
-            f"{EXPECTED_SENDER_ENV_VAR} missing for channel {channel}"
-        )
-    if participant and channel and expected:
-        notices.append(
-            f"participant {participant} expected sender {expected} on {channel}"
-        )
-    if channel == "wschat" and not str(env.get("WS_TOKEN") or "").strip():
-        errors.append("player workspace with WebSocket requires WS_TOKEN")
-
     open_session = conn.execute(
         "SELECT 1 FROM sessions WHERE campaign_id = ? AND ended_at IS NULL",
         (campaign_id,),
@@ -124,12 +164,6 @@ def readiness_report(
 
     pending_items = 0
     pending_batches = 0
-    breakdown = {
-        "pending_review": 0,
-        "applied": 0,
-        "rejected": 0,
-        "unapplyable": 0,
-    }
     try:
         batches = conn.execute(
             "SELECT import_id FROM import_batches WHERE campaign_id = ?",
@@ -158,14 +192,3 @@ def readiness_report(
             errors.append(message)
         else:
             warnings.append(message)
-
-    has_errors = bool(errors)
-    return {
-        "campaign_id": campaign_id,
-        "errors": errors,
-        "warnings": warnings,
-        "notices": notices,
-        "ok": not has_errors,
-        "exit_nonzero": has_errors,
-        "import_breakdown": breakdown,
-    }

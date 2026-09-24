@@ -5,15 +5,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
+import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping, Sequence
+
+import yaml
 
 from tabletop.api.errors import ContentPackError, PluginNotFoundError
 from tabletop.api.events import GameEvent
 from tabletop.api.plugin import GameSystemPlugin, is_compatible_api_version
+from tabletop.api.workspace import Workspace
+from tabletop.campaign import sender_binding
 from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.membership import MembershipStore, validate_participant_id
 from tabletop.campaign.readiness import readiness_report
@@ -23,11 +30,13 @@ from tabletop.campaign.selection import (
     write_active_campaign_file,
 )
 from tabletop.campaign.store import CampaignStore
+from tabletop.cli.player_service_spec import player_compose_definition
 from tabletop.cli.runtime_factory import open_operator_runtime, resolve_campaign_id
 from tabletop.cli.util import (
     load_plugin_registry,
     migrations_dir,
     open_database,
+    repo_root,
     require_database_path,
     validate_campaign_id,
 )
@@ -44,6 +53,502 @@ from tabletop.importing.store import (
     import_status_report,
 )
 from tabletop.storage.sqlite import transaction
+
+
+_REPO_ROOT = repo_root()
+
+
+def _runtime_env_file() -> Path:
+    runtime_file = _REPO_ROOT / ".env"
+    return runtime_file if runtime_file.is_file() else _REPO_ROOT / ".env.example"
+
+
+RUNTIME_ENV_FILE = _runtime_env_file()
+COMPOSE_FILE = _REPO_ROOT / "docker-compose.yml"
+DEFAULT_RUNTIME_COMPOSE_DIR = Path(tempfile.gettempdir()) / "gamemaster-compose"
+
+
+@dataclass(frozen=True)
+class ChannelSpec:
+    credential_slots: tuple[str, ...]
+    required_slots: tuple[str, ...]
+    source_prefixes: tuple[str, ...]
+    authenticated_sender_source: str = "OMEGA_EXPECTED_SENDER"
+    participant_unique: bool = True
+    uses_ws_token: bool = False
+
+
+CHANNELS: dict[str, ChannelSpec] = {
+    "telegram": ChannelSpec(
+        credential_slots=("TELEGRAM_TOKEN", "TG_BOT_TOKEN"),
+        required_slots=("TELEGRAM_TOKEN",),
+        source_prefixes=("TELEGRAM_TOKEN", "TG_BOT_TOKEN"),
+    ),
+    "slack": ChannelSpec(
+        credential_slots=("SLACK_TOKEN", "SL_BOT_TOKEN"),
+        required_slots=("SLACK_TOKEN",),
+        source_prefixes=("SLACK_TOKEN", "SL_BOT_TOKEN"),
+    ),
+    "mattermost": ChannelSpec(
+        credential_slots=("MATTERMOST_TOKEN", "MM_BOT_TOKEN"),
+        required_slots=("MATTERMOST_TOKEN",),
+        source_prefixes=("MATTERMOST_TOKEN", "MM_BOT_TOKEN"),
+    ),
+    "irc": ChannelSpec(
+        credential_slots=("IRC_TOKEN",),
+        required_slots=("OMEGA_AUTH_SECRET",),
+        source_prefixes=("IRC_TOKEN",),
+    ),
+    "websocket": ChannelSpec(
+        credential_slots=("WS_TOKEN",),
+        required_slots=("WS_TOKEN",),
+        source_prefixes=("WS_TOKEN",),
+        uses_ws_token=True,
+    ),
+}
+
+_PARTICIPANT_CREDENTIAL_PREFIXES = tuple(
+    sorted(
+        {
+            "ASI_API_KEY",
+            "IRC_TOKEN",
+            "MATTERMOST_TOKEN",
+            "MM_BOT_TOKEN",
+            "OMEGA_AUTH_SECRET",
+            "SLACK_TOKEN",
+            "SL_BOT_TOKEN",
+            "TELEGRAM_TOKEN",
+            "TG_BOT_TOKEN",
+            "WS_TOKEN",
+        }
+    )
+)
+_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_INTERPOLATION_PATTERN = re.compile(
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-+?]))?"
+)
+
+
+@dataclass(frozen=True)
+class LaunchContext:
+    action: Literal["start", "stop"]
+    service_name: str
+    env: dict[str, str]
+    host_database_path: Path | None
+    container_database_path: str
+    runtime_compose_dir: Path
+    participant_id: str | None
+    workspace: Workspace | None
+
+
+def _strip_env_comment(value: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, character in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote == '"':
+            escaped = True
+            continue
+        if character in {"'", '"'}:
+            if quote is None:
+                quote = character
+            elif quote == character:
+                quote = None
+            continue
+        if character == "#" and quote is None and (index == 0 or value[index - 1].isspace()):
+            return value[:index].rstrip()
+    return value.rstrip()
+
+
+def _unescape_env_value(value: str, *, double_quoted: bool) -> str:
+    if not double_quoted:
+        return value
+    escaped: list[str] = []
+    replacements = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\", '"': '"', "$": "$"}
+    index = 0
+    while index < len(value):
+        if value[index] != "\\" or index + 1 >= len(value):
+            escaped.append(value[index])
+            index += 1
+            continue
+        next_character = value[index + 1]
+        escaped.append(replacements.get(next_character, next_character))
+        index += 2
+    return "".join(escaped)
+
+
+def _expand_env_value(value: str, env: Mapping[str, str]) -> str:
+    def find_closing_brace(start: int) -> int | None:
+        depth = 1
+        index = start
+        while index < len(value):
+            if value.startswith("${", index):
+                depth += 1
+                index += 2
+                continue
+            if value[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return index
+            index += 1
+        return None
+
+    expanded: list[str] = []
+    index = 0
+    while index < len(value):
+        start = value.find("${", index)
+        if start < 0:
+            expanded.append(value[index:])
+            break
+        expanded.append(value[index:start])
+        match = _INTERPOLATION_PATTERN.match(value, start)
+        if match is None:
+            expanded.append("${")
+            index = start + 2
+            continue
+        name, operator = match.groups()
+        if operator is None and value[match.end() : match.end() + 1] != "}":
+            expanded.append("${")
+            index = start + 2
+            continue
+        closing = find_closing_brace(match.end())
+        if closing is None:
+            expanded.append(value[start:])
+            break
+
+        argument = value[match.end() : closing]
+        current = env.get(name)
+        present = current is not None
+        nonempty = present and bool(str(current).strip())
+        if operator in {":-", "-"}:
+            if (operator == ":-" and not nonempty) or (operator == "-" and not present):
+                expanded.append(_expand_env_value(argument, env))
+            else:
+                expanded.append(str(current or ""))
+        elif operator in {":?", "?"}:
+            missing = not nonempty if operator == ":?" else not present
+            if missing:
+                raise ValueError(_expand_env_value(argument, env) or f"{name} is required")
+            expanded.append(str(current or ""))
+        elif operator == ":+":
+            expanded.append(_expand_env_value(argument, env) if nonempty else "")
+        elif operator == "+":
+            expanded.append(_expand_env_value(argument, env) if present else "")
+        else:
+            expanded.append(str(current or ""))
+        index = closing + 1
+    return "".join(expanded)
+
+
+def parse_runtime_env_file(
+    path: Path,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Parse the Compose-compatible subset used by the runtime env file."""
+
+    inherited = dict(os.environ if environ is None else environ)
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except FileNotFoundError:
+        return values
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        name, separator, raw_value = line.partition("=")
+        name = name.strip()
+        if not _ENV_NAME_PATTERN.fullmatch(name):
+            continue
+        if not separator:
+            raw_value = ""
+        raw_value = raw_value.strip()
+        quote = raw_value[:1]
+        if quote in {"'", '"'}:
+            closing = 1
+            escaped = False
+            while closing < len(raw_value):
+                character = raw_value[closing]
+                if escaped:
+                    escaped = False
+                elif character == "\\" and quote == '"':
+                    escaped = True
+                elif character == quote:
+                    break
+                closing += 1
+            if closing >= len(raw_value):
+                raise ValueError(f"unterminated quoted value for {name}")
+            trailing = raw_value[closing + 1 :].strip()
+            if trailing and not trailing.startswith("#"):
+                raise ValueError(f"unexpected text after quoted value for {name}")
+            value = _unescape_env_value(
+                raw_value[1:closing], double_quoted=quote == '"'
+            )
+        else:
+            value = _strip_env_comment(raw_value).strip()
+        values[name] = _expand_env_value(value, {**inherited, **values})
+    return values
+
+
+def validate_channel(channel: str) -> str:
+    if channel not in CHANNELS:
+        raise ValueError(f"unsupported channel {channel!r}; choose one of {sorted(CHANNELS)}")
+    return channel
+
+
+def credential_suffix(participant_id: str) -> str:
+    return participant_id.replace("-", "_").upper()
+
+
+def all_credential_slot_names() -> frozenset[str]:
+    return frozenset(
+        {
+            "ASI_API_KEY",
+            "OMEGA_AUTH_SECRET",
+            "IRC_TOKEN",
+            "WS_TOKEN",
+            *CHANNELS["telegram"].credential_slots,
+            *CHANNELS["slack"].credential_slots,
+            *CHANNELS["mattermost"].credential_slots,
+        }
+    )
+
+
+def credential_slot_names(channel: str, role: str) -> tuple[str, ...]:
+    if role not in {"gm", "player"}:
+        raise ValueError(f"unsupported participant role {role!r}")
+    selected = set(CHANNELS[validate_channel(channel)].credential_slots)
+    selected.update({"ASI_API_KEY", "OMEGA_AUTH_SECRET"})
+    return tuple(sorted(selected))
+
+
+def all_participant_credential_source_names(config: Mapping[str, str]) -> frozenset[str]:
+    return frozenset(
+        name
+        for name in config
+        if any(name.startswith(f"{prefix}_") for prefix in _PARTICIPANT_CREDENTIAL_PREFIXES)
+    )
+
+
+def sanitize_compose_process_env(base: Mapping[str, str]) -> dict[str, str]:
+    sanitized = dict(base)
+    sanitized.pop("TABLETOP_LOCAL_OPERATOR", None)
+    return sanitized
+
+
+def _source_value(
+    base: Mapping[str, str],
+    prefixes: Sequence[str],
+    participant_id: str,
+    role: str,
+    *,
+    allow_global: bool = True,
+) -> str | None:
+    suffix = credential_suffix(participant_id if role == "player" else "GM")
+    candidates = [f"{prefix}_{suffix}" for prefix in prefixes]
+    if role == "gm":
+        candidates.extend(f"{prefix}_GM" for prefix in prefixes)
+    if allow_global:
+        candidates.extend(prefixes)
+    for candidate in candidates:
+        value = str(base.get(candidate, "")).strip()
+        if value:
+            return value
+    return None
+
+
+def resolve_channel_credentials(
+    base: Mapping[str, str],
+    participant_id: str,
+    role: str,
+    channel: str,
+    expected_sender: str,
+) -> dict[str, str]:
+    """Resolve participant-scoped source values into generic service slots."""
+
+    channel = validate_channel(channel)
+    if role not in {"gm", "player"}:
+        raise ValueError(f"unsupported participant role {role!r}")
+    if not expected_sender.strip():
+        raise ValueError("expected sender is required for start")
+    credentials: dict[str, str] = {}
+    spec = CHANNELS[channel]
+    for prefix in ("OMEGA_AUTH_SECRET", "ASI_API_KEY"):
+        value = _source_value(
+            base,
+            (prefix,),
+            participant_id,
+            role,
+            allow_global=True,
+        )
+        if value:
+            credentials[prefix] = value
+    value = _source_value(
+        base,
+        spec.source_prefixes,
+        participant_id,
+        role,
+        allow_global=role == "gm" and not spec.participant_unique,
+    )
+    if value:
+        for slot in spec.credential_slots:
+            credentials[slot] = value
+    for required in CHANNELS[channel].required_slots:
+        if not str(credentials.get(required, "")).strip():
+            raise ValueError(f"missing required {channel} credential {required}")
+    return credentials
+
+
+def build_launch_env(
+    *,
+    campaign_id: str,
+    participant_id: str | None,
+    role: str | None,
+    channel: str | None,
+    expected_sender: str | None,
+    action: Literal["start", "stop"],
+    container_database_path: str,
+) -> dict[str, str]:
+    """Build the process environment passed to Compose, without database access."""
+
+    if action == "start":
+        if participant_id is None:
+            raise ValueError("participant_id is required for start")
+        if role is None:
+            raise ValueError("role is required for start")
+        if channel is None:
+            raise ValueError("channel is required for start")
+        if expected_sender is None:
+            raise ValueError("expected_sender is required for start")
+        channel = validate_channel(channel)
+        base = parse_runtime_env_file(RUNTIME_ENV_FILE)
+        base.update(os.environ)
+        credentials = resolve_channel_credentials(
+            base, participant_id, role, channel, expected_sender
+        )
+        launch_env = sanitize_compose_process_env(base)
+        for name in all_participant_credential_source_names(base):
+            launch_env.pop(name, None)
+        for name in all_credential_slot_names():
+            launch_env.pop(name, None)
+        launch_env.update(credentials)
+        launch_env["TABLETOP_PARTICIPANT"] = participant_id
+        launch_env[CHANNELS[channel].authenticated_sender_source] = expected_sender
+        launch_env["OMEGA_COMMCHANNEL"] = channel
+    elif action == "stop":
+        launch_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "TABLETOP_CAMPAIGN": campaign_id,
+            "TABLETOP_DATABASE_PATH": container_database_path,
+        }
+        for name in (
+            "DOCKER_HOST",
+            "DOCKER_CONTEXT",
+            "DOCKER_CONFIG",
+            "DOCKER_TLS_VERIFY",
+            "DOCKER_CERT_PATH",
+            "HOME",
+        ):
+            value = os.environ.get(name)
+            if value is not None:
+                launch_env[name] = value
+        if participant_id is not None:
+            launch_env["TABLETOP_PARTICIPANT"] = participant_id
+    else:
+        raise ValueError(f"unsupported Compose action: {action}")
+    launch_env["TABLETOP_CAMPAIGN"] = campaign_id
+    launch_env["TABLETOP_DATABASE_PATH"] = container_database_path
+    launch_env.pop("TABLETOP_LOCAL_OPERATOR", None)
+    if action == "stop":
+        launch_env.pop("OMEGA_EXPECTED_SENDER", None)
+        launch_env.pop("OMEGA_COMMCHANNEL", None)
+        for name in all_credential_slot_names():
+            launch_env.pop(name, None)
+    return launch_env
+
+
+def _runtime_configuration(environ: Mapping[str, str] | None = None) -> tuple[str, Path]:
+    env = dict(os.environ if environ is None else environ)
+    file_config = parse_runtime_env_file(RUNTIME_ENV_FILE, environ=env)
+    container_path = env.get("TABLETOP_CONTAINER_DATABASE_PATH")
+    if not container_path:
+        container_path = file_config.get("TABLETOP_CONTAINER_DATABASE_PATH")
+    if not container_path:
+        if env.get("TABLETOP_DATABASE_PATH"):
+            raise SystemExit(
+                "TABLETOP_CONTAINER_DATABASE_PATH is required when "
+                "TABLETOP_DATABASE_PATH is exported"
+            )
+        raise SystemExit("TABLETOP_CONTAINER_DATABASE_PATH is required for Compose launch")
+    compose_dir = env.get("TABLETOP_COMPOSE_DIR") or file_config.get("TABLETOP_COMPOSE_DIR")
+    compose_path = Path(compose_dir).expanduser() if compose_dir else DEFAULT_RUNTIME_COMPOSE_DIR
+    if not compose_path.is_absolute():
+        compose_path = _REPO_ROOT / compose_path
+    return str(container_path), compose_path.resolve()
+
+
+def _compose_base_command(
+    *,
+    compose_files: Sequence[Path],
+    runtime_env_file: Path | None = None,
+) -> list[str]:
+    runtime_env_file = RUNTIME_ENV_FILE if runtime_env_file is None else runtime_env_file
+    command = [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(_REPO_ROOT),
+        "--env-file",
+        str(Path(runtime_env_file).resolve()),
+        "-f",
+        str(COMPOSE_FILE),
+    ]
+    command.extend(
+        item
+        for compose_file in compose_files
+        for item in ("-f", str(Path(compose_file).resolve()))
+    )
+    return command
+
+
+def _compose_execution_command(
+    service: str,
+    action: Literal["start", "stop"],
+    *,
+    compose_files: Sequence[Path],
+    runtime_env_file: Path,
+) -> list[str]:
+    command = _compose_base_command(
+        compose_files=compose_files,
+        runtime_env_file=runtime_env_file,
+    )
+    if action == "start":
+        return [*command, "up", "-d", service]
+    if action == "stop":
+        return [*command, "stop", service]
+    raise ValueError(f"unsupported Compose action: {action}")
+
+
+def _run_compose(
+    service: str,
+    action: Literal["start", "stop"],
+    *,
+    env: Mapping[str, str],
+    compose_files: Sequence[Path] = (),
+) -> int:
+    command = _compose_execution_command(
+        service,
+        action,
+        compose_files=compose_files,
+        runtime_env_file=RUNTIME_ENV_FILE,
+    )
+    completed = subprocess.run(command, cwd=_REPO_ROOT, env=env, check=False)
+    return int(completed.returncode)
 
 
 def _plugin_for_campaign(system_id: str, campaign_id: str) -> GameSystemPlugin:
@@ -355,34 +860,189 @@ def cmd_campaign_fork(args: argparse.Namespace) -> int:
     return 0
 
 
+def _generate_compose_override(*, participant_id: str, runtime_compose_dir: Path) -> Path:
+    participant_id = validate_participant_id(participant_id)
+    runtime_compose_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(runtime_compose_dir, 0o700)
+    destination = runtime_compose_dir / f"docker-compose.override-{participant_id}.yml"
+    content = yaml.safe_dump(
+        player_compose_definition(participant_id),
+        sort_keys=True,
+        allow_unicode=True,
+    )
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            os.chmod(temporary_path, 0o600)
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+    return destination
+
+
 def _compose_service_name(*, gm: bool, participant_id: str | None) -> str:
-    if gm and participant_id:
-        raise SystemExit("pass either --gm or --participant, not both")
+    if gm and participant_id is not None:
+        raise ValueError("pass either --gm or --participant, not both")
     if gm:
         return "omega"
     if not participant_id:
-        raise SystemExit("pass --gm or --participant <id>")
-    return f"omega-player-{participant_id}"
+        raise ValueError("pass --gm or --participant <id>")
+    return f"omega-player-{validate_participant_id(participant_id)}"
 
 
-def _run_compose(service: str, action: str, campaign_id: str) -> int:
-    env = os.environ.copy()
-    env["TABLETOP_CAMPAIGN"] = campaign_id
-    command = [
-        "docker",
-        "compose",
-        "--env-file",
-        ".env.example",
-        "-f",
-        "docker-compose.yml",
-        action,
-    ]
-    if action == "up":
-        command.extend(["-d", "--no-deps", service])
-    else:
-        command.append(service)
-    completed = subprocess.run(command, check=False)
-    return int(completed.returncode)
+def _readiness_failure(report: Mapping[str, Any]) -> None:
+    if report["exit_nonzero"]:
+        raise ValueError("readiness errors: " + "; ".join(report["errors"]))
+
+
+def _resolve_launch_context(
+    action: Literal["start", "stop"],
+    *,
+    campaign_id: str,
+    container_database_path: str,
+    runtime_compose_dir: Path,
+    participant_id: str | None = None,
+    gm: bool = False,
+    channel: str | None = None,
+    expected_sender: str | None = None,
+    role: str | None = None,
+    host_database_path: Path | None = None,
+) -> LaunchContext:
+    if action == "stop":
+        if gm and participant_id is not None:
+            raise ValueError("pass either --gm or --participant, not both")
+        if not gm and participant_id is None:
+            raise ValueError("pass --gm or --participant <id>")
+        normalized_participant = None if gm else validate_participant_id(participant_id or "")
+        env = build_launch_env(
+            campaign_id=campaign_id,
+            participant_id=normalized_participant,
+            role=None,
+            channel=None,
+            expected_sender=None,
+            action="stop",
+            container_database_path=container_database_path,
+        )
+        return LaunchContext(
+            action="stop",
+            service_name=_compose_service_name(gm=gm, participant_id=normalized_participant),
+            env=env,
+            host_database_path=None,
+            container_database_path=container_database_path,
+            runtime_compose_dir=runtime_compose_dir,
+            participant_id=normalized_participant,
+            workspace=None,
+        )
+    if action != "start":
+        raise ValueError(f"unsupported launch action: {action}")
+    if host_database_path is None:
+        raise ValueError("host database path is required for start")
+    host_database_path = Path(host_database_path)
+    channel = validate_channel(channel or "")
+    if gm and participant_id is not None:
+        raise ValueError("pass either --gm or --participant, not both")
+    if not gm and participant_id is None:
+        raise ValueError("pass --gm or --participant <id>")
+    requested_participant = None if gm else validate_participant_id(participant_id or "")
+    conn = open_database({"TABLETOP_DATABASE_PATH": str(host_database_path)})
+    try:
+        _readiness_failure(
+            readiness_report(
+                conn,
+                campaign_id,
+                environ={},
+                require_reviewed=True,
+                check_environment=False,
+            )
+        )
+        participants = MembershipStore(conn).list_participants(campaign_id)
+        if gm:
+            gm_rows = [row for row in participants if row["role"] == "gm"]
+            if len(gm_rows) != 1:
+                raise ValueError(
+                    f"campaign requires exactly one GM participant, found {len(gm_rows)}"
+                )
+            participant = gm_rows[0]
+        else:
+            participant = next(
+                (
+                    row
+                    for row in participants
+                    if row["participant_id"] == requested_participant
+                    and row["role"] == "player"
+                ),
+                None,
+            )
+            if participant is None:
+                raise ValueError(
+                    f"player participant {requested_participant!r} is not in campaign {campaign_id!r}"
+                )
+        resolved_participant = str(participant["participant_id"])
+        resolved_role = str(participant["role"])
+        if role is not None and role != resolved_role:
+            raise ValueError("requested participant role does not match campaign data")
+        bound_sender = sender_binding.bound_external_id(
+            conn, campaign_id, resolved_participant, channel
+        )
+        if bound_sender is None:
+            raise ValueError(
+                f"no principal binding for {resolved_participant!r} on {channel}"
+            )
+        env = build_launch_env(
+            campaign_id=campaign_id,
+            participant_id=resolved_participant,
+            role=resolved_role,
+            channel=channel,
+            expected_sender=bound_sender,
+            action="start",
+            container_database_path=container_database_path,
+        )
+        _readiness_failure(
+            readiness_report(
+                conn,
+                campaign_id,
+                environ=env,
+                require_reviewed=True,
+                check_persisted=False,
+            )
+        )
+        workspace = Workspace.CAMPAIGN if gm else Workspace.PLAYER
+        sender_binding.verify_startup_binding(
+            conn,
+            workspace=workspace,
+            campaign_id=campaign_id,
+            participant_id=resolved_participant,
+            environ=env,
+        )
+    finally:
+        conn.close()
+    return LaunchContext(
+        action="start",
+        service_name=_compose_service_name(
+            gm=gm,
+            participant_id=None if gm else resolved_participant,
+        ),
+        env=env,
+        host_database_path=host_database_path,
+        container_database_path=container_database_path,
+        runtime_compose_dir=runtime_compose_dir,
+        participant_id=resolved_participant,
+        workspace=workspace,
+    )
 
 
 def _resolve_inside_cwd(path_arg: str) -> Path:
@@ -875,33 +1535,71 @@ def cmd_campaign_validate(args: argparse.Namespace) -> int:
 
 def cmd_campaign_start(args: argparse.Namespace) -> int:
     campaign_id = validate_campaign_id(args.campaign_id)
-    conn = open_database()
+    host_database_path = require_database_path()
+    container_database_path, runtime_compose_dir = _runtime_configuration()
     try:
-        report = readiness_report(conn, campaign_id, require_reviewed=True)
-    finally:
-        conn.close()
-    if report["exit_nonzero"]:
-        print("start refused: readiness errors")
-        for item in report["errors"]:
-            print(f"error: {item}")
+        launch = _resolve_launch_context(
+            "start",
+            campaign_id=campaign_id,
+            participant_id=getattr(args, "participant_id", None),
+            gm=bool(getattr(args, "gm", False)),
+            channel=getattr(args, "channel", None),
+            host_database_path=host_database_path,
+            container_database_path=container_database_path,
+            runtime_compose_dir=runtime_compose_dir,
+        )
+        compose_files: tuple[Path, ...] = ()
+        if launch.participant_id is not None and not bool(getattr(args, "gm", False)):
+            compose_files = (
+                _generate_compose_override(
+                    participant_id=launch.participant_id,
+                    runtime_compose_dir=runtime_compose_dir,
+                ),
+            )
+        code = _run_compose(
+            launch.service_name,
+            "start",
+            env=launch.env,
+            compose_files=compose_files,
+        )
+    except (ValueError, sender_binding.SenderBindingError) as exc:
+        print(f"start refused: {exc}")
         return 1
-    participant_id = getattr(args, "participant_id", None)
-    if participant_id:
-        participant_id = validate_participant_id(participant_id)
-    service = _compose_service_name(gm=bool(args.gm), participant_id=participant_id)
-    code = _run_compose(service, "up", campaign_id)
     if code == 0:
-        print(f"started {service} for campaign {campaign_id}")
+        print(f"started {launch.service_name} for campaign {campaign_id}")
     return code
 
 
 def cmd_campaign_stop(args: argparse.Namespace) -> int:
     campaign_id = validate_campaign_id(args.campaign_id)
+    container_database_path, runtime_compose_dir = _runtime_configuration()
     participant_id = getattr(args, "participant_id", None)
-    if participant_id:
-        participant_id = validate_participant_id(participant_id)
-    service = _compose_service_name(gm=bool(args.gm), participant_id=participant_id)
-    code = _run_compose(service, "stop", campaign_id)
+    try:
+        launch = _resolve_launch_context(
+            "stop",
+            campaign_id=campaign_id,
+            participant_id=participant_id,
+            gm=bool(getattr(args, "gm", False)),
+            container_database_path=container_database_path,
+            runtime_compose_dir=runtime_compose_dir,
+        )
+        compose_files: tuple[Path, ...] = ()
+        if launch.participant_id is not None:
+            compose_files = (
+                _generate_compose_override(
+                    participant_id=launch.participant_id,
+                    runtime_compose_dir=runtime_compose_dir,
+                ),
+            )
+        code = _run_compose(
+            launch.service_name,
+            "stop",
+            env=launch.env,
+            compose_files=compose_files,
+        )
+    except ValueError as exc:
+        print(f"stop refused: {exc}")
+        return 1
     if code == 0:
-        print(f"stopped {service} for campaign {campaign_id}")
+        print(f"stopped {launch.service_name} for campaign {campaign_id}")
     return code
