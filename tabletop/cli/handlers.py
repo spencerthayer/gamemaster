@@ -56,7 +56,14 @@ from tabletop.storage.sqlite import transaction
 
 
 _REPO_ROOT = repo_root()
-RUNTIME_ENV_FILE = _REPO_ROOT / ".env.example"
+
+
+def _runtime_env_file() -> Path:
+    runtime_file = _REPO_ROOT / ".env"
+    return runtime_file if runtime_file.is_file() else _REPO_ROOT / ".env.example"
+
+
+RUNTIME_ENV_FILE = _runtime_env_file()
 COMPOSE_FILE = _REPO_ROOT / "docker-compose.yml"
 DEFAULT_RUNTIME_COMPOSE_DIR = Path(tempfile.gettempdir()) / "gamemaster-compose"
 
@@ -335,6 +342,7 @@ def resolve_channel_credentials(
         raise ValueError("expected sender is required for start")
     credentials: dict[str, str] = {}
     selected_source_prefixes = set(CHANNELS[channel].source_prefixes)
+    spec = CHANNELS[channel]
     source_groups: list[tuple[str, tuple[str, ...]]] = [
         ("OMEGA_AUTH_SECRET", ("OMEGA_AUTH_SECRET",)),
         ("ASI_API_KEY", ("ASI_API_KEY",)),
@@ -355,7 +363,10 @@ def resolve_channel_credentials(
             (prefix,),
             participant_id,
             role,
-            allow_global=role == "gm" or prefix in {"OMEGA_AUTH_SECRET", "ASI_API_KEY"},
+            allow_global=(
+                prefix in {"OMEGA_AUTH_SECRET", "ASI_API_KEY"}
+                or (role == "gm" and not spec.participant_unique)
+            ),
         )
         if value:
             for slot in slots:
@@ -396,7 +407,7 @@ def build_launch_env(
             launch_env.pop(name, None)
         launch_env.update(credentials)
         launch_env["TABLETOP_PARTICIPANT"] = participant_id
-        launch_env["OMEGA_EXPECTED_SENDER"] = expected_sender
+        launch_env[CHANNELS[channel].authenticated_sender_source] = expected_sender
         launch_env["OMEGA_COMMCHANNEL"] = channel
     elif action == "stop":
         launch_env = {
@@ -439,8 +450,9 @@ def _runtime_configuration(environ: Mapping[str, str] | None = None) -> tuple[st
 def _compose_base_command(
     *,
     compose_files: Sequence[Path],
-    runtime_env_file: Path,
+    runtime_env_file: Path | None = None,
 ) -> list[str]:
+    runtime_env_file = RUNTIME_ENV_FILE if runtime_env_file is None else runtime_env_file
     command = [
         "docker",
         "compose",
@@ -904,7 +916,13 @@ def _resolve_launch_context(
     conn = open_database({"TABLETOP_DATABASE_PATH": str(host_database_path)})
     try:
         _readiness_failure(
-            readiness_report(conn, campaign_id, environ={}, require_reviewed=True)
+            readiness_report(
+                conn,
+                campaign_id,
+                environ={},
+                require_reviewed=True,
+                check_environment=False,
+            )
         )
         participants = MembershipStore(conn).list_participants(campaign_id)
         if gm:
@@ -949,7 +967,13 @@ def _resolve_launch_context(
             container_database_path=container_database_path,
         )
         _readiness_failure(
-            readiness_report(conn, campaign_id, environ=env, require_reviewed=True)
+            readiness_report(
+                conn,
+                campaign_id,
+                environ=env,
+                require_reviewed=True,
+                check_persisted=False,
+            )
         )
         workspace = Workspace.CAMPAIGN if gm else Workspace.PLAYER
         sender_binding.verify_startup_binding(
