@@ -186,6 +186,44 @@ def test_runtime_env_expansion_handles_nested_defaults() -> None:
     assert handlers._expand_env_value(expression, {"MM_BOT_TOKEN": "outer"}) == "outer"
 
 
+def test_runtime_configuration_does_not_use_host_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "runtime.env"
+    runtime.write_text(
+        "TABLETOP_DATABASE_PATH=/from-file\n"
+        "TABLETOP_CONTAINER_DATABASE_PATH=/from-file-container\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(handlers, "RUNTIME_ENV_FILE", runtime)
+
+    with pytest.raises(SystemExit, match="TABLETOP_CONTAINER_DATABASE_PATH"):
+        handlers._runtime_configuration(
+            {"TABLETOP_DATABASE_PATH": "/from-host"}
+        )
+
+
+def test_runtime_configuration_container_override_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "runtime.env"
+    runtime.write_text(
+        "TABLETOP_DATABASE_PATH=/from-file\n"
+        "TABLETOP_CONTAINER_DATABASE_PATH=/from-file-container\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(handlers, "RUNTIME_ENV_FILE", runtime)
+
+    container_path, _ = handlers._runtime_configuration(
+        {
+            "TABLETOP_DATABASE_PATH": "/from-host",
+            "TABLETOP_CONTAINER_DATABASE_PATH": "/from-env-container",
+        }
+    )
+
+    assert container_path == "/from-env-container"
+
+
 def test_start_env_resolves_participant_credentials_and_scrubs_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -209,6 +247,62 @@ def test_start_env_resolves_participant_credentials_and_scrubs_sources(
     assert "TABLETOP_LOCAL_OPERATOR" not in env
     assert env["TABLETOP_CAMPAIGN"] == "night"
     assert env["TABLETOP_DATABASE_PATH"] == "/container/tabletop.sqlite3"
+
+
+@pytest.mark.parametrize(
+    ("sources", "expected"),
+    (
+        (
+            {
+                "TELEGRAM_TOKEN_ADA_PLAYER": "canonical",
+                "TG_BOT_TOKEN_ADA_PLAYER": "alias",
+            },
+            "canonical",
+        ),
+        ({"TG_BOT_TOKEN_ADA_PLAYER": "alias"}, "alias"),
+    ),
+    ids=("canonical-wins", "alias-fallback"),
+)
+def test_channel_credentials_use_canonical_precedence(
+    sources: dict[str, str], expected: str
+) -> None:
+    credentials = handlers.resolve_channel_credentials(
+        {"OMEGA_AUTH_SECRET": "global", **sources},
+        "ada-player",
+        "player",
+        "telegram",
+        "12345",
+    )
+
+    assert credentials["TELEGRAM_TOKEN"] == expected
+    assert credentials["TG_BOT_TOKEN"] == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    (
+        ("participant_id", "participant_id is required for start"),
+        ("role", "role is required for start"),
+        ("channel", "channel is required for start"),
+        ("expected_sender", "expected_sender is required for start"),
+    ),
+)
+def test_start_environment_rejects_missing_required_value(
+    field: str, message: str
+) -> None:
+    values: dict[str, object] = {
+        "campaign_id": "night",
+        "participant_id": "ada-player",
+        "role": "player",
+        "channel": "telegram",
+        "expected_sender": "12345",
+        "action": "start",
+        "container_database_path": "/container/db",
+    }
+    values[field] = None
+
+    with pytest.raises(ValueError, match=message):
+        handlers.build_launch_env(**values)
 
 
 def test_wrong_channel_does_not_reuse_telegram_credentials(

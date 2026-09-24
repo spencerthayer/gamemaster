@@ -377,36 +377,27 @@ def resolve_channel_credentials(
     if not expected_sender.strip():
         raise ValueError("expected sender is required for start")
     credentials: dict[str, str] = {}
-    selected_source_prefixes = set(CHANNELS[channel].source_prefixes)
     spec = CHANNELS[channel]
-    source_groups: list[tuple[str, tuple[str, ...]]] = [
-        ("OMEGA_AUTH_SECRET", ("OMEGA_AUTH_SECRET",)),
-        ("ASI_API_KEY", ("ASI_API_KEY",)),
-        ("TELEGRAM_TOKEN", ("TELEGRAM_TOKEN", "TG_BOT_TOKEN")),
-        ("TG_BOT_TOKEN", ("TG_BOT_TOKEN", "TELEGRAM_TOKEN")),
-        ("SLACK_TOKEN", ("SLACK_TOKEN", "SL_BOT_TOKEN")),
-        ("SL_BOT_TOKEN", ("SL_BOT_TOKEN", "SLACK_TOKEN")),
-        ("MATTERMOST_TOKEN", ("MATTERMOST_TOKEN", "MM_BOT_TOKEN")),
-        ("MM_BOT_TOKEN", ("MM_BOT_TOKEN", "MATTERMOST_TOKEN")),
-        ("IRC_TOKEN", ("IRC_TOKEN",)),
-        ("WS_TOKEN", ("WS_TOKEN",)),
-    ]
-    for prefix, slots in source_groups:
-        if prefix not in {"OMEGA_AUTH_SECRET", "ASI_API_KEY"} and prefix not in selected_source_prefixes:
-            continue
+    for prefix in ("OMEGA_AUTH_SECRET", "ASI_API_KEY"):
         value = _source_value(
             base,
             (prefix,),
             participant_id,
             role,
-            allow_global=(
-                prefix in {"OMEGA_AUTH_SECRET", "ASI_API_KEY"}
-                or (role == "gm" and not spec.participant_unique)
-            ),
+            allow_global=True,
         )
         if value:
-            for slot in slots:
-                credentials[slot] = value
+            credentials[prefix] = value
+    value = _source_value(
+        base,
+        spec.source_prefixes,
+        participant_id,
+        role,
+        allow_global=role == "gm" and not spec.participant_unique,
+    )
+    if value:
+        for slot in spec.credential_slots:
+            credentials[slot] = value
     for required in CHANNELS[channel].required_slots:
         if not str(credentials.get(required, "")).strip():
             raise ValueError(f"missing required {channel} credential {required}")
@@ -426,10 +417,14 @@ def build_launch_env(
     """Build the process environment passed to Compose, without database access."""
 
     if action == "start":
-        assert participant_id is not None
-        assert role is not None
-        assert channel is not None
-        assert expected_sender is not None
+        if participant_id is None:
+            raise ValueError("participant_id is required for start")
+        if role is None:
+            raise ValueError("role is required for start")
+        if channel is None:
+            raise ValueError("channel is required for start")
+        if expected_sender is None:
+            raise ValueError("expected_sender is required for start")
         channel = validate_channel(channel)
         base = parse_runtime_env_file(RUNTIME_ENV_FILE)
         base.update(os.environ)
@@ -470,10 +465,13 @@ def _runtime_configuration(environ: Mapping[str, str] | None = None) -> tuple[st
     env = dict(os.environ if environ is None else environ)
     file_config = parse_runtime_env_file(RUNTIME_ENV_FILE, environ=env)
     container_path = env.get("TABLETOP_CONTAINER_DATABASE_PATH")
+    if not container_path and env.get("TABLETOP_DATABASE_PATH"):
+        raise SystemExit(
+            "TABLETOP_CONTAINER_DATABASE_PATH is required when "
+            "TABLETOP_DATABASE_PATH is exported"
+        )
     if not container_path:
         container_path = file_config.get("TABLETOP_CONTAINER_DATABASE_PATH")
-    if not container_path:
-        container_path = file_config.get("TABLETOP_DATABASE_PATH")
     if not container_path:
         raise SystemExit("TABLETOP_CONTAINER_DATABASE_PATH is required for Compose launch")
     compose_dir = env.get("TABLETOP_COMPOSE_DIR") or file_config.get("TABLETOP_COMPOSE_DIR")
