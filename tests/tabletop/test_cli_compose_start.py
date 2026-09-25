@@ -145,6 +145,73 @@ def test_generated_player_definition_matches_canonical_spec(tmp_path: Path) -> N
     )
 
 
+def test_canonical_player_spec_omits_local_operator() -> None:
+    canonical = yaml.safe_dump(PLAYER_SERVICE_SPEC.service("ada-player"))
+    assert "TABLETOP_LOCAL_OPERATOR" not in canonical
+
+
+def test_source_names_are_absent_from_static_and_generated_services() -> None:
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    generated = player_compose_definition("ada-player")
+    serialized = yaml.safe_dump({"base": compose, "generated": generated})
+    for source_name in (
+        "TELEGRAM_TOKEN_ADA_PLAYER",
+        "OMEGA_AUTH_SECRET_ADA_PLAYER",
+        "WS_TOKEN_ADA_PLAYER",
+        "WS_TOKEN_BO",
+        "IRC_TOKEN_ADA_PLAYER",
+    ):
+        assert source_name not in serialized
+
+
+def test_sanitize_process_env_does_not_scrub_participant_sources() -> None:
+    base = {
+        "TABLETOP_LOCAL_OPERATOR": "1",
+        "WS_TOKEN_ADA_PLAYER": "ada-secret",
+    }
+    assert handlers.sanitize_compose_process_env(base) == {
+        "WS_TOKEN_ADA_PLAYER": "ada-secret"
+    }
+
+
+def test_participant_source_credential_wins_over_ambient_generic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "runtime.env"
+    runtime.write_text("OMEGA_AUTH_SECRET=global-secret\n", encoding="utf-8")
+    monkeypatch.setattr(handlers, "RUNTIME_ENV_FILE", runtime)
+    monkeypatch.setenv("WS_TOKEN", "ambient-generic")
+    monkeypatch.setenv("WS_TOKEN_ADA_PLAYER", "ada-secret")
+
+    env = handlers.build_launch_env(
+        campaign_id="night",
+        participant_id="ada-player",
+        role="player",
+        channel="websocket",
+        expected_sender="12345",
+        action="start",
+        container_database_path="/container/db",
+    )
+
+    assert env["WS_TOKEN"] == "ada-secret"
+    assert "WS_TOKEN_ADA_PLAYER" not in env
+
+
+def test_build_launch_env_rejects_unknown_action() -> None:
+    with pytest.raises(ValueError, match="unsupported Compose action"):
+        handlers.build_launch_env(
+            campaign_id="night",
+            participant_id=None,
+            role=None,
+            channel=None,
+            expected_sender=None,
+            action="restart",  # type: ignore[arg-type]
+            container_database_path="/container/db",
+        )
+
+
+
+
 def test_generated_override_is_atomic_and_private(tmp_path: Path) -> None:
     output = tmp_path / "compose"
     first = handlers._generate_compose_override(

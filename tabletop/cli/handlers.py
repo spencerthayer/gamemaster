@@ -495,9 +495,8 @@ def _runtime_configuration(environ: Mapping[str, str] | None = None) -> tuple[st
 def _compose_base_command(
     *,
     compose_files: Sequence[Path],
-    runtime_env_file: Path | None = None,
+    runtime_env_file: Path,
 ) -> list[str]:
-    runtime_env_file = RUNTIME_ENV_FILE if runtime_env_file is None else runtime_env_file
     command = [
         "docker",
         "compose",
