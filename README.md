@@ -28,6 +28,25 @@ System plugins own mechanics. The core runtime does not invent rules numbers.
   for each player process
 - `TABLETOP_DATABASE_PATH` pointing at a writable SQLite file for CLI work
 
+## Choose a model provider
+
+Omega owns the model layer. Set the provider in `.env` with `OMEGA_PROVIDER`
+and export the matching API key as an environment variable. Every process in a
+campaign needs its own key when your provider meters per key.
+
+| Provider | Env var name | Notes |
+|---|---|---|
+| `Anthropic` (default) | `ANTHROPIC_API_KEY` | Claude models via the Anthropic API. |
+| `OpenAI` | `OPENAI_API_KEY` | GPT models. Also reused by the `OpenAI` embedding provider. |
+| `ASICloud` | `ASI_API_KEY` | MiniMax models via the ASI Alliance inference endpoint. |
+| `ASIOne` | `ASIONE_API_KEY` | ASI1 Ultra via the ASI:One inference endpoint. |
+| `OpenAIAPI` | `OPENAIAPI_API_KEY` | Any OpenAI-compatible endpoint and model. Set `openaiapi_url` and `openaiapi_model` in `config/config.yaml`. |
+| `OpenRouter` | `OPENROUTER_API_KEY` | GLM model via the OpenRouter inference endpoint. |
+| `Test` | none | Mock provider for local runs. No network calls. |
+
+Per-provider models and endpoints are configured in
+[config/config.yaml](config/config.yaml).
+
 ## Quick start
 
 ```bash
@@ -135,6 +154,37 @@ Configure channel credentials in `.env` and follow
 derives `OMEGA_EXPECTED_SENDER` from the participant binding for the requested
 channel.
 
+| Environment variable | Meaning |
+|---|---|
+| `TG_BOT_TOKEN` | Telegram bot token. |
+| `MM_BOT_TOKEN` | Mattermost bot token. |
+| `SL_BOT_TOKEN` | Slack bot token (`xoxb-...`). |
+| `IRC_TOKEN` | IRC channel credential. |
+| `WS_TOKEN` | WebSocket principal credential. |
+
+Channel tokens are passed without the `OMEGA_` prefix so the agent cannot read
+them as ordinary configuration. Per-participant values use a `GM` or
+participant-id suffix, such as `TELEGRAM_TOKEN_ADA_PLAYER`, and the CLI resolves
+them to the generic slot at launch.
+
+## Omega configuration
+
+Omega reads agent parameters from three places, in this order of precedence:
+
+1. command line parameters (`name=value` on the MeTTa command line)
+2. environment variables
+3. the configuration file
+
+Omega parameters are exported as `OMEGA_<parameter>`, matching the parameter
+name in the config file. Setting `OMEGA_model` overrides the default LLM model
+without editing the config file. The full list of parameters with defaults is in
+[config/config.yaml](config/config.yaml) and
+[docs/reference-configuration.md](docs/reference-configuration.md).
+
+The config file location is set with the `config` option. Campaign launches pass
+it through Compose, so prefer `.env` and the config file over ad hoc command
+line flags.
+
 ## Add sourcebooks and documents
 
 ```bash
@@ -144,6 +194,28 @@ python -m tabletop.cli campaign document add path/to/notes.md --campaign night
 
 Markdown and text-layer PDFs ingest with provenance. Scanned or image-only
 PDFs have no OCR path and need manual review.
+
+## Load preset knowledge
+
+Omega can preload its own knowledge into long-term memory. Set
+`OMEGA_EMBEDDING_PROVIDER` in `.env`:
+
+- `Local` (default): no API key, no network call
+- `OpenAI`: requires `OPENAI_API_KEY`
+- `ASICloud`: requires `ASI_API_KEY`
+
+`embeddingModel` in `config/config.yaml` overrides the provider default
+embedding model. Then preload with:
+
+```bash
+EMBEDDING_PROVIDER=Local sh scripts/import_knowledge.sh
+```
+
+The Compose stack runs this automatically when `IMPORT_KB_ON_START=1`, which is
+the default off. Inside the container the provider comes from
+`OMEGA_EMBEDDING_PROVIDER`; a direct host run reads `EMBEDDING_PROVIDER` and
+`EMBEDDING_MODEL` without the prefix. Preloaded knowledge is Omega's own;
+campaign sourcebooks go through `library ingest` instead.
 
 ## Resume a campaign
 
@@ -216,6 +288,10 @@ See [docs/architecture.md](docs/architecture.md).
 - `current_scene` / in-world date may remain unavailable on resume
 - Scene events may still be unemitted
 - Compose is a deployment starting point, not a hardened multi-tenant service
+- Omega memory export is off by default, and memory import only works through
+  Docker via `scripts/omega` because both run from the container entrypoint
+  before the agent loop starts. See
+  [docs/reference-memory-portability.md](docs/reference-memory-portability.md).
 
 ## Tests
 
@@ -223,9 +299,16 @@ See [docs/architecture.md](docs/architecture.md).
 python -m pytest tests/tabletop -q
 ```
 
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md): introduction, tutorials,
+and API reference as a flat set of markdown files.
+
 ## Upstream attribution
 
 Bootstrapped from
 [SingularityNET Omega](https://github.com/singnet/Omega) commit
 `7b060f5738ee7b8cf064c8b6282ed9fe07cf407f`. See [UPSTREAM.md](UPSTREAM.md).
-Licensed under Apache-2.0. See [LICENSE](LICENSE).
+Omega is experimental and non-deterministic; read the upstream disclaimer in
+the Omega README before exposing it to untrusted input.
+Licensed under Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
