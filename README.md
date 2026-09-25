@@ -49,28 +49,80 @@ Per-provider models and endpoints are configured in
 
 ## Quick start
 
+This walks a brand new install to a running GM process against an empty
+`freeform` campaign. Run the block top to bottom; the comments explain what each
+step is for, not just what it does.
+
 ```bash
+# Clone the repository. Everything below runs from the repo root, because the
+# plugin, library, and campaign paths in config/config.yaml are relative to it.
+git clone https://github.com/spencerthayer/gamemaster.git
+cd gamemaster
+
+# Python 3.11 is the floor for the operator CLI and the tabletop tests. A venv
+# keeps the heavy ML dependencies (torch, transformers, chromadb) out of the
+# system interpreter.
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+
+# Seed the environment file. Nothing runs without it, and the secrets in it
+# are the reason the next step is not optional.
 cp .env.example .env
-# Edit .env: provider keys, OMEGA_AUTH_SECRET, and a distinct channel for the
-# GM and for each player process.
+
+# Edit .env before continuing. Set at minimum:
+#   OMEGA_PROVIDER plus its API key        -- Omega needs a model to think with
+#   OMEGA_AUTH_SECRET                       -- channel auth, generate your own
+#   one channel credential per process      -- the GM and every player get a
+#                                             distinct value, suffixed GM or by
+#                                             participant id (IRC_TOKEN_GM)
+# See "Choose a model provider" and "Connect a channel" below.
+
+# The CLI writes campaign truth to SQLite. Point it at a writable file. The
+# container gets its own path via TABLETOP_DATABASE_PATH in .env, so this only
+# affects your host-side operator commands.
 export TABLETOP_DATABASE_PATH=/tmp/gamemaster-smoke.sqlite3
+
+# Confirm the game-system plugins loaded. Mechanics live in plugins, not in the
+# core runtime, so a bad TABLETOP_PLUGIN_PATH shows up here first.
 python -m tabletop.cli system list
+
+# Create a campaign and pin it to a system. `--system` must match an id from the
+# list above; `freeform` is the safest starting point.
 python -m tabletop.cli campaign create --id night --name "Night Watch" --system freeform
+
+# Select the campaign every later command acts on by default. Skipping this is
+# the most common reason a command edits the wrong campaign.
 python -m tabletop.cli campaign select night
+
+# Create an entity in campaign canon. Entities are the authoritative record;
+# anything a player later says about Ada has to be reconciled against this row.
 python -m tabletop.cli campaign entity create --id ada --kind character --name Ada
+
+# Add a participant. Roles are gm or player, and each one becomes its own
+# process with its own workspace and its own channel credential.
 python -m tabletop.cli campaign participant add --id gm1 --name "GM" --role gm
+
+# Bind the participant to a real identity on a channel. The CLI derives
+# OMEGA_EXPECTED_SENDER from this binding, so a wrong --external-id means the
+# process will refuse to talk to the person you meant.
 python -m tabletop.cli campaign participant bind --participant gm1 --channel irc --external-id gm1
+
+# Preflight. Validates bindings, grants, and plugin loads, and reports errors,
+# warnings, and notices separately. Read this output before blaming the model.
 python -m tabletop.cli campaign validate --id night
+
+# Launch the GM process. `--channel` is required: it selects which binding and
+# which credential to use, then starts the matching Compose service.
 python -m tabletop.cli campaign start night --gm --channel irc
+
+# Stop it again with `campaign stop night --gm`. Stop takes no channel and does
+# not need a current participant row.
 ```
 
-`campaign start` requires an explicit channel, resolves the participant binding,
-passes the selected channel credentials to Compose, and starts the matching
-service. Use `campaign stop night --gm` or
-`campaign stop night --participant <id>` without a channel.
+Start resolves the participant binding, passes the selected channel credentials
+to Compose, and starts the matching service. Player processes work the same
+way; see [Start the player surface](#start-the-player-surface).
 
 ## Choose or install a game system
 
