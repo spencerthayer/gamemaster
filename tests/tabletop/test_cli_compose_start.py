@@ -119,7 +119,12 @@ def test_base_compose_contains_only_static_omega() -> None:
     assert "TABLETOP_PARTICIPANT" in omega_environment
     assert "OMEGA_EXPECTED_SENDER" in omega_environment
     assert "OMEGA_COMMCHANNEL" in omega_environment
+    assert "TABLETOP_LOCAL_OPERATOR" not in omega_environment
     assert not any(name.endswith("_GM") for name in omega_environment)
+    serialized = yaml.safe_dump(compose)
+    assert "TABLETOP_LOCAL_OPERATOR" not in serialized
+    assert "WS_TOKEN_ADA_PLAYER" not in serialized
+    assert "OMEGA_AUTH_SECRET_ADA_PLAYER" not in serialized
 
 
 def test_generated_player_definition_matches_canonical_spec(tmp_path: Path) -> None:
