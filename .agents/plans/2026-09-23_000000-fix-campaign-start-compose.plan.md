@@ -41,8 +41,7 @@ Fix the deployment/security seam between the CLI, campaign membership state, and
 ## Current Context and Assumptions
 
 - Repo root: `/Users/spenceratgraybox/Work/_Personal/gamemaster`
-- Current HEAD: `a8a01dd` ("fix(cli): wire campaign start/stop to Compose service commands")
-- The implementation has substantial breadth; remaining issues are in the final seam between CLI, campaign membership state, and Compose
+- Current HEAD: `97b91b1` ("test(cli): assert Compose source-name isolation")
 - Python 3.11 is the test runtime (`python3.11 -m pytest`)
 - `TABLETOP_LOCAL_OPERATOR` exists in `sender_binding.py` but no CLI path sets it. Preserve existing local invocation path; do not invent a new authentication contract.
 - `.env.example` uses per-participant credential variable names. No `.env` file exists.
@@ -158,6 +157,8 @@ def build_launch_env(*, campaign_id: str, participant_id: str | None, role: str 
 `all_credential_slot_names()` and `credential_slot_names(channel, role)` are derived from the Task 1 channel contract. All supported generic slots exist structurally in the generated service, but only the selected channel's required generic slots may be populated in the launch process environment. Presence of a slot in YAML does not imply that its value is present in `launch_env`.
 
 `RUNTIME_ENV_FILE` remains directly visible to Compose through `--env-file`. If it contains participant-scoped source names such as `WS_TOKEN_ADA_PLAYER` or `OMEGA_AUTH_SECRET_ADA_PLAYER`, those values remain readable by Compose interpolation even though source scrubbing removed them from `env=env`. The security contract is narrower: service definitions must contain no interpolation references to participant-scoped source names, and source scrubbing prevents accidental generic inheritance in the subprocess environment. It does not make source values unavailable to Compose while the shared env file is supplied.
+
+The generated player service and the static `omega` service must structurally omit `TABLETOP_LOCAL_OPERATOR`: neither service may contain an environment entry for it or an interpolation reference to it. Removing it from `launch_env` is a separate process-environment deny rule, not a substitute for the service-definition invariant.
 
 `TABLETOP_DATABASE_PATH` is an authoritative final assignment for both actions. The stop branch is a whitelist, not a filtered copy of the merged environment. The subprocess process environment, the Compose `--env-file` interpolation source, and the generated service environment are separate inputs. Stop does not copy credentials from ambient `os.environ`; the shared runtime env file may still contain deployment credentials for Compose interpolation.
 
@@ -318,7 +319,7 @@ The GM sentinel test uses this exact mechanism. A test omitting those inputs can
 
 ### Canonical Invariant Comparison Uses Semantic Roles
 
-The mandatory comparison test establishes equivalence such as "has a sender slot," "has a channel slot," "has the required credential slot for the selected channel," rather than forcing obsolete Ada-specific variable names into the generator. The test should compare semantic environment roles against the canonical specification, not against a deleted service.
+The mandatory comparison test establishes equivalence such as "has a sender slot" and "has a channel slot", then verifies that every supported generic credential slot exists structurally in the canonical player service while only the selected channel's required generic slots are populated in the launch process environment. The test should compare semantic environment roles against the canonical specification, not against a deleted service.
 
 ### Revised Task Dependency Diagram
 
@@ -390,7 +391,7 @@ python3.11 -m pytest tests/tabletop/test_cli_compose_start.py -q -k "test_run_co
    - Resolve `RUNTIME_ENV_FILE` and the repo root absolutely
    - Build the execution command with `_compose_execution_command()` using the shared `_compose_base_command()` prefix and `--project-directory <repo-root>`
    - Set `cwd=<repo root>` for project identity
-   - Command prefix: `docker compose --project-directory <repo-root> --env-file <RUNTIME_ENV_FILE> -f <absolute repo-root/docker-compose.yml> -f <absolute generated override> <operation>`
+   - Command prefix: `docker compose --project-directory <repo-root> --env-file <RUNTIME_ENV_FILE> -f <absolute repo-root/docker-compose.yml>`; append any additional `-f` files only when `compose_files` is non-empty. Task 2 uses `compose_files=()` for both start and stop.
    - Pass `env=env` to `subprocess.run()`
    - Does NOT construct identity policy and does NOT query the database
     - **Command builders**: Keep the shared Compose prefix separate from service actions:
@@ -439,10 +440,11 @@ python3.11 -m pytest tests/tabletop/test_cli_compose_start.py -q -k "test_run_co
        role: str | None,
        channel: str | None,
        expected_sender: str | None,
-        action: Literal["start", "stop"],
-        container_database_path: str,
+       action: Literal["start", "stop"],
+       container_database_path: str,
    ) -> dict[str, str]:
    ```
+   All action parameters use `Literal["start", "stop"]`. Reject any other action explicitly before branching; no `else` branch may acquire stop semantics accidentally.
    - For start, require `participant_id`, `role`, `channel`, and `expected_sender`; merge `RUNTIME_ENV_FILE`, then `os.environ`, resolve credentials from that base, apply universal process-env sanitization, remove participant/role source credentials, add only selected generic credentials, then write authoritative identity values last.
    - Implement non-overlapping `sanitize_compose_process_env(base)` and `all_participant_credential_source_names(base)` contracts from the Task 1 audit. The former removes universally forbidden process entries; the latter removes participant- and role-scoped source names such as `WS_TOKEN_ADA_PLAYER` and `OMEGA_AUTH_SECRET_ADA_PLAYER`.
    - For stop, skip `resolve_channel_credentials()` and `bound_external_id()` entirely; build only the audited structural process-environment whitelist. `participant_id` is present for player stop and absent for GM stop.
@@ -471,7 +473,7 @@ python3.11 -m pytest tests/tabletop/test_cli_compose_start.py -q -k "test_run_co
      - Builds the structural stop environment through the whitelist branch of `build_launch_env()`.
      - Returns `LaunchContext` with `action="stop"`, service name, structural env, `host_database_path=None`, `container_database_path`, `runtime_compose_dir`, and optional participant metadata.
 
-   `compose_files=()` is explicit throughout Task 2. Task 3 adds the generated override only for player start and player stop; GM start and GM stop continue to use `compose_files=()`.
+   Task 2 is runnable with `compose_files=()` for both start and stop. Task 3 adds the generated override only for player start and player stop; GM start and GM stop continue to use `compose_files=()`.
 
 5. **`tabletop/cli/handlers.py`**: Update `cmd_campaign_start()`:
    - Parse `--channel` from args
@@ -495,7 +497,7 @@ python3.11 -m pytest tests/tabletop/test_sender_binding.py tests/tabletop/test_r
 
 **Changes**:
 
-1. Introduce `tabletop/cli/player_service_spec.py` as the canonical Python specification. It defines the player image, init, restart, security options, command structure, mount roles, fixed environment roles, channel-neutral credential slots, and named-volume pattern.
+1. Introduce `tabletop/cli/player_service_spec.py` as the canonical Python specification. It defines the player image, init, restart, security options, command structure, mount roles, fixed environment roles, channel-neutral credential slots, and named-volume pattern. The canonical player specification must contain no `TABLETOP_LOCAL_OPERATOR` environment entry or interpolation reference.
 2. Implement `_generate_compose_override(*, participant_id: str, runtime_compose_dir: Path) -> Path`:
    - Validate `participant_id` with `validate_participant_id()`.
    - Write to `runtime_compose_dir / f"docker-compose.override-{participant_id}.yml"`.
@@ -506,7 +508,7 @@ python3.11 -m pytest tests/tabletop/test_sender_binding.py tests/tabletop/test_r
    - Include a channel-neutral environment schema. Every supported channel credential slot uses optional interpolation, including `${TELEGRAM_TOKEN:-}`, `${WS_TOKEN:-}`, `${SLACK_TOKEN:-}`, `${MATTERMOST_TOKEN:-}`, and any IRC slot established by Task 1. Start populates only the selected channel's slot. Stop populates none.
    - Use `${TABLETOP_PARTICIPANT}` because player start and player stop both provide a validated participant identity. GM stop uses the static `omega` service, not this generated player service.
    - Use `${TABLETOP_DATABASE_PATH}` for the container path. Never interpolate the host SQLite path.
-   - Structural invariant: neither the generated player service nor the static `omega` service contains `TABLETOP_LOCAL_OPERATOR` or any participant-scoped source-name interpolation reference.
+   - Structural invariant: the generated player service, the canonical player specification, and the static `omega` service contain no `TABLETOP_LOCAL_OPERATOR` environment entry or interpolation reference, and no interpolation reference to any participant-scoped source name.
 3. Update the static `omega` service to consume the generic identity contract: `TABLETOP_CAMPAIGN`, generic `TABLETOP_PARTICIPANT`, `OMEGA_EXPECTED_SENDER`, and `OMEGA_COMMCHANNEL`. Remove identity dependence on `TABLETOP_PARTICIPANT_GM`, `OMEGA_EXPECTED_SENDER_GM`, and `OMEGA_COMMCHANNEL_GM`; retain role-scoped credentials only where the Task 1 audit requires them. Prove the rendered `omega` service receives the candidate launch values.
 4. Prove an arbitrary generated player service renders before changing the base topology. Run `docker compose config` with `[*_compose_base_command(...), "config"]` and assert the rendered service has the canonical infrastructure fields and no literal secrets.
 5. After that proof, remove `omega-player-ada` and `omega-player-bo` from `docker-compose.yml`.
@@ -515,7 +517,8 @@ python3.11 -m pytest tests/tabletop/test_sender_binding.py tests/tabletop/test_r
    - every supported generic credential slot exists structurally in the generated service
    - only the selected channel's required generic slots are populated in the launch process environment
    - infrastructure fields match the canonical specification
-   - no `TABLETOP_LOCAL_OPERATOR` or participant-scoped source-name interpolation reference exists
+   - the generated service, canonical player specification, and static `omega` service contain no `TABLETOP_LOCAL_OPERATOR` entry or interpolation reference
+   - the generated service and static `omega` service contain no interpolation reference to any participant-scoped source name
 8. Update player command paths after generation: `override = _generate_compose_override(participant_id=..., runtime_compose_dir=...)`, then call `_run_compose(..., compose_files=(override,))` for player start and player stop. GM start and GM stop continue to call `_run_compose(..., compose_files=())`.
 9. Player start and player stop use the generated schema; neither path needs sender or channel values in the generator.
 
@@ -622,7 +625,7 @@ python3.11 -m pytest tests/tabletop/test_cli_compose_start.py -q -k "override or
     - Set `TABLETOP_LOCAL_OPERATOR=1` in the parent environment
     - Start both GM and player services
     - Assert the subprocess environment omits `TABLETOP_LOCAL_OPERATOR`
-    - Assert rendered `omega` and generated player container environments omit it
+    - Assert the static `omega` service, canonical player specification, and generated player service contain neither an environment entry nor an interpolation reference for `TABLETOP_LOCAL_OPERATOR`
 
 20. **Runtime env parser compatibility test**:
     - Exercise the syntax actually used by `RUNTIME_ENV_FILE`, including quoting, empty values, escaped characters, and interpolation
@@ -804,3 +807,5 @@ The executing agent must repeat **read current state -> check -> record -> corre
 - Do NOT invent a new `TABLETOP_LOCAL_OPERATOR` setter. Preserve the existing local invocation path as-is
 - The audited persisted-state portion of readiness must come before identity resolution. Environment-dependent readiness, if present, must run against the candidate launch environment after it is built. Stop must never call readiness.
 - Task 2 uses `compose_files=()`; Task 3 adds the generated override only for player operations
+- `RUNTIME_ENV_FILE` may still expose participant-scoped source values to Compose interpolation, but service definitions must never reference those source names
+- The canonical player specification and static `omega` service must structurally omit `TABLETOP_LOCAL_OPERATOR`, not merely receive an empty default
