@@ -410,3 +410,27 @@ for a verified one.
 
 Validation writes nothing. Database writability is proven with a transaction
 that is rolled back, never by leaving a probe row behind.
+
+## Dogfood
+
+The milestone is exercised by two dogfood tests.
+
+The deterministic one runs on every suite pass, with no Docker and no
+credentials:
+
+```bash
+python3.11 -m pytest tests/play_transcripts -q
+```
+
+It drives dialogue, an ambiguous target, GM escalation, a ruling, a resolved
+action, a GM-only secret, a scene transition, a restart from disk, and a
+continuation that depends on restored state, all through public services.
+
+The container one is opt-in, because it needs a real Docker daemon:
+
+```bash
+GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration -q
+```
+
+A skipped container test is not a pass. The release gate records an
+unverified container gate as unverified rather than met.
