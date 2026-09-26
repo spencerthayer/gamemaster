@@ -281,12 +281,12 @@ If the same check fails again without new evidence, change the diagnostic method
 
 | Field | Current state |
 |---|---|
-| Phase | P1 Scene Lifecycle complete. P2 Natural Language not started. |
-| Active task | Task 8: ActionProposal contract |
-| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 996 passed, 7 skipped at commit 88aa965 (baseline was 885 passed, 7 skipped) |
-| Current approach | P1 is delivered and proven across a real process and database reopen. Continue with P2: proposal contract, provenance, planner, clarification routing, runtime integration, Omega cutover, transcript harness and cases. |
+| Phase | P1 Scene Lifecycle and P2 Natural Language complete. P3 Setup not started. |
+| Active task | Task 16: declarative setup manifest |
+| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 1102 passed, 7 skipped at commit a99549f (baseline was 885 passed, 7 skipped) |
+| Current approach | P1 proved scene authority across a process restart. P2 proved that natural language reaches mechanics only through deterministic planning: `ActionProposal` -> `plan_resolution` -> `submit_action` -> the unchanged plugin guard. Continue with P3. |
 | Blockers / open decisions | None. Docker is unavailable in this environment, so the P8 container gate (Tasks 45 and 47 step 3) will be recorded `inconclusive` rather than pass. |
-| Next action | Task 8: add `ActionProposal` and `parse_action_proposal` beside `GameAction` in `tabletop/api/actions.py` |
+| Next action | Task 16: add `tabletop/campaign/setup.py` with a strict, safe `CampaignSetupManifest` |
 
 ## Proposed pull-request slices
 
@@ -1502,3 +1502,11 @@ Tests must catch behavior, boundaries, precedence, transitions, persistence, vis
 | 2026-09-25 | Task 5, structured scene snapshot | Resume and prompt context read one viewpoint-required snapshot and write no events | 17 passed in the focused pair; full suite 974 passed, 7 skipped | `RulingStore.search` filters by LIKE and cannot answer "what precedent currently applies", so added `list_active` rather than faking it with an empty pattern. |
 | 2026-09-25 | Task 6, scene and time CLI | Every documented subcommand works through a real process and fails nonzero on invalid transitions | 16 passed; full suite 990 passed, 7 skipped | Handlers issue no scene SQL; they call the P1 runtime methods. |
 | 2026-09-25 | Task 7, P1 restart acceptance | Scene B survives a process kill and database reopen; scene A stays inspectable; no presence outlives its scene; chat history is never read | 6 passed in the acceptance file, 54 in the P1 focused set, full suite 996 passed, 7 skipped | P1 acceptance criteria are met. Docker-dependent gates remain unavailable in this environment. |
+| 2026-09-25 | Task 8, `ActionProposal` | Model intent is richer than `GameAction` without weakening it | 17 passed | `parse_action_proposal` rejects unknown fields on purpose: a model inventing `difficulty_class` is pushing a mechanical value through a side channel, and dropping it would hide the mistake this contract exists to catch. |
+| 2026-09-25 | Task 9, parameter provenance | A model-only value cannot authorize a rules parameter | 14 passed in the focused pair; full suite 1024 passed, 7 skipped | `MODEL_PROPOSAL` is explicitly non-authoritative in a closed `ParameterSource` set. `action_requirements` defaults to empty, so no second plugin API version is needed. |
+| 2026-09-25 | Task 10, deterministic planner | Every proposal routes to one explicit disposition and repeated calls agree | 17 passed; full suite 1041 passed, 7 skipped | Two defects fixed: an authoritative `dc` was stripped by the model-only filter because that filter ran after authoritative values merged in, and actor control trusted a permissive default flag so a caller could act as a character they did not own. |
+| 2026-09-25 | Task 11, clarification routing | Lookups run rules, then ruling, then state, then GM, and write nothing | 12 passed; full suite 1053 passed, 7 skipped | A ruling decision is read as a number only when it says exactly one, matched by the ruling's own question or scope. Guessing a value out of a sentence is how a wrong number reaches a plugin. |
+| 2026-09-25 | Task 12, proposal runtime | `submit_action` is the only path from a proposal to mechanics | 10 passed; full suite 1063 passed, 7 skipped | The existing `play_turn` guard is unchanged and remains the only route to a roll or a state change. |
+| 2026-09-25 | Task 13, Omega cutover | The model submits proposals and cannot reach the plugin by guessing the old shape | full suite 1067 passed, 7 skipped | `resolve-action` removed with no compatibility alias. The Python `resolve_action` and `play_turn` remain as the internal deterministic seam, as the plan directs. |
+| 2026-09-25 | Task 14, transcript runner | The runner asserts intermediate structure and semantic predicates, not prose | 12 passed | The sentinel check reads only the player snapshot; including the GM view would make every sentinel fail and prove nothing about visibility. |
+| 2026-09-25 | Task 15, fourteen transcript cases | Every required behavior and both named adversarial cases pass | 35 passed in `tests/play_transcripts`; full suite 1102 passed, 7 skipped | Added per-turn `state_writes` so a case can model a GM ruling arriving mid-case, which is what makes the override case meaningful rather than a rerun. P2 acceptance criteria are met. |
