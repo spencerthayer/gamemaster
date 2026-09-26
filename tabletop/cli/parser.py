@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Sequence
+import sys
+from typing import Any, Sequence
 
 from tabletop.cli import handlers
 from tabletop.cli.util import DATABASE_PATH_ENV_VAR, require_database_path
@@ -16,8 +17,12 @@ __all__ = [
 ]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+def build_parser(
+    parser_class: type[argparse.ArgumentParser] = argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    """Build the CLI parser. The class is injectable for exit-code testing."""
+
+    parser = parser_class(
         prog="gamemaster",
         description="Operator CLI for Gamemaster campaign lifecycle.",
     )
@@ -360,6 +365,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="text",
         dest="output_format",
     )
+    validate.add_argument(
+        "--live", action="store_true",
+        help="Run bounded environment probes in addition to static checks.",
+    )
+    validate.add_argument(
+        "--channel-probe", action="store_true", dest="channel_probe",
+        help="Also send a real test message. Off by default.",
+    )
     validate.set_defaults(handler=handlers.cmd_campaign_validate)
 
     readiness = campaign_sub.add_parser(
@@ -404,17 +417,53 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class _ArgumentError(Exception):
+    """argparse reported an invalid invocation.
+
+    Raised instead of exiting so `campaign validate` can return its own
+    documented class, 3, rather than argparse's default 2.
+    """
+
+
+class _ExitCode(Exception):
+    """argparse handled --help or --version; carry its exit code."""
+
+    def __init__(self, code: int) -> None:
+        self.code = code
+
+
+class _Parser(argparse.ArgumentParser):
+    """ArgumentParser that reports failures as exceptions instead of exiting."""
+
+    def error(self, message: str) -> Any:
+        raise _ArgumentError(message)
+
+    def exit(self, status: int = 0, message: str | None = None) -> Any:
+        if message:
+            print(message)
+        raise _ExitCode(status)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    parser = build_parser(_Parser)
+    try:
+        args = parser.parse_args(list(argv) if argv is not None else None)
+    except _ExitCode as exit_code:
+        # --help still exits 0.
+        return exit_code.code
+    except _ArgumentError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return handlers.EXIT_INVALID_INVOCATION
     handler = getattr(args, "handler", None)
     if handler is not None:
         return int(handler(args))
     if args.command is None:
         parser.print_help()
         return 0
-    parser.error(f"command {args.command!r} requires a subcommand")
-    return 2
+    print(
+        f"error: command {args.command!r} requires a subcommand", file=sys.stderr
+    )
+    return handlers.EXIT_INVALID_INVOCATION
 
 
 if __name__ == "__main__":

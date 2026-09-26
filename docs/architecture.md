@@ -171,3 +171,24 @@ model prompt context both read it.
   A campaign that has never opened a scene reports `None`, not a placeholder.
 - Prompt context renders the snapshot as readable text; handing the model the
   raw mapping would put a Python repr in the prompt.
+
+## Validation
+
+`tabletop.campaign.validation` produces typed checks with stable ids such as
+`campaign.exists` and `participant.gm.count`. `tabletop.campaign.readiness`
+still exists for callers that want human-readable prose; the two answer
+different questions and both are legitimate.
+
+Readiness decides whether a *campaign* is sound. It deliberately ignores live
+checks, because a broken environment is not a broken campaign. The CLI
+separates the two exit classes: 1 for a failed static check, 2 for a runtime or
+environment failure. A campaign that is configured correctly on a machine with
+no Docker exits 2, not 1.
+
+Live probes are explicit, injectable callables rather than hidden side
+effects. Each is bounded by a timeout, and a probe that raises or hangs becomes
+a failed check instead of taking the process down. Credentials are reported by
+slot name, never by value.
+
+`--channel-probe` is separate from `--live` because it is the only probe that
+sends a real message. It is never implied.

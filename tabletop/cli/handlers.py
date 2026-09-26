@@ -24,6 +24,7 @@ from tabletop.campaign import sender_binding
 from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.membership import MembershipStore, validate_participant_id
 from tabletop.campaign.readiness import readiness_report
+from tabletop.campaign.validation import validate_campaign
 from tabletop.campaign.resume import resume_snapshot
 from tabletop.campaign.selection import (
     clear_active_campaign_file,
@@ -1072,8 +1073,23 @@ def _compose_service_name(*, gm: bool, participant_id: str | None) -> str:
 
 
 def _readiness_failure(report: Mapping[str, Any]) -> None:
+    """Refuse to launch when the built environment is incomplete."""
     if report["exit_nonzero"]:
         raise ValueError("readiness errors: " + "; ".join(report["errors"]))
+
+
+def _validation_failure(report: Any) -> None:
+    """Refuse to start a campaign whose static validation has failed.
+
+    A warning is not a gate: a campaign with no open scene yet is a normal
+    thing to start. Only a failed check stops the launch.
+    """
+    failures = report.static_failures()
+    if failures:
+        raise ValueError(
+            "validation failed: "
+            + "; ".join(f"{c.check_id}: {c.message}" for c in failures)
+        )
 
 
 def _resolve_launch_context(
@@ -1127,15 +1143,7 @@ def _resolve_launch_context(
     requested_participant = None if gm else validate_participant_id(participant_id or "")
     conn = open_database({"TABLETOP_DATABASE_PATH": str(host_database_path)})
     try:
-        _readiness_failure(
-            readiness_report(
-                conn,
-                campaign_id,
-                environ={},
-                require_reviewed=True,
-                check_environment=False,
-            )
-        )
+        _validation_failure(validate_campaign(conn, campaign_id))
         participants = MembershipStore(conn).list_participants(campaign_id)
         if gm:
             gm_rows = [row for row in participants if row["role"] == "gm"]
@@ -1178,6 +1186,8 @@ def _resolve_launch_context(
             action="start",
             container_database_path=container_database_path,
         )
+        # The launch environment is a different question from persisted
+        # campaign state, so it keeps the environment-oriented readiness check.
         _readiness_failure(
             readiness_report(
                 conn,
@@ -1678,26 +1688,85 @@ def cmd_campaign_resume(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Stable exit classes for `campaign validate`. An operator script branches on
+#: these, so the numbers are part of the contract.
+EXIT_READY = 0
+EXIT_VALIDATION_FAILED = 1
+EXIT_RUNTIME_FAILED = 2
+EXIT_INVALID_INVOCATION = 3
+
+
 def cmd_campaign_validate(args: argparse.Namespace) -> int:
-    campaign_id = resolve_campaign_id(campaign_id=args.campaign_id)
+    """Report structured validation, and exit with a stable class.
+
+    Exit 0 ready, 1 validation failed, 2 runtime or environment failure,
+    3 invalid invocation. A live failure is a runtime class, not a validation
+    class: the campaign may be fine and the environment broken.
+    """
+    from tabletop.campaign.live_probes import (
+        ProbeContext,
+        default_probes,
+        merge_live,
+        run_probes,
+    )
+    from tabletop.campaign.validation import CheckStatus, validate_campaign
+
+    try:
+        campaign_id = resolve_campaign_id(campaign_id=args.campaign_id)
+        database_path = require_database_path()
+    except SystemExit:
+        return EXIT_INVALID_INVOCATION
+
     conn = open_database()
     try:
-        report = readiness_report(
-            conn,
-            campaign_id,
-            require_reviewed=bool(getattr(args, "require_reviewed", False)),
-        )
+        report = validate_campaign(conn, campaign_id)
+    except Exception as exc:  # noqa: BLE001 - a runtime failure is exit 2
+        print(f"validation could not run: {exc}", flush=True)
+        return EXIT_RUNTIME_FAILED
     finally:
         conn.close()
+
+    if getattr(args, "live", False) or getattr(args, "channel_probe", False):
+        context = ProbeContext(
+            environ=dict(os.environ),
+            repo_root=_REPO_ROOT,
+            database_path=database_path,
+            campaign_id=campaign_id,
+        )
+        probes = list(default_probes(context))
+        if getattr(args, "channel_probe", False):
+            from tabletop.campaign.live_probes import DELIVERY_PROBE, Probe, ProbeResult
+
+            probes.append(
+                Probe(
+                    DELIVERY_PROBE,
+                    lambda: ProbeResult(
+                        CheckStatus.SKIP,
+                        "no channel delivery target configured for this run",
+                    ),
+                )
+            )
+        report = merge_live(report, run_probes(probes))
+
     if getattr(args, "output_format", "text") == "json":
-        print(json.dumps(report, indent=2, sort_keys=True))
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
     else:
-        print(f"campaign: {report['campaign_id']}")
-        print(f"ok: {report['ok']}")
-        for label in ("errors", "warnings", "notices"):
-            for item in report[label]:
-                print(f"{label[:-1]}: {item}")
-    return 1 if report["exit_nonzero"] else 0
+        _print_validation_report(report)
+
+    # A live failure is a runtime class: the campaign may be fine and the
+    # environment broken. The two classes never both apply.
+    if report.live_failures():
+        return EXIT_RUNTIME_FAILED
+    return EXIT_READY if report.ready else EXIT_VALIDATION_FAILED
+
+
+def _print_validation_report(report) -> None:
+    print(f"campaign: {report.campaign_id}")
+    print(f"ready: {str(report.ready).lower()}")
+    print(f"live: {str(report.live).lower()}")
+    for check in report.checks:
+        print(f"  [{check.status.value}] {check.check_id}"
+              + (f": {check.message}" if check.message else ""))
 
 
 def cmd_campaign_start(args: argparse.Namespace) -> int:
