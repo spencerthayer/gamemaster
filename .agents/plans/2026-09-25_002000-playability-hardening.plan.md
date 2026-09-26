@@ -281,10 +281,10 @@ If the same check fails again without new evidence, change the diagnostic method
 
 | Field | Current state |
 |---|---|
-| Phase | P1 Scene Lifecycle, P2 Natural Language, and P3 Setup complete. P4 Validation not started. |
-| Active task | Task 21: structured static validation |
-| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 1175 passed, 7 skipped at commit cf9fc14 (baseline was 885 passed, 7 skipped) |
-| Current approach | P1 proved scene authority across a process restart. P2 proved natural language reaches mechanics only through deterministic planning. P3 made setup reproducible: a strict manifest, a reviewable dry run, idempotent apply, and a wizard that builds the same object. Continue with P4. |
+| Phase | P1 Scene Lifecycle, P2 Natural Language, P3 Setup, and P4 Validation complete. P5 Durable Turns not started. |
+| Active task | Task 25: durable turn jobs and per-action effect claims |
+| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 1241 passed, 7 skipped at commit 0ad8ae9 (baseline was 885 passed, 7 skipped) |
+| Current approach | P1 proved scene authority across a process restart. P2 proved natural language reaches mechanics only through deterministic planning. P3 made setup reproducible. P4 made validation machine-readable with stable ids and stable exit classes. Continue with P5, the largest remaining block. |
 | Blockers / open decisions | None. Docker is unavailable in this environment, so the P8 container gate (Tasks 45 and 47 step 3) will be recorded `inconclusive` rather than pass. |
 | Next action | Task 21: add `tabletop/campaign/validation.py` with stable structured check IDs |
 
@@ -1515,3 +1515,7 @@ Tests must catch behavior, boundaries, precedence, transitions, persistence, vis
 | 2026-09-25 | Task 18, wizard and CLI | `campaign setup` works from a manifest and interactively through one service | 14 passed; full suite 1175 passed, 7 skipped | Setup prints the exact `campaign start` commands and never launches a process itself. A test asserts no process is started. |
 | 2026-09-25 | Task 19, starting scene materialization | Setup composes the real campaign, membership, scene, and clock services | 9 passed | Setup emits no play events: it configures, it does not forge play history. A rerun does not resurrect a scene the operator already closed. |
 | 2026-09-25 | Task 20, P3 acceptance | Dry run, apply, and rerun are reproducible through real CLI processes | 5 passed in `test_p3_setup_acceptance`; full suite 1175 passed, 7 skipped | A dry run leaves the authoritative state digest byte-identical. P3 acceptance criteria are met. |
+| 2026-09-25 | Task 21, structured static validation | Every required check has a stable id and the report is JSON-safe | 21 passed | Writability is proven with a rolled-back transaction, never a persistent probe row that would make a read-only database look writable on the next run. |
+| 2026-09-25 | Task 22, live probes | Probes are explicit, bounded, injectable, and never leak secrets | 11 passed | The schema already enforces one GM through a unique index, so the check cannot observe two; the test now asserts the schema guarantee instead. Credentials are reported by slot name, never value. |
+| 2026-09-25 | Task 23, validation JSON and exit codes | Exit 0 ready, 1 static failure, 2 runtime, 3 invalid invocation, and `--help` still 0 | 14 passed; full suite 1224 passed, 7 skipped | The argument parser now reports failures as exceptions so `campaign validate` can return its documented class 3 rather than argparse's default 2. |
+| 2026-09-25 | Task 24, P4 acceptance | Static, live, JSON, and channel-probe behavior verified independently | 17 passed in `test_p4_validation_acceptance`; full suite 1241 passed, 7 skipped | One inconsistency found and fixed: `ready` counted live checks, contradicting its own documented contract that a broken environment is not a broken campaign. A live failure is now exit 2, a static failure exit 1. P4 acceptance criteria are met. |
