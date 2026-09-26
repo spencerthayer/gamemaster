@@ -172,7 +172,12 @@ def plan_resolution(
     return ResolutionPlan(
         disposition=Disposition.RESOLVE,
         reason="every required parameter has an authoritative value",
-        action=_build_action(proposal, action_type, by_name),
+        action=_build_action(
+            proposal,
+            action_type,
+            by_name,
+            authoritative_names=frozenset(required) | _ALWAYS_AUTHORITATIVE,
+        ),
         parameters=dict(by_name),
     )
 
@@ -186,6 +191,12 @@ def _plugin_handles(plugin: GameSystemPlugin, action_type: str) -> bool:
     return plugin.supports(Capability.ACTION_RESOLUTION) and plugin.handles_action(
         action_type
     )
+
+
+#: Names that are always a rules fact, whatever a plugin declares. This is a
+#: floor under the plugin's own declarations, not the only defence: a plugin
+#: that has not yet declared a mechanical parameter still gets these refused.
+_ALWAYS_AUTHORITATIVE = frozenset({"dc", "difficulty", "attack_bonus"})
 
 
 def _missing_requirements(
@@ -325,20 +336,27 @@ def _build_action(
     proposal: ActionProposal,
     action_type: str,
     by_name: Mapping[str, MechanicalParameter],
+    *,
+    authoritative_names: frozenset[str] = frozenset(),
 ) -> GameAction:
-    """Build a sanitized ``GameAction`` from authoritative values only.
+    """Build a sanitized ``GameAction``.
 
-    Model-proposed parameters are dropped rather than forwarded: the
-    plugin receives what the rules and the GM established, not what the model
-    guessed.
+    A parameter the plugin declared as a requirement may only come from an
+    authoritative source, so a model-proposed difficulty or damage number can
+    never reach the plugin. Parameters the plugin did not declare are the
+    player's free choices -- which ability, which destination -- and are
+    forwarded as given.
+
+    The set of authoritative names comes from the plugin, not a hardcoded list
+    here. A blocklist had to be extended by hand for every new plugin
+    requirement, and a plugin that had not been updated would let the model
+    choose its own numbers.
     """
     parameters: dict[str, Any] = {
         name: value
         for name, value in proposal.parameters.items()
-        if name not in _MODEL_ONLY_PARAMETERS
+        if name not in authoritative_names
     }
-    # Authoritative values overwrite whatever the proposal carried under the
-    # same name: the rules and the GM, not the model, decide a difficulty.
     for name, parameter in by_name.items():
         if parameter.source.is_authoritative:
             parameters[name] = parameter.value
@@ -350,6 +368,4 @@ def _build_action(
     )
 
 
-#: Parameter names that are only ever meaningful with a rules-authoritative
-#: value. They are never forwarded from a model proposal.
-_MODEL_ONLY_PARAMETERS = frozenset({"dc", "difficulty", "attack_bonus"})
+

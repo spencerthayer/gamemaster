@@ -36,6 +36,35 @@ LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
 TERMINAL_STATUSES = frozenset({"delivered", "failed", "cancelled"})
 
 
+#: Channel-supplied text is untrusted and unbounded. A cap keeps one oversized
+#: message from writing megabytes into the campaign database per turn.
+MAX_INPUT_TEXT_LENGTH = 64_000
+
+#: A native message id is a short opaque token. Anything longer is not an id.
+MAX_IDENTITY_LENGTH = 512
+
+
+def _clean_identity(value, field_name):
+    """Normalize a channel identity field to a bounded, non-blank string.
+
+    A blank value becomes NULL. An empty string is not NULL, so it would
+    defeat the partial unique index's intent and collide with a real message
+    while skipping the duplicate lookup.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a string or None")
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if len(stripped) > MAX_IDENTITY_LENGTH:
+        raise ValueError(
+            f"{field_name} must be at most {MAX_IDENTITY_LENGTH} characters"
+        )
+    return stripped
+
+
 class TurnTransitionError(RuntimeError):
     """A turn was moved to a status it cannot legally reach."""
 
@@ -93,16 +122,31 @@ class TurnJobStore:
         """Claim one inbound message, or return the turn that already owns it.
 
         A retry of the same native message returns the original turn with no
-        second claim. Without channel identity every call is a new turn, since
-        there is nothing to deduplicate on.
+        second claim. A channel that supplies no usable identity produces a
+        new turn every time, since there is nothing to deduplicate on.
+
+        Identity fields are normalized and bounded here rather than trusted:
+        a blank id is stored as NULL, because an empty string is not NULL and
+        would collide with the partial unique index while skipping the
+        duplicate lookup, raising IntegrityError instead of creating a turn.
         """
+        external_message_id = _clean_identity(external_message_id, "external_message_id")
+        conversation_id = _clean_identity(conversation_id, "conversation_id")
+        channel = _clean_identity(channel, "channel")
+        principal_id = _clean_identity(principal_id, "principal_id")
+        if not isinstance(input_text, str):
+            raise TypeError("input_text must be a string")
+        if len(input_text) > MAX_INPUT_TEXT_LENGTH:
+            raise ValueError(
+                f"input_text must be at most {MAX_INPUT_TEXT_LENGTH} characters"
+            )
+
         if channel and external_message_id:
             existing = self.find_by_ingress(
                 campaign_id, channel, conversation_id, external_message_id
             )
             if existing is not None:
                 return existing
-
         turn_id = uuid.uuid4().hex
         now = _now()
         with transaction(self.conn):
@@ -414,9 +458,21 @@ def decide_recovery(store: TurnJobStore, turn_id: str) -> RecoveryDecision:
             turn_id, "retry_resolution", "no action effect was committed", ()
         )
 
+    # Delivery work outranks the committed-effect check. A resolved turn
+    # always commits an effect, so testing evidence first would classify
+    # every pending output as commit work and the resend would never happen.
     if job.status in ("completed", "delivery_pending"):
         return RecoveryDecision(
             turn_id, "retry_delivery", "output is stored and awaits delivery", committed
+        )
+
+    # A committed effect outranks the remaining statuses. A turn that crashed
+    # between committing and updating its own state still reads as
+    # `interpreting`, and classifying it from the status alone would rerun the
+    # action.
+    if committed:
+        return RecoveryDecision(
+            turn_id, "commit_pending", "an action effect is already committed", committed
         )
 
     if job.status in RESUMABLE:

@@ -340,6 +340,7 @@ def recover_deliveries(
     send: Callable[[Delivery], bool],
     *,
     max_attempts: int = MAX_DELIVERY_ATTEMPTS,
+    turn_id: str | None = None,
 ) -> list[DeliveryOutcome]:
     """Retry every deliverable segment, in per-turn order.
 
@@ -361,6 +362,11 @@ def recover_deliveries(
         ),
         key=lambda d: (d.turn_id, d.segment),
     )
+    if turn_id is not None:
+        # Scoped recovery: a GM retrying one turn must not publish another
+        # turn's channel traffic.
+        recoverable = [d for d in recoverable if d.turn_id == turn_id]
+
     for delivery in recoverable:
         if delivery.attempts >= max_attempts:
             store.mark_failed(

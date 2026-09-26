@@ -352,3 +352,49 @@ def test_a_partly_absent_target_asks_the_player_instead_of_acting() -> None:
     assert "npc-hound" in plan.clarification.question
     # The player chooses from what is actually present.
     assert plan.clarification.candidate_refs == ("npc-gate",)
+
+
+def test_a_declared_requirement_can_never_come_from_the_model() -> None:
+    """The blocklist was hand-maintained, so an undeclared name slipped through.
+
+    A plugin that had not declared its mechanical parameters let the model
+    choose its own numbers. The authoritative set now comes from the plugin's
+    own declaration, and a model-proposed value is dropped rather than
+    forwarded.
+    """
+    class Needy(_Plugin):
+        def action_requirements(self, action_type):
+            if action_type == "ability_check":
+                return ("dc", "amount")
+            return ()
+
+    plan = plan_resolution(
+        _proposal(parameters={"amount": 9999}),
+        plugin=Needy({"ability_check": ("dc", "amount")}),
+        context=_context(),
+        parameters=(
+            MechanicalParameter(name="dc", value=15, source=ParameterSource.RULING),
+        ),
+    )
+    # `amount` is declared, so the model's 9999 cannot satisfy it.
+    assert plan.disposition is not Disposition.RESOLVE
+    assert "amount" in plan.missing_parameters
+
+
+def test_an_undeclared_free_choice_is_still_forwarded() -> None:
+    """Which ability you use is a player's choice, not a rules fact.
+
+    Only parameters a plugin declares are withheld, so a free choice reaches
+    the plugin as the player made it.
+    """
+    plan = plan_resolution(
+        _proposal(parameters={"ability": "strength"}),
+        plugin=_Plugin({"ability_check": ("dc",)}),
+        context=_context(),
+        parameters=(
+            MechanicalParameter(name="dc", value=15, source=ParameterSource.RULING),
+        ),
+    )
+    assert plan.disposition is Disposition.RESOLVE
+    assert plan.action is not None
+    assert plan.action.parameters["ability"] == "strength"

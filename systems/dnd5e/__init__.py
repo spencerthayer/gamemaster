@@ -126,10 +126,17 @@ class Dnd5ePlugin(GameSystemPlugin):
         from one the model invented.
         """
 
+        # Only parameters that are a *mechanical decision* are declared.
+        # Which ability, which condition, and which destination are the
+        # player's free choices, so they are deliberately not declared.
         if action_type in ("ability_check", "saving_throw"):
             return ("dc",)
         if action_type == "attack":
             return ("attack_bonus",)
+        if action_type == "apply_damage":
+            # The damage number is a mechanical decision. A model may not
+            # pick it, so it is declared rather than left to the model.
+            return ("amount",)
         return ()
 
     def handles_action(self, action_type: str) -> bool:

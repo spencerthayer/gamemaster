@@ -148,7 +148,12 @@ def test_setup_activation_attaches_content(tmp_path: Path) -> None:
         manifest = load_setup_manifest(base / "campaign.setup.yaml")
         assert manifest.content[0].role == "rules"
         apply_setup(conn, manifest)
-        # Setup records the install; attachment stays an explicit step.
-        assert ContentCatalog(conn).attached_documents("setup-demo") == []
+        # Setup declares the content, so it installs and activates it. Content
+        # setup declared but never installed was a silent configuration loss.
+        catalog = ContentCatalog(conn)
+        assert [item["role"] for item in catalog.attached_documents("setup-demo")] == [
+            "rules"
+        ]
+        assert conn.execute("SELECT COUNT(*) FROM document_chunks").fetchone()[0] >= 1
     finally:
         conn.close()

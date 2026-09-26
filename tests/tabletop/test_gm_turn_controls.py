@@ -134,7 +134,7 @@ def test_retry_delivery_resends_stored_output(conn: sqlite3.Connection) -> None:
     DeliveryStore(conn).enqueue(turn_id, "websocket", "stored text")
     sent: list[str] = []
     result = gm_retry_delivery(
-        conn, turn_id, lambda d: sent.append(d.text) or True
+        conn, _CAMPAIGN, turn_id, lambda d: sent.append(d.text) or True
     )
     assert sent == ["stored text"]
     assert result["retried"] == "delivery"
@@ -148,7 +148,7 @@ def test_retry_delivery_never_reruns_a_committed_action(
     _committed(conn, turn_id)
     DeliveryStore(conn).enqueue(turn_id, "websocket", "text")
     before = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-    gm_retry_delivery(conn, turn_id, lambda _d: True)
+    gm_retry_delivery(conn, _CAMPAIGN, turn_id, lambda _d: True)
     assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == before
     assert TurnJobStore(conn).action_claims(turn_id)[0]["status"] == "committed"
 
@@ -157,7 +157,7 @@ def test_retry_delivery_reuses_the_delivery_id(conn: sqlite3.Connection) -> None
     turn_id = _turn(conn)
     delivery = DeliveryStore(conn).enqueue(turn_id, "websocket", "text")
     DeliveryStore(conn).mark_failed(turn_id, delivery.delivery_id, reason="refused")
-    gm_retry_delivery(conn, turn_id, lambda _d: True)
+    gm_retry_delivery(conn, _CAMPAIGN, turn_id, lambda _d: True)
     assert DeliveryStore(conn).require(turn_id, delivery.delivery_id).status == (
         "delivered"
     )

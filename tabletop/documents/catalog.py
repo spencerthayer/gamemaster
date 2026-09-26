@@ -112,14 +112,28 @@ class ContentCatalog:
         enabled: bool = True,
     ) -> None:
         """Activate one document for one campaign. Nothing is copied."""
-        _require_role(role)
         with transaction(self.conn):
-            self.conn.execute(
-                "INSERT INTO campaign_documents "
-                "(campaign_id, document_id, role, enabled, gm_only, attached_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (campaign_id, document_id, role, int(enabled), int(gm_only), _now()),
+            self.attach_document_in_transaction(
+                campaign_id, document_id, role, gm_only=gm_only, enabled=enabled
             )
+
+    def attach_document_in_transaction(
+        self,
+        campaign_id: str,
+        document_id: str,
+        role: str,
+        *,
+        gm_only: bool = False,
+        enabled: bool = True,
+    ) -> None:
+        """Activate one document inside a caller-owned transaction."""
+        _require_role(role)
+        self.conn.execute(
+            "INSERT INTO campaign_documents "
+            "(campaign_id, document_id, role, enabled, gm_only, attached_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (campaign_id, document_id, role, int(enabled), int(gm_only), _now()),
+        )
 
     def attach_pack(
         self, campaign_id: str, pack_id: str, role: str, *, enabled: bool = True

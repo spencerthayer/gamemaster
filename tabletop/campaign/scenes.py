@@ -111,7 +111,7 @@ class SceneStore:
         rows = self.conn.execute(
             "SELECT scene_id, campaign_id, session_id, name, status, location_entity_id, "
             "in_world_started_at, in_world_ended_at, started_at, ended_at, system_state "
-            "FROM scenes WHERE campaign_id = ? ORDER BY started_at, scene_id",
+            "FROM scenes WHERE campaign_id = ? ORDER BY started_at, rowid",
             (campaign_id,),
         ).fetchall()
         return tuple(_scene_from_row(row) for row in rows)

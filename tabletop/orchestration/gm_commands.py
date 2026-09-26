@@ -558,15 +558,25 @@ def gm_retry_generation(conn: sqlite3.Connection, turn_id: str) -> dict[str, Any
 
 
 def gm_retry_delivery(
-    conn: sqlite3.Connection, turn_id: str, send: Callable[[Any], bool]
+    conn: sqlite3.Connection,
+    campaign_id: str,
+    turn_id: str,
+    send: Callable[[Any], bool],
 ) -> dict[str, Any]:
-    """Resend stored output under its existing delivery id.
+    """Resend stored output for one turn under its existing delivery id.
 
     Never regenerates and never reruns an action: the text is already stored.
+    Scoped to this campaign and this turn. Resending every pending delivery in
+    the database would publish another campaign's channel traffic from a GM
+    command issued inside this one.
     """
     from tabletop.orchestration.delivery import DeliveryStore, recover_deliveries
+    from tabletop.orchestration.turn_job import TurnJobStore
 
-    outcomes = recover_deliveries(conn, send)
+    job = TurnJobStore(conn).require(turn_id)
+    if job.campaign_id != campaign_id:
+        raise GmTurnError(f"turn {turn_id!r} is not in campaign {campaign_id!r}")
+    outcomes = recover_deliveries(conn, send, turn_id=turn_id)
     return {
         "turn_id": turn_id,
         "retried": "delivery",

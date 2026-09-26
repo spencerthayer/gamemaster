@@ -266,3 +266,62 @@ def test_listing_filters_by_status(store: TurnJobStore) -> None:
     assert [j.turn_id for j in store.list_for_campaign(_CAMPAIGN, status="received")] == [
         first.turn_id
     ]
+
+
+# -- untrusted channel identity --------------------------------------------
+
+
+def test_a_blank_message_id_creates_distinct_turns(
+    conn: sqlite3.Connection,
+) -> None:
+    """An empty string is not NULL, so it would collide on the partial index.
+
+    ``claim_ingress`` skipped the duplicate lookup because the value was
+    falsy, then raised IntegrityError on insert. A channel with no usable
+    identity must simply produce a new turn each time.
+    """
+    store = TurnJobStore(conn)
+    first = store.claim_ingress(
+        _CAMPAIGN, "first", channel="irc", conversation_id="#chan",
+        external_message_id="",
+    )
+    second = store.claim_ingress(
+        _CAMPAIGN, "second", channel="irc", conversation_id="#chan",
+        external_message_id="",
+    )
+    assert first.turn_id != second.turn_id
+    assert store.require(first.turn_id).external_message_id is None
+
+
+def test_a_whitespace_message_id_is_treated_as_absent(conn: sqlite3.Connection) -> None:
+    store = TurnJobStore(conn)
+    turn = store.claim_ingress(
+        _CAMPAIGN, "hi", channel="irc", external_message_id="   "
+    )
+    assert store.require(turn.turn_id).external_message_id is None
+
+
+def test_a_real_message_id_still_deduplicates(conn: sqlite3.Connection) -> None:
+    store = TurnJobStore(conn)
+    first = store.claim_ingress(
+        _CAMPAIGN, "x", channel="t", conversation_id="a", external_message_id="42"
+    )
+    second = store.claim_ingress(
+        _CAMPAIGN, "x", channel="t", conversation_id="a", external_message_id="42"
+    )
+    assert first.turn_id == second.turn_id
+
+
+def test_an_oversized_message_id_is_refused(conn: sqlite3.Connection) -> None:
+    store = TurnJobStore(conn)
+    with pytest.raises(ValueError, match="at most"):
+        store.claim_ingress(
+            _CAMPAIGN, "x", channel="t", external_message_id="X" * 5000
+        )
+
+
+def test_an_oversized_input_text_is_refused(conn: sqlite3.Connection) -> None:
+    """Channel text is untrusted; one huge message must not fill the database."""
+    store = TurnJobStore(conn)
+    with pytest.raises(ValueError, match="at most"):
+        store.claim_ingress(_CAMPAIGN, "Z" * 70_000, channel="t", external_message_id="1")

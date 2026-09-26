@@ -295,3 +295,63 @@ def test_a_malformed_scalar_field_is_a_manifest_error(
 ) -> None:
     with pytest.raises(SetupManifestError):
         parse_setup_manifest({**_BASE, field: 42}, base_dir=tmp_path)
+
+
+def test_a_duplicate_character_is_rejected_before_any_write(tmp_path: Path) -> None:
+    """Two characters with one id would conflict only after the commit.
+
+    The campaign and the first entity would already be written, contradicting
+    the promise that a failure leaves nothing half-configured.
+    """
+    with pytest.raises(SetupManifestError, match="duplicate character"):
+        parse_setup_manifest(
+            {
+                **_BASE,
+                "characters": [
+                    {"entity_id": "npc-1", "name": "Aldric"},
+                    {"entity_id": "npc-1", "name": "Borin"},
+                ],
+            },
+            base_dir=tmp_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "principals",
+    [["telegram:12345"], [["telegram"]], [42], [[None, "1"]], [["", "1"]], [["tg", ""]]],
+)
+def test_a_malformed_principal_binding_is_rejected(
+    tmp_path: Path, principals: object
+) -> None:
+    """A shorthand string would silently bind channel 't' to id 'e'."""
+    with pytest.raises(SetupManifestError):
+        parse_setup_manifest(
+            {
+                **_BASE,
+                "participants": [
+                    {
+                        "participant_id": "player-1",
+                        "display_name": "Ada",
+                        "principals": principals,
+                    }
+                ],
+            },
+            base_dir=tmp_path,
+        )
+
+
+def test_a_well_formed_principal_binding_parses(tmp_path: Path) -> None:
+    manifest = parse_setup_manifest(
+        {
+            **_BASE,
+            "participants": [
+                {
+                    "participant_id": "player-1",
+                    "display_name": "Ada",
+                    "principals": [["telegram", "12345"]],
+                }
+            ],
+        },
+        base_dir=tmp_path,
+    )
+    assert manifest.participants[0].principals == (("telegram", "12345"),)

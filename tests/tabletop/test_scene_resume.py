@@ -292,3 +292,22 @@ def test_prompt_context_renders_no_python_repr(conn: sqlite3.Connection) -> None
     )
     assert "{'campaign_id'" not in snapshot.text
     assert "scene_id" not in snapshot.text
+
+
+def test_the_snapshot_reports_the_newest_scene_not_an_alphabetical_one(
+    conn: sqlite3.Connection,
+) -> None:
+    """Scene ids that sort the wrong way must not decide what the model sees.
+
+    Stored timestamps are truncated to whole seconds, so two scenes routinely
+    share a `started_at` and an alphabetical tiebreak would report the closed
+    one forever after.
+    """
+    scenes = SceneStore(conn)
+    scenes.open_scene(_CAMPAIGN, "zzz", "First", started_at="2026-01-01T00:00:00Z")
+    scenes.close_scene(_CAMPAIGN, "zzz", ended_at="2026-01-01T01:00:00Z")
+    scenes.open_scene(_CAMPAIGN, "aaa", "Second", started_at="2026-01-01T00:00:00Z")
+
+    snapshot = build_scene_snapshot(conn, _CAMPAIGN, viewpoint=gm_viewpoint())
+    assert snapshot["scene"]["scene_id"] == "aaa"
+    assert snapshot["scene"]["status"] == "open"

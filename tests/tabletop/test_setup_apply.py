@@ -93,6 +93,7 @@ def test_the_plan_names_every_required_step(
         "GRANT character",
         "GRANT control",
         "INSTALL content",
+        "ATTACH content",
         "APPLY starting state",
         "OPEN scene",
         "SET game time",
@@ -240,3 +241,49 @@ def _row_counts(conn: sqlite3.Connection) -> dict[str, int]:
     ):
         counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
     return counts
+
+
+# -- declared content is actually installed --------------------------------
+
+
+def test_apply_installs_and_attaches_declared_content(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    """Planning an INSTALL step without installing it silently drops content.
+
+    The campaign reported success while the rules it declared were absent, and
+    a rerun never converged because the document was never written.
+    """
+    from tabletop.documents.catalog import ContentCatalog
+
+    rules = tmp_path / "rules.md"
+    rules.write_text("Gate DC is 15.\n\nThe gate is rusted.", encoding="utf-8")
+    manifest = _manifest(tmp_path, content=(SetupContent(path=rules, role="rules"),))
+    apply_setup(conn, manifest)
+
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM document_chunks").fetchone()[0] >= 1
+    attached = ContentCatalog(conn).attached_documents(_CAMPAIGN)
+    assert [item["role"] for item in attached] == ["rules"]
+
+
+def test_setup_converges_after_applying_content(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    rules = tmp_path / "rules.md"
+    rules.write_text("Gate DC is 15.", encoding="utf-8")
+    manifest = _manifest(tmp_path, content=(SetupContent(path=rules, role="rules"),))
+    apply_setup(conn, manifest)
+    assert plan_setup(conn, manifest).has_work is False
+
+
+def test_a_second_apply_installs_content_once(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    rules = tmp_path / "rules.md"
+    rules.write_text("Gate DC is 15.", encoding="utf-8")
+    manifest = _manifest(tmp_path, content=(SetupContent(path=rules, role="rules"),))
+    apply_setup(conn, manifest)
+    apply_setup(conn, manifest)
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM campaign_documents").fetchone()[0] == 1

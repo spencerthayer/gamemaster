@@ -277,9 +277,7 @@ def _parse_participants(entries: Sequence[Any]) -> tuple[SetupParticipant, ...]:
                     _require_id({"entity_id": item}, "entity_id")
                     for item in entry.get("character_ids") or ()
                 ),
-                principals=tuple(
-                    (str(pair[0]), str(pair[1])) for pair in entry.get("principals") or ()
-                ),
+                principals=_parse_principals(entry.get("principals")),
             )
         )
     if sum(1 for p in parsed if p.role == "gm") > 1:
@@ -287,12 +285,35 @@ def _parse_participants(entries: Sequence[Any]) -> tuple[SetupParticipant, ...]:
     return tuple(parsed)
 
 
+def _parse_principals(entries: Any) -> tuple[tuple[str, str], ...]:
+    """Parse channel principal bindings as [channel, external_id] pairs."""
+    pairs: list[tuple[str, str]] = []
+    for pair in _require_list(entries, "principals"):
+        if isinstance(pair, str) or not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise SetupManifestError(
+                "each principal must be a [channel, external_id] pair"
+            )
+        channel, external_id = pair
+        if not isinstance(channel, str) or not channel.strip():
+            raise SetupManifestError("principal channel must be a non-empty string")
+        if not isinstance(external_id, str) or not external_id.strip():
+            raise SetupManifestError("principal external_id must be a non-empty string")
+        pairs.append((channel.strip(), external_id.strip()))
+    return tuple(pairs)
+
+
 def _parse_characters(entries: Sequence[Any]) -> tuple[tuple[str, str, str | None], ...]:
     parsed: list[tuple[str, str, str | None]] = []
+    seen: set[str] = set()
     for entry in entries:
         if not isinstance(entry, Mapping):
             raise SetupManifestError("each character must be a mapping")
         entity_id = _require_id(entry, "entity_id")
+        if entity_id in seen:
+            # Caught here rather than as a post-commit conflict, which would
+            # leave the campaign half-configured.
+            raise SetupManifestError(f"duplicate character {entity_id!r}")
+        seen.add(entity_id)
         name = entry.get("name")
         if not isinstance(name, str) or not name.strip():
             raise SetupManifestError(
@@ -553,7 +574,15 @@ def plan_setup(conn, manifest: CampaignSetupManifest) -> SetupPlan:
         str(row[0])
         for row in conn.execute("SELECT source_path FROM documents").fetchall()
     }
+    attached = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT document_id FROM campaign_documents WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchall()
+    }
     for item in manifest.content:
+        document_id = _document_id_for(conn, item)
         actions.append(
             SetupAction(
                 kind="INSTALL content",
@@ -562,6 +591,15 @@ def plan_setup(conn, manifest: CampaignSetupManifest) -> SetupPlan:
                 # A document already ingested from this path needs no second
                 # install, so a rerun is a genuine no-op.
                 already_satisfied=str(item.path) in installed,
+            )
+        )
+        actions.append(
+            SetupAction(
+                kind="ATTACH content",
+                target=item.path.name,
+                detail=f"role={item.role}",
+                already_satisfied=document_id is not None
+                and document_id in attached,
             )
         )
 
@@ -612,6 +650,20 @@ def plan_setup(conn, manifest: CampaignSetupManifest) -> SetupPlan:
     return SetupPlan(manifest=manifest, actions=tuple(actions))
 
 
+def _document_id_for(conn, item: SetupContent) -> str | None:
+    """Return the installed document id for a content path, if ingested."""
+    from tabletop.documents.content_install import content_hash
+
+    try:
+        digest = content_hash(item.path)
+    except OSError:
+        return None
+    row = conn.execute(
+        "SELECT document_id FROM documents WHERE content_hash = ?", (digest,)
+    ).fetchone()
+    return None if row is None else str(row["document_id"])
+
+
 def _all_principals(manifest: CampaignSetupManifest):
     for participant in manifest.participants:
         for channel, external_id in participant.principals:
@@ -648,6 +700,23 @@ def apply_setup(conn, manifest: CampaignSetupManifest) -> SetupPlan:
     membership = MembershipStore(conn)
     scenes = SceneStore(conn)
     campaign_id = manifest.campaign_id
+
+    # Content is installed before the campaign transaction opens. Installing
+    # writes global document rows and indexes chunks in its own transaction,
+    # and attaching is what activates it for this campaign. Declaring content
+    # and never installing it would silently configure a campaign without the
+    # rules it says it uses.
+    document_ids: list[tuple[SetupContent, str]] = []
+    if manifest.content:
+        from tabletop.documents.content_install import ContentError, install_document
+
+        for item in manifest.content:
+            try:
+                document_ids.append((item, install_document(conn, item.path)))
+            except ContentError as exc:
+                raise SetupManifestError(
+                    f"cannot install {item.path.name}: {exc}"
+                ) from exc
 
     with transaction(conn):
         if store.get_campaign(campaign_id) is None:
@@ -692,6 +761,23 @@ def apply_setup(conn, manifest: CampaignSetupManifest) -> SetupPlan:
             ):
                 membership.grant_control_in_transaction(
                     campaign_id, owner, entity_id, "owner"
+                )
+
+        from tabletop.documents.catalog import ContentCatalog
+
+        catalog = ContentCatalog(conn)
+        for item, document_id in document_ids:
+            already = conn.execute(
+                "SELECT 1 FROM campaign_documents "
+                "WHERE campaign_id = ? AND document_id = ?",
+                (campaign_id, document_id),
+            ).fetchone()
+            if already is None:
+                catalog.attach_document_in_transaction(
+                    campaign_id,
+                    document_id,
+                    item.role,
+                    gm_only=item.gm_only,
                 )
 
         scene = manifest.starting_scene

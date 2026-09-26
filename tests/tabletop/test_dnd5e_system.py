@@ -488,3 +488,11 @@ def test_no_5e_snake_case_vocabulary_leaked_into_api():
             if re.search(rf"\b{re.escape(term)}\b", text):
                 leaks.append(f"{path.relative_to(_REPO_ROOT)}:{term}")
     assert leaks == [], f"5e vocabulary leaked into tabletop/api: {leaks}"
+
+
+def test_dnd5e_declares_its_mechanical_parameters() -> None:
+    """The model must not be able to choose its own damage or difficulty."""
+    plugin = Dnd5ePlugin()
+    assert "dc" in plugin.action_requirements("ability_check")
+    assert "attack_bonus" in plugin.action_requirements("attack")
+    assert "amount" in plugin.action_requirements("apply_damage")
