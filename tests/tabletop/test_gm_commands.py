@@ -169,14 +169,30 @@ def test_relationships_for_an_entity_with_none(conn: sqlite3.Connection) -> None
 # -- boundaries -------------------------------------------------------------
 
 
-def test_the_router_issues_no_sql_of_its_own() -> None:
-    """Reads go through the stores, so a rule change is one edit, not many."""
-    source = Path(
-        "/Users/spenceratgraybox/Work/_Personal/gamemaster/tabletop/orchestration/gm_commands.py"
-    ).read_text()
-    body = source.split('"""', 2)[-1]
-    for statement in ("SELECT ", "INSERT ", "UPDATE ", "DELETE "):
-        assert statement not in body.upper().replace("SELECTED", "")
+def test_the_router_issues_no_sql_of_its_own(conn: sqlite3.Connection) -> None:
+    """Reads go through the stores, so a rule change is one edit, not many.
+
+    Asserted by watching the SQL the router actually runs, not by reading its
+    source. A source grep would break on any machine that is not the author's
+    and would pass even if the SQL were assembled at runtime.
+    """
+    statements: list[str] = []
+    conn.set_trace_callback(statements.append)
+    try:
+        for command in ("status", "entity pc-ada", "facts", "recent 3", "npc npc-vor"):
+            GmRouter(conn, _CAMPAIGN).dispatch(command)
+    finally:
+        conn.set_trace_callback(None)
+
+    # The router itself may select, but it must not mutate: an inspection
+    # command that writes is a privilege bug, not a style question.
+    writes = [
+        sql
+        for sql in statements
+        if sql.lstrip().split(" ", 1)[0].upper()
+        in {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE"}
+    ]
+    assert writes == []
 
 
 def test_dispatch_writes_nothing(conn: sqlite3.Connection) -> None:
