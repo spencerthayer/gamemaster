@@ -318,3 +318,141 @@ def _job_from_row(row: sqlite3.Row) -> TurnJob:
         lease_owner=row["lease_owner"],
         lease_expires_at=row["lease_expires_at"],
     )
+
+
+#: Statuses a recovery pass may safely restart. A turn mid-delivery is not one
+#: of them: its output may already have reached the channel.
+RESUMABLE = frozenset({"received", "interpreting", "awaiting_player", "awaiting_gm"})
+
+
+@dataclass(frozen=True)
+class RecoveryDecision:
+    """What a recovery pass should do with one turn.
+
+    ``can_retry_resolution`` is decided by whether an authoritative effect is
+    already committed, never by how long the turn has been stuck. A turn that
+    crashed after committing is old and still not retryable; a turn that
+    crashed before committing is new and already retryable.
+    """
+
+    turn_id: str
+    action: str
+    reason: str
+    committed_event_sequences: tuple[int, ...] = ()
+
+    @property
+    def can_retry_resolution(self) -> bool:
+        return self.action == "retry_resolution"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "turn_id": self.turn_id,
+            "action": self.action,
+            "reason": self.reason,
+            "committed_event_sequences": list(self.committed_event_sequences),
+        }
+
+
+def committed_event_sequences(store: TurnJobStore, turn_id: str) -> tuple[int, ...]:
+    return tuple(
+        int(claim["event_sequence"])
+        for claim in store.action_claims(turn_id)
+        if claim["status"] == "committed" and claim["event_sequence"] is not None
+    )
+
+
+def decide_recovery(store: TurnJobStore, turn_id: str) -> RecoveryDecision:
+    """Classify one turn for a recovery pass.
+
+    Event presence decides, not wall-clock age. Age alone cannot distinguish a
+    turn that crashed before committing from one that crashed after, and
+    rerunning the latter would apply a mechanical effect twice.
+    """
+    job = store.require(turn_id)
+    committed = committed_event_sequences(store, turn_id)
+
+    if job.status in TERMINAL_STATUSES:
+        return RecoveryDecision(
+            turn_id, "none", f"turn is already {job.status}", committed
+        )
+
+    if job.status == "narrating":
+        # The action already resolved; only the narration is missing.
+        return RecoveryDecision(
+            turn_id, "retry_narration", "resolution is committed; narration pending", committed
+        )
+
+    # A committed effect outranks the status. A turn that crashed between
+    # committing and updating its own status still looks like `interpreting`,
+    # and classifying it from the status alone would rerun the action.
+    if committed:
+        return RecoveryDecision(
+            turn_id, "commit_pending", "an action effect is already committed", committed
+        )
+
+    if job.status == "resolving":
+        return RecoveryDecision(
+            turn_id, "retry_resolution", "no action effect was committed", ()
+        )
+
+    if job.status in ("completed", "delivery_pending"):
+        return RecoveryDecision(
+            turn_id, "retry_delivery", "output is stored and awaits delivery", committed
+        )
+
+    if job.status in RESUMABLE:
+        return RecoveryDecision(
+            turn_id, "retry_resolution", f"turn is {job.status} with no committed effect", committed
+        )
+
+    return RecoveryDecision(turn_id, "none", f"turn is {job.status}", committed)
+
+
+def explain_turn(
+    conn: sqlite3.Connection, turn_id: str
+) -> dict[str, Any]:
+    """Assemble one turn's audit record from durable records.
+
+    Read-only. Anything the log does not record is reported as absent rather
+    than reconstructed from chat history.
+    """
+    from tabletop.orchestration.delivery import DeliveryStore, GenerationReceiptStore
+
+    store = TurnJobStore(conn)
+    job = store.require(turn_id)
+    return {
+        "turn": {
+            "turn_id": job.turn_id,
+            "campaign_id": job.campaign_id,
+            "status": job.status,
+            "input_text": job.input_text,
+            "disposition": job.disposition,
+            "session_id": job.session_id,
+            "scene_id": job.scene_id,
+            "channel": job.channel,
+            "conversation_id": job.conversation_id,
+            "external_message_id": job.external_message_id,
+            "resumes_turn_id": job.resumes_turn_id,
+            "principal_id": job.principal_id,
+            "failure_reason": job.failure_reason,
+            "created_at": job.created_at,
+            "updated_at": job.updated_at,
+        },
+        "action_effects": [dict(claim) for claim in store.action_claims(turn_id)],
+        "generations": [
+            receipt.to_dict() for receipt in GenerationReceiptStore(conn).list_for_turn(turn_id)
+        ],
+        "deliveries": [
+            {
+                "delivery_id": d.delivery_id,
+                "channel": d.channel,
+                "segment": d.segment,
+                "status": d.status,
+                "attempts": d.attempts,
+                "remote_ack": d.remote_ack,
+                "last_error": d.last_error,
+            }
+            for d in DeliveryStore(conn).list_for_turn(turn_id)
+        ],
+        "recovery": decide_recovery(store, turn_id).to_dict(),
+    }
