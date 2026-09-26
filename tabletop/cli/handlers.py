@@ -32,6 +32,7 @@ from tabletop.campaign.selection import (
 from tabletop.campaign.store import CampaignStore
 from tabletop.cli.player_service_spec import player_compose_definition
 from tabletop.cli.runtime_factory import open_operator_runtime, resolve_campaign_id
+from tabletop.cli.setup_wizard import SetupCancelled
 from tabletop.cli.util import (
     load_plugin_registry,
     migrations_dir,
@@ -1769,3 +1770,86 @@ def cmd_campaign_stop(args: argparse.Namespace) -> int:
     if code == 0:
         print(f"stopped {launch.service_name} for campaign {campaign_id}")
     return code
+
+
+def cmd_campaign_setup(args: argparse.Namespace) -> int:
+    """Configure a campaign from a manifest, or through the wizard.
+
+    Prints the plan before anything is written. A dry run stops there.
+    Setup configures and validates; it never starts a process, so the
+    operator sees the exact ``campaign start`` commands to run next.
+    """
+    from tabletop.campaign.setup import (
+        SetupConflictError,
+        SetupManifestError,
+        apply_setup,
+        load_setup_manifest,
+        plan_setup,
+    )
+
+    try:
+        manifest = (
+            load_setup_manifest(Path(args.manifest_path))
+            if args.manifest_path
+            else _run_setup_wizard()
+        )
+    except (SetupManifestError, SetupCancelled) as exc:
+        print(str(exc), flush=True)
+        return 1
+
+    conn = open_database()
+    try:
+        try:
+            plan = plan_setup(conn, manifest)
+        except SetupConflictError as exc:
+            print(str(exc), flush=True)
+            return 1
+
+        _print_setup_plan(plan)
+        if args.dry_run:
+            print("dry run; nothing was written")
+            return 0
+
+        if not args.assume_yes and not _confirm_setup(plan):
+            print("setup cancelled; nothing was written", flush=True)
+            return 1
+
+        apply_setup(conn, manifest)
+    finally:
+        conn.close()
+
+    print(f"configured campaign {manifest.campaign_id}")
+    _print_setup_launch_commands(manifest)
+    return 0
+
+
+def _run_setup_wizard():
+    from tabletop.cli.setup_wizard import WizardPrompts, run_wizard
+
+    return run_wizard(WizardPrompts(ask=input))
+
+
+def _confirm_setup(plan) -> bool:
+    _print_setup_plan(plan)
+    answer = input("apply this plan? (y/n): ").strip().lower()
+    return answer in {"y", "yes"}
+
+
+def _print_setup_plan(plan) -> None:
+    payload = plan.to_dict()
+    print(f"plan for {payload['campaign_id']}:")
+    for action in payload["actions"]:
+        marker = "skip" if action["already_satisfied"] else "do  "
+        detail = f"  {action['detail']}" if action["detail"] else ""
+        print(f"  [{marker}] {action['kind']} {action['target']}{detail}")
+    summary = payload["summary"]
+    print(f"{summary['create']} to create, {summary['already_satisfied']} already satisfied")
+
+
+def _print_setup_launch_commands(manifest) -> None:
+    """Print the exact commands to start. Setup never launches anything itself."""
+    print("")
+    print("Next:")
+    print(f"  gamemaster campaign start {manifest.campaign_id}")
+    print(f"  gamemaster campaign validate {manifest.campaign_id}")
+    print(f"  gamemaster campaign session start --session-id session-1")

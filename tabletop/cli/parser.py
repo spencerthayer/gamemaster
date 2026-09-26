@@ -101,6 +101,23 @@ def build_parser() -> argparse.ArgumentParser:
     session_end = session_sub.add_parser("end", help="End the open session.")
     session_end.set_defaults(handler=handlers.cmd_session_end)
 
+    setup_cmd = campaign_sub.add_parser(
+        "setup", help="Configure a campaign from a manifest, or interactively."
+    )
+    setup_cmd.add_argument(
+        "--from", default=None, dest="manifest_path",
+        help="Path to a campaign.setup.yaml",
+    )
+    setup_cmd.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="Print the plan without writing anything",
+    )
+    setup_cmd.add_argument(
+        "--yes", action="store_true", dest="assume_yes",
+        help="Apply without an interactive confirmation",
+    )
+    setup_cmd.set_defaults(handler=handlers.cmd_campaign_setup)
+
     scene = campaign_sub.add_parser(
         "scene", help="Inspect and drive the authoritative scene."
     )
