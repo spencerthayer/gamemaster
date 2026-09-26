@@ -164,8 +164,8 @@ def test_freeform_example_campaign_runs_end_to_end(tmp_path: Path) -> None:
     )
     connection.execute(
         "INSERT INTO scenes "
-        "(scene_id, campaign_id, session_id, name, opened_at, system_state) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "(scene_id, campaign_id, session_id, name, status, started_at, system_state) "
+        "VALUES (?, ?, ?, ?, 'open', ?, ?)",
         (
             _SCENE_ID,
             _CAMPAIGN_ID,

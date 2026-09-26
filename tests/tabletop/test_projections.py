@@ -44,9 +44,8 @@ def conn(tmp_path: Path):
         system_state={"resources": {"hp": 12}},
     )
     connection.execute(
-        "INSERT INTO scenes "
-        "(scene_id, campaign_id, name, opened_at, system_state) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO scenes (scene_id, campaign_id, name, status, started_at, system_state) "
+        "VALUES (?, ?, ?, 'open', ?, ?)",
         ("scene-1", "campaign-1", "Crossroads", "2026-09-22T00:00:00Z", "{}"),
     )
     try:
