@@ -64,7 +64,6 @@ from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
 from tabletop.campaign.selection import read_active_campaign_file
 from tabletop.campaign.scenes import SceneStore
 from tabletop.campaign.sender_binding import (
-    SenderBindingError,
     verify_startup_binding,
     verify_turn_sender,
 )

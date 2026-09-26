@@ -194,9 +194,11 @@ def parse_setup_manifest(
         name=name.strip(),
         system_id=system_id,
         setting_id=setting_id,
-        participants=_parse_participants(payload.get("participants") or ()),
-        characters=_parse_characters(payload.get("characters") or ()),
-        content=_parse_content(payload.get("content") or (), base_dir=base_dir),
+        participants=_parse_participants(_require_list(payload.get("participants"), "participants")),
+        characters=_parse_characters(_require_list(payload.get("characters"), "characters")),
+        content=_parse_content(
+            _require_list(payload.get("content"), "content"), base_dir=base_dir
+        ),
         starting_state=_parse_mapping(payload.get("starting_state")),
         starting_scene=_parse_scene(payload.get("starting_scene")),
         game_time=_parse_optional_mapping(payload.get("game_time"), "game_time"),
@@ -232,6 +234,20 @@ def _require_id(payload: Mapping[str, Any], key: str) -> str:
             f"{key} must match {_ID_PATTERN.pattern}, got {value!r}"
         )
     return value
+
+
+def _require_list(value: Any, label: str) -> list[Any]:
+    """Coerce an optional field to a list, or explain what it must be.
+
+    A scalar where a list belongs is a manifest mistake an operator needs to
+    see, not a TypeError from iterating an integer.
+    """
+
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+        raise SetupManifestError(f"{label} must be a list")
+    return list(value)
 
 
 def _parse_participants(entries: Sequence[Any]) -> tuple[SetupParticipant, ...]:

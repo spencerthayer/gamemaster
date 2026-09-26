@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 from tabletop.campaign.scene_snapshot import build_scene_snapshot
 from tabletop.orchestration.delivery import DeliveryStore, GenerationReceiptStore

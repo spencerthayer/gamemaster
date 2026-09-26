@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping, Protocol, Sequence
 
-from tabletop.retrieval.models import RetrievalNamespace, RetrievedChunk
+from tabletop.retrieval.models import RetrievedChunk
 
 MECHANICS_PRECEDENCE = (
     "campaign rulings",

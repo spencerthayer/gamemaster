@@ -17,7 +17,7 @@ from typing import Any
 
 from tabletop.api.visibility import Viewpoint, VisibilityKind
 from tabletop.campaign.event_store import EventStore
-from tabletop.campaign.models import Scene, SceneMember, SceneStatus
+from tabletop.campaign.models import Scene, SceneMember
 from tabletop.campaign.rulings import RulingStore
 from tabletop.campaign.scenes import SceneStore
 from tabletop.campaign.store import CampaignStore

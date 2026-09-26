@@ -11,7 +11,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any
 
 from tabletop.storage.sqlite import transaction
 

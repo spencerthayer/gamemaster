@@ -261,3 +261,37 @@ def test_the_manifest_serializes_to_plain_data(tmp_path: Path) -> None:
     payload = manifest.to_dict()
     assert payload["campaign_id"] == "demo-campaign"
     assert payload["starting_scene"]["scene_id"] == "scene-1"
+
+
+# -- malformed field types -------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["participants", "characters", "content"])
+@pytest.mark.parametrize("value", [1, "text", 3.5, {"a": 1}, True])
+def test_a_scalar_where_a_list_belongs_is_a_manifest_error(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    """An operator mistake must be explained, not raised as a TypeError.
+
+    Iterating a bare integer is a Python failure the operator cannot act on.
+    """
+    with pytest.raises(SetupManifestError, match="must be a list"):
+        parse_setup_manifest({**_BASE, field: value}, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize("value", [1, "text", 3.5, [1, 2]])
+def test_a_malformed_starting_scene_is_a_manifest_error(
+    tmp_path: Path, value: object
+) -> None:
+    with pytest.raises(SetupManifestError):
+        parse_setup_manifest({**_BASE, "starting_scene": value}, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "field", ["starting_state", "game_time", "setting_id", "name"]
+)
+def test_a_malformed_scalar_field_is_a_manifest_error(
+    tmp_path: Path, field: str
+) -> None:
+    with pytest.raises(SetupManifestError):
+        parse_setup_manifest({**_BASE, field: 42}, base_dir=tmp_path)

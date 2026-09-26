@@ -13,11 +13,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable
 
 from tabletop.campaign.setup import (
     CampaignSetupManifest,
-    SetupContent,
     SetupManifestError,
     SetupParticipant,
     SetupScene,

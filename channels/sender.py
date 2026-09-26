@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextvars
 import os
-from typing import Any
+from typing import List
 
 EXPECTED_SENDER_ENV_VAR = "OMEGA_EXPECTED_SENDER"
 
