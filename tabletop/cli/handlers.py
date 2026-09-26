@@ -2119,3 +2119,24 @@ def cmd_campaign_document_detach(args: argparse.Namespace) -> int:
         conn.close()
     print(f"detached document {document_id}")
     return 0
+
+
+def cmd_campaign_gm(args: argparse.Namespace) -> int:
+    """Run a GM read command through the shared router.
+
+    The channel's `/gm` handler calls the same router, so a GM sees identical
+    results and identical visibility from either surface.
+    """
+    from tabletop.orchestration.gm_commands import GmCommandError, GmRouter
+
+    conn = open_database()
+    try:
+        router = GmRouter(conn, resolve_campaign_id())
+        result = router.dispatch(" ".join(args.command))
+    except (GmCommandError, LookupError) as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(json.dumps(result, indent=2, sort_keys=True, default=str))
+    return 0

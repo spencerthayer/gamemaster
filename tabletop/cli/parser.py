@@ -140,6 +140,12 @@ def build_parser(
     content_list = content_sub.add_parser("list", help="List installed content.")
     content_list.set_defaults(handler=handlers.cmd_content_list)
 
+    gm = campaign_sub.add_parser(
+        "gm", help="Run a GM read command. Same router /gm uses."
+    )
+    gm.add_argument("command", nargs="+")
+    gm.set_defaults(handler=handlers.cmd_campaign_gm)
+
     scene = campaign_sub.add_parser(
         "scene", help="Inspect and drive the authoritative scene."
     )
