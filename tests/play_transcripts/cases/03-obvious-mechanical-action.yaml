@@ -1,0 +1,16 @@
+case_id: obvious-mechanical-action
+description: A check with a difficulty the campaign state supplies resolves.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+starting_state: {difficulty: 2}
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada tests the gate's hinge
+      proposed_action_type: check
+      target_refs: [npc-gate]
+      parameters: {expression: 1d2}
+    expect:
+      disposition: resolve
+      expect_events: [action.resolved]
+      response_contains_any: ["Rolled"]

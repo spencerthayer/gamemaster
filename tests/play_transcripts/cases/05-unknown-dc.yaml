@@ -1,0 +1,15 @@
+case_id: unknown-dc
+description: A check whose difficulty nothing can supply escalates to the GM.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada forces the gate
+      proposed_action_type: check
+      target_refs: [npc-gate]
+      parameters: {expression: 1d2}
+    expect:
+      disposition: gm_ruling
+      expect_events: []
+      response_contains_any: ["GM must decide"]

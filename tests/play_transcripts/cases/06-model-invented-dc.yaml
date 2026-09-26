@@ -1,0 +1,14 @@
+case_id: model-invented-dc
+description: The model supplies the difficulty itself. It must not be used.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada forces the gate, the model guesses DC 15
+      proposed_action_type: check
+      target_refs: [npc-gate]
+      parameters: {expression: 1d2, difficulty: 15}
+    expect:
+      disposition: gm_ruling
+      expect_events: []

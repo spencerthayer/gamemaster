@@ -1,0 +1,13 @@
+case_id: conditional-action
+description: A conditional intent proposes no mechanic until it is known.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada forces the gate if she hears the hound
+      proposed_action_type: null
+      uncertainty: whether the condition holds
+    expect:
+      disposition: narrative
+      expect_events: []

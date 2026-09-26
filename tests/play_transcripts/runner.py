@@ -76,7 +76,14 @@ def run_case(case: TranscriptCase, tmp_path: Path) -> TranscriptRun:
     try:
         _seed(conn, case)
         run = TranscriptRun(case_id=case.case_id)
-        for index, (proposal, _) in enumerate(case.turns):
+        for index, (proposal, expect) in enumerate(case.turns):
+            if expect.state_writes:
+                # Models something the GM established mid-case, such as a
+                # difficulty decided by a ruling.
+                conn.execute(
+                    "UPDATE scenes SET system_state = ? WHERE scene_id = ?",
+                    (json.dumps(dict(expect.state_writes)), SCENE_ID),
+                )
             run.turns.append(_run_turn(conn, case, index, proposal.to_dict()))
         run.player_visible_text = _player_visible_text(conn)
         return run

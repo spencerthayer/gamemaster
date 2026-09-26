@@ -1,0 +1,15 @@
+case_id: impossible-action
+description: A named target that is not present is a question, not a roll.
+entities: [[pc-ada, Ada]]
+present: []
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada attacks the dragon
+      proposed_action_type: check
+      target_refs: [npc-dragon]
+      parameters: {expression: 1d2}
+    expect:
+      disposition: player_clarification
+      expect_events: []
+      response_contains_any: ["not here"]

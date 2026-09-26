@@ -1,0 +1,25 @@
+case_id: gm-override
+description: A GM ruling supplies the difficulty a fresh proposal can then use.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada forces the gate, difficulty unknown
+      proposed_action_type: check
+      target_refs: [npc-gate]
+      parameters: {expression: 1d2}
+    expect:
+      disposition: gm_ruling
+      expect_events: []
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada forces the gate again, now that the GM ruled
+      proposed_action_type: check
+      target_refs: [npc-gate]
+      parameters: {expression: 1d2}
+    expect:
+      # The GM established the difficulty between turns.
+      state_writes: {difficulty: 2}
+      disposition: resolve
+      expect_events: [action.resolved]

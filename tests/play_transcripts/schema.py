@@ -53,6 +53,9 @@ class TurnExpectation:
     secret_sentinels: tuple[str, ...] = ()
     #: True when this turn is evaluated from a player viewpoint.
     player_viewpoint: bool = False
+    #: Authoritative scene state written just before this turn runs, modeling
+    #: something the GM established mid-case such as a ruling or a difficulty.
+    state_writes: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,7 @@ def _expect_to_dict(expect: TurnExpectation) -> dict[str, Any]:
         "secret_sentinels": list(expect.secret_sentinels),
         "player_viewpoint": expect.player_viewpoint,
     }
+
 
 
 def parse_case(payload: Mapping[str, Any]) -> TranscriptCase:
@@ -146,6 +150,7 @@ def parse_case(payload: Mapping[str, Any]) -> TranscriptCase:
                     ),
                     secret_sentinels=tuple(raw.get("secret_sentinels", ()) or ()),
                     player_viewpoint=bool(raw.get("player_viewpoint", False)),
+                    state_writes=dict(raw.get("state_writes", {}) or {}),
                 ),
             )
         )
