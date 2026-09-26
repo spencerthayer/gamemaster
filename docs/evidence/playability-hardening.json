@@ -1,16 +1,30 @@
 {
   "milestone": "playability-hardening",
   "tracker": "PLAYABILITY-1",
-  "head": "b6026679ba7b3d176944766487460db18bd2b350",
+  "head": "7fbf4381c31d6a6c4c5a300d433fcb5a4517761a",
   "python": "3.11.16",
   "docker": "Docker version 29.4.2, build 055a478",
   "gates": {
     "unit": {
       "command": "python3.11 -m pytest tests/ -q",
-      "note": "see final report"
+      "result": "1568 passed, 15 skipped"
     },
     "container": {
-      "command": "GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration -q"
+      "command": "GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration -q",
+      "result": "14 passed",
+      "duration_s": 96.79
+    },
+    "dogfood_deterministic": {
+      "command": "python3.11 -m pytest tests/play_transcripts -q",
+      "result": "pass"
+    },
+    "live_validation": {
+      "command": "gamemaster campaign validate black-company --live --json",
+      "result": "ready=true; docker/compose/plugin/retrieval pass; provider and channel credentials skip (none configured); documents not_applicable"
     }
-  }
+  },
+  "not_verified": [
+    "Exactly-once WebSocket delivery over a live remote transport: the mock and unit path prove the stable client_seq and acknowledgement contract, but no real remote WebSocket server was exercised.",
+    "Live model generation: no provider credentials were configured, so generation receipts were exercised through the deterministic path only."
+  ]
 }
