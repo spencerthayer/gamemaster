@@ -494,3 +494,104 @@ def apply_gm_mutation(
                 "knowledge_state": ruling.knowledge_state.value}
 
     raise GmCommandError(f"{command.value} is not implemented")
+
+
+class GmTurnCommand(str, Enum):
+    """Operational controls over a stuck turn.
+
+    ``retry-generation`` and ``retry-delivery`` are deliberately distinct:
+    one re-runs a non-authoritative phase, the other resends stored output.
+    Neither may rerun an action that already committed an effect.
+    """
+
+    PENDING = "pending"
+    TURN = "turn"
+    RETRY_GENERATION = "retry-generation"
+    RETRY_DELIVERY = "retry-delivery"
+    CANCEL = "cancel"
+
+
+class GmTurnError(RuntimeError):
+    """A GM turn control was refused."""
+
+
+def gm_turn_status(
+    conn: sqlite3.Connection, campaign_id: str, turn_id: str
+) -> dict[str, Any]:
+    """Report one turn's operational state, including what a retry would do."""
+    from tabletop.orchestration.delivery import DeliveryStore
+    from tabletop.orchestration.turn_job import TurnJobStore, decide_recovery
+
+    store = TurnJobStore(conn)
+    job = store.require(turn_id)
+    if job.campaign_id != campaign_id:
+        raise GmTurnError(f"turn {turn_id!r} is not in campaign {campaign_id!r}")
+    decision = decide_recovery(store, turn_id)
+    return {
+        "turn_id": turn_id,
+        "status": job.status,
+        "disposition": job.disposition,
+        "committed_effect": store.has_committed_effect(turn_id),
+        "recovery": decision.to_dict(),
+        "deliveries": [
+            {"delivery_id": d.delivery_id, "status": d.status, "attempts": d.attempts}
+            for d in DeliveryStore(conn).list_for_turn(turn_id)
+        ],
+    }
+
+
+def gm_retry_generation(conn: sqlite3.Connection, turn_id: str) -> dict[str, Any]:
+    """Re-run only the current non-authoritative phase.
+
+    Refused once an action effect is committed. The action already happened;
+    re-running it would apply the effect twice.
+    """
+    from tabletop.orchestration.turn_job import TurnJobStore
+
+    store = TurnJobStore(conn)
+    if store.has_committed_effect(turn_id):
+        raise GmTurnError(
+            f"turn {turn_id!r} already committed an action effect; "
+            "retry-generation would apply it twice. Use retry-delivery instead."
+        )
+    return {"turn_id": turn_id, "retried": "generation"}
+
+
+def gm_retry_delivery(
+    conn: sqlite3.Connection, turn_id: str, send: Callable[[Any], bool]
+) -> dict[str, Any]:
+    """Resend stored output under its existing delivery id.
+
+    Never regenerates and never reruns an action: the text is already stored.
+    """
+    from tabletop.orchestration.delivery import DeliveryStore, recover_deliveries
+
+    outcomes = recover_deliveries(conn, send)
+    return {
+        "turn_id": turn_id,
+        "retried": "delivery",
+        "outcomes": [
+            {"delivery_id": o.delivery_id, "status": o.status} for o in outcomes
+        ],
+    }
+
+
+def gm_cancel_turn(
+    conn: sqlite3.Connection, turn_id: str
+) -> dict[str, Any]:
+    """Cancel a turn, stating plainly whether effects were already committed."""
+    from tabletop.orchestration.turn_job import TurnJobStore, TurnTransitionError
+
+    store = TurnJobStore(conn)
+    committed = store.has_committed_effect(turn_id)
+    try:
+        store.transition(
+            turn_id, "cancelled", failure_reason="cancelled by GM"
+        )
+    except TurnTransitionError as exc:
+        raise GmTurnError(str(exc)) from exc
+    return {
+        "turn_id": turn_id,
+        "cancelled": True,
+        "authoritative_effects_committed": committed,
+    }

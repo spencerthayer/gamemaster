@@ -521,3 +521,65 @@ def _member_from_row(row: sqlite3.Row) -> SceneMember:
         entered_at=row["entered_at"],
         exited_at=row["exited_at"],
     )
+
+
+class CampaignPaused(RuntimeError):
+    """A campaign is paused and new player turns must not start."""
+
+
+def is_paused(conn: sqlite3.Connection, campaign_id: str) -> bool:
+    """True when the GM has paused this campaign."""
+    row = conn.execute(
+        "SELECT paused FROM campaign_pause WHERE campaign_id = ?", (campaign_id,)
+    ).fetchone()
+    return row is not None and bool(row["paused"])
+
+
+def pause_campaign(
+    conn: sqlite3.Connection, campaign_id: str, *, reason: str | None = None
+) -> dict[str, Any]:
+    """Pause a campaign.
+
+    Queued turns are not discarded. They stay in ``turn_jobs``, remain
+    inspectable, and continue in order on resume.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+    with transaction(conn):
+        conn.execute(
+            "INSERT INTO campaign_pause (campaign_id, paused, reason, paused_at, "
+            "updated_at) VALUES (?, 1, ?, ?, ?) "
+            "ON CONFLICT(campaign_id) DO UPDATE SET paused = 1, reason = excluded.reason, "
+            "paused_at = excluded.paused_at, updated_at = excluded.updated_at",
+            (campaign_id, reason, now, now),
+        )
+    return {"campaign_id": campaign_id, "paused": True, "reason": reason}
+
+
+def resume_campaign(conn: sqlite3.Connection, campaign_id: str) -> dict[str, Any]:
+    """Resume a paused campaign. Queued turns continue in order."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+    with transaction(conn):
+        conn.execute(
+            "INSERT INTO campaign_pause (campaign_id, paused, resumed_at, updated_at) "
+            "VALUES (?, 0, ?, ?) "
+            "ON CONFLICT(campaign_id) DO UPDATE SET paused = 0, reason = NULL, "
+            "resumed_at = excluded.resumed_at, updated_at = excluded.updated_at",
+            (campaign_id, now, now),
+        )
+    return {"campaign_id": campaign_id, "paused": False}
+
+
+def require_not_paused(conn: sqlite3.Connection, campaign_id: str) -> None:
+    """Refuse new player processing while a campaign is paused."""
+    if is_paused(conn, campaign_id):
+        raise CampaignPaused(
+            f"campaign {campaign_id!r} is paused; the GM must resume it first"
+        )
