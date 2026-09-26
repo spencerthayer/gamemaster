@@ -6,7 +6,7 @@
   "opaque_sender_at_receive": "42",
   "current_sender_at_pycall": "42",
   "contextvar_survives": true,
-  "omega_commit": "ac3d5c304f9c00bd4e6e257a524145a34be3ebe8",
+  "omega_commit": "001921cc250936b365a088cc2f6c934ed2bfc3cf",
   "display_identity": "Bob",
   "opaque_sender_applied_at_receive": "42"
 }

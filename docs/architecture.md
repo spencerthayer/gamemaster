@@ -192,3 +192,26 @@ slot name, never by value.
 
 `--channel-probe` is separate from `--live` because it is the only probe that
 sends a real message. It is never implied.
+
+## The turn
+
+The turn is the orchestration identity. One human message, its context, its
+generations, its action effects, and its delivery all hang off it.
+
+```
+ingress -> claim turn -> context -> proposal -> planner
+  -> (player clarification | rule lookup | GM ruling)
+  -> GameSystemPlugin -> Resolution -> authoritative commit
+  -> generation receipt -> delivery outbox -> channel
+```
+
+A channel retry carrying the same native message identity returns the turn
+that already owns it, so one message produces one turn and one set of
+authoritative effects.
+
+`GameAction` is a mechanical action only the plugin guard produces. A model
+submits an `ActionProposal`, which may name no action type and may admit
+uncertainty; the deterministic planner decides what, if anything, it becomes.
+
+An action's claim, its `action.resolved` event, and its state changes commit in
+one transaction. Recovery reads that ledger rather than rerunning the action.
