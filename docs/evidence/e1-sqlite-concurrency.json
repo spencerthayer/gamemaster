@@ -4,56 +4,56 @@
       "processes": 2,
       "expected": "identical schema_migrations, usable schema, wal",
       "observed": "20/20 ok; migrations match; wal",
-      "max_wait_ms": 35.31933400017806,
-      "median_wait_ms": 27.547916500225256,
+      "max_wait_ms": 39.41683299990473,
+      "median_wait_ms": 26.954208500001187,
       "result": "pass"
     },
     "2. Existing-schema migration": {
       "processes": 2,
       "expected": "both succeed, no lock error",
       "observed": "both ok",
-      "max_wait_ms": 5.733208000037848,
-      "median_wait_ms": 4.45779150004455,
+      "max_wait_ms": 9.820458000376675,
+      "median_wait_ms": 7.150979000243751,
       "result": "pass"
     },
     "5. Busy-window exhaustion": {
       "processes": 2,
       "expected": "second writer waits ~5000ms then classified busy/locked",
-      "observed": "waiter wait_ms=5422.3 error=OperationalError: database is locked",
-      "max_wait_ms": 6513.447499999984,
-      "median_wait_ms": 5967.881208500103,
+      "observed": "waiter wait_ms=5414.5 error=OperationalError: database is locked",
+      "max_wait_ms": 6505.923707999955,
+      "median_wait_ms": 5960.207416499998,
       "result": "pass"
     },
     "7. Concurrent process startup": {
       "processes": 2,
       "expected": "both reach usable runtime on completed schema",
       "observed": "both migrated and inserted campaigns",
-      "max_wait_ms": 29.05441700022493,
-      "median_wait_ms": 26.993937500037646,
+      "max_wait_ms": 36.03033299987146,
+      "median_wait_ms": 30.051978999836138,
       "result": "pass"
     },
     "3. Writer vs player read": {
       "processes": 2,
       "expected": "read completes within busy_timeout, consistent snapshot",
-      "observed": "reader wait_ms=113.1 count=0",
-      "max_wait_ms": 259.45308300015313,
-      "median_wait_ms": 186.27170800004933,
+      "observed": "reader wait_ms=106.6 count=0",
+      "max_wait_ms": 264.101582999956,
+      "median_wait_ms": 185.33218750008018,
       "result": "pass"
     },
     "4. Writer vs writer in busy window": {
       "processes": 2,
       "expected": "second waits, completes, sees first commit",
       "observed": "both writers committed",
-      "max_wait_ms": 678.7133329999051,
-      "median_wait_ms": 493.50779149995105,
+      "max_wait_ms": 663.8010829997256,
+      "median_wait_ms": 483.88349999981983,
       "result": "pass"
     },
     "6. Archive vs session start": {
       "processes": 2,
       "expected": "exactly one winner",
       "observed": "winner=archive",
-      "max_wait_ms": 62.24499999962063,
-      "median_wait_ms": 58.138874999940526,
+      "max_wait_ms": 56.90762500034907,
+      "median_wait_ms": 54.96589600011248,
       "result": "pass"
     }
   },

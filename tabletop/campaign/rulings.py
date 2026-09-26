@@ -281,6 +281,37 @@ class RulingStore:
             )
         return promoted
 
+
+    def list_active(
+        self, campaign_id: str, *, system_id: str | None = None
+    ) -> tuple[Ruling, ...]:
+        """Return every confirmed, unsuperseded ruling in one campaign.
+
+        This is the full precedent set, without a text filter. ``search``
+        answers "what matches this phrase"; a snapshot needs "what precedent
+        currently applies", which is a different question and must not be
+        approximated by searching for the empty string.
+        """
+
+        rows = self.conn.execute(
+            "SELECT ruling_id, campaign_id, system_id, question, decision, scope, "
+            "source_references, session_id, created_at, supersedes, canon_state, "
+            "knowledge_state, originating_action, originating_context "
+            "FROM rulings "
+            "WHERE campaign_id = ? AND canon_state = 'confirmed' "
+            "AND (? IS NULL OR system_id = ?) "
+            "AND NOT EXISTS("
+            "SELECT 1 FROM rulings AS successor "
+            "WHERE successor.supersedes = rulings.ruling_id "
+            "AND successor.campaign_id = rulings.campaign_id "
+            "AND successor.canon_state = 'confirmed'"
+            ") "
+            "ORDER BY created_at DESC, ruling_id",
+            (campaign_id, system_id, system_id),
+        ).fetchall()
+        return tuple(_ruling_from_row(row) for row in rows)
+
+
     def search(
         self,
         query: str,

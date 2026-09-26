@@ -10,10 +10,12 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 from tabletop.api.visibility import Viewpoint, gm_viewpoint
 from tabletop.api.workspace import Workspace
 from tabletop.campaign.models import FactScope
+from tabletop.campaign.scene_snapshot import build_scene_snapshot
 from tabletop.campaign.store import CampaignStore
 from tabletop.orchestration.context import (
     Context,
@@ -76,6 +78,44 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _render_scene_snapshot(snapshot: Mapping[str, Any]) -> str:
+    """Render the structured snapshot as prompt text for one viewpoint."""
+
+    scene = snapshot.get("scene")
+    lines: list[str] = []
+    if scene is None:
+        lines.append("No scene has been opened yet.")
+    else:
+        lines.append(
+            f"Scene: {scene['name']} ({scene['status']}, id {scene['scene_id']})"
+        )
+    present = snapshot.get("present_entities") or []
+    lines.append(
+        "Present: "
+        + (
+            ", ".join(
+                f"{item['name'] or item['entity_id']} [{item['presence_type']}]"
+                for item in present
+            )
+            or "nobody recorded."
+        )
+    )
+    clock = snapshot.get("game_time")
+    if clock is not None and clock.get("in_world_label") is not None:
+        lines.append(f"In-world time: {clock['in_world_label']}")
+    recent = snapshot.get("recent_events") or []
+    if recent:
+        lines.append("Recent authoritative events:")
+        lines.extend(
+            f"- {item['event_type']} (sequence {item['sequence']})" for item in recent
+        )
+    rulings = snapshot.get("active_rulings") or []
+    if rulings:
+        lines.append("Active campaign rulings:")
+        lines.extend(f"- {item['question']} -> {item['decision']}" for item in rulings)
+    return "\n".join(lines)
+
+
 class _LibraryContextSource:
     """Read facts through the campaign store. No SQL lives in this module."""
 
@@ -91,6 +131,18 @@ class _LibraryContextSource:
         if self._connection is None:
             return ()
         store = CampaignStore(self._connection)
+        if source is ContextSource.CURRENT_SCENE and request.campaign_id:
+            # Rendered as text rather than handed over raw: a dict would reach
+            # the model as a Python repr, not as readable context.
+            return (
+                _render_scene_snapshot(
+                    build_scene_snapshot(
+                        self._connection,
+                        request.campaign_id,
+                        viewpoint=request.viewpoint,
+                    )
+                ),
+            )
         if source is ContextSource.FACTS and request.campaign_id:
             facts = store.get_facts(request.campaign_id, viewpoint=request.viewpoint)
             return tuple(fact for fact in facts if fact.fact_scope is FactScope.CAMPAIGN)
