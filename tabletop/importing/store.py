@@ -6,7 +6,7 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any
 
 from tabletop.export.manifest import canonical_json, sha256_text
 from tabletop.importing.interface import ImportBatch

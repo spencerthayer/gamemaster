@@ -1,0 +1,24 @@
+case_id: multiple-actions
+description: Two actions in one message are processed one at a time.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate], [npc-hound, The Hound]]
+present: [npc-gate, npc-hound]
+starting_state: {difficulty: 2}
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada tests the gate
+      proposed_action_type: check
+      target_refs: [npc-gate]
+      parameters: {expression: 1d2}
+    expect:
+      disposition: resolve
+      expect_events: [action.resolved]
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada then tests the hound
+      proposed_action_type: check
+      target_refs: [npc-hound]
+      parameters: {expression: 1d2}
+    expect:
+      disposition: resolve
+      expect_events: [action.resolved]

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Sequence
+import sys
+from typing import Any, Sequence
 
 from tabletop.cli import handlers
 from tabletop.cli.util import DATABASE_PATH_ENV_VAR, require_database_path
@@ -16,8 +17,12 @@ __all__ = [
 ]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+def build_parser(
+    parser_class: type[argparse.ArgumentParser] = argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    """Build the CLI parser. The class is injectable for exit-code testing."""
+
+    parser = parser_class(
         prog="gamemaster",
         description="Operator CLI for Gamemaster campaign lifecycle.",
     )
@@ -100,6 +105,139 @@ def build_parser() -> argparse.ArgumentParser:
     session_inspect.set_defaults(handler=handlers.cmd_session_inspect)
     session_end = session_sub.add_parser("end", help="End the open session.")
     session_end.set_defaults(handler=handlers.cmd_session_end)
+
+    setup_cmd = campaign_sub.add_parser(
+        "setup", help="Configure a campaign from a manifest, or interactively."
+    )
+    setup_cmd.add_argument(
+        "--from", default=None, dest="manifest_path",
+        help="Path to a campaign.setup.yaml",
+    )
+    setup_cmd.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="Print the plan without writing anything",
+    )
+    setup_cmd.add_argument(
+        "--yes", action="store_true", dest="assume_yes",
+        help="Apply without an interactive confirmation",
+    )
+    setup_cmd.set_defaults(handler=handlers.cmd_campaign_setup)
+
+    content = subparsers.add_parser(
+        "content", help="Inspect, install, and list global content."
+    )
+    content_sub = content.add_subparsers(dest="content_command")
+    content_inspect = content_sub.add_parser(
+        "inspect", help="Classify a path without installing it."
+    )
+    content_inspect.add_argument("path")
+    content_inspect.set_defaults(handler=handlers.cmd_content_inspect)
+    content_install = content_sub.add_parser(
+        "install", help="Install content into the global catalog."
+    )
+    content_install.add_argument("path")
+    content_install.set_defaults(handler=handlers.cmd_content_install)
+    content_list = content_sub.add_parser("list", help="List installed content.")
+    content_list.set_defaults(handler=handlers.cmd_content_list)
+
+    gm = campaign_sub.add_parser(
+        "gm", help="Run a GM read command. Same router /gm uses."
+    )
+    gm.add_argument("command", nargs="+")
+    gm.set_defaults(handler=handlers.cmd_campaign_gm)
+
+    scene = campaign_sub.add_parser(
+        "scene", help="Inspect and drive the authoritative scene."
+    )
+    scene_sub = scene.add_subparsers(dest="scene_command")
+    scene_show = scene_sub.add_parser("show", help="Show the current scene.")
+    scene_show.set_defaults(handler=handlers.cmd_scene_show)
+    scene_open = scene_sub.add_parser("open", help="Open a new scene.")
+    scene_open.add_argument("--scene-id", required=True, dest="scene_id")
+    scene_open.add_argument("--name", required=True)
+    scene_open.add_argument("--session-id", default=None, dest="session_id")
+    scene_open.add_argument("--location", default=None, dest="location_entity_id")
+    scene_open.set_defaults(handler=handlers.cmd_scene_open)
+    scene_close = scene_sub.add_parser("close", help="Close the open scene.")
+    scene_close.add_argument("--scene-id", default=None, dest="scene_id")
+    scene_close.set_defaults(handler=handlers.cmd_scene_close)
+    scene_transition = scene_sub.add_parser(
+        "transition", help="Close the open scene and open another."
+    )
+    scene_transition.add_argument("--from", default=None, dest="from_scene_id")
+    scene_transition.add_argument("--scene-id", required=True, dest="scene_id")
+    scene_transition.add_argument("--name", required=True)
+    scene_transition.add_argument("--session-id", default=None, dest="session_id")
+    scene_transition.set_defaults(handler=handlers.cmd_scene_transition)
+    scene_enter = scene_sub.add_parser("enter", help="Record a present entity.")
+    scene_enter.add_argument("--entity-id", required=True, dest="entity_id")
+    scene_enter.add_argument("--scene-id", default=None, dest="scene_id")
+    scene_enter.add_argument(
+        "--presence-type", required=True, dest="presence_type",
+        choices=("pc", "npc", "summon", "prop"),
+    )
+    scene_enter.set_defaults(handler=handlers.cmd_scene_enter)
+    scene_exit = scene_sub.add_parser("exit", help="End a present entity's presence.")
+    scene_exit.add_argument("--entity-id", required=True, dest="entity_id")
+    scene_exit.add_argument("--scene-id", default=None, dest="scene_id")
+    scene_exit.set_defaults(handler=handlers.cmd_scene_exit)
+
+    time_cmd = campaign_sub.add_parser(
+        "time", help="Read and set the campaign in-world clock."
+    )
+    time_sub = time_cmd.add_subparsers(dest="time_command")
+    time_show = time_sub.add_parser("show", help="Show the in-world clock.")
+    time_show.set_defaults(handler=handlers.cmd_time_show)
+    time_set = time_sub.add_parser("set", help="Set the in-world clock.")
+    time_set.add_argument("--label", default=None, dest="in_world_label")
+    time_set.add_argument(
+        "--minutes", default=None, type=int, dest="in_world_minutes"
+    )
+    time_set.set_defaults(handler=handlers.cmd_time_set)
+
+    campaign_content = campaign_sub.add_parser(
+        "content", help="Attach and detach installed content packs."
+    )
+    campaign_content_sub = campaign_content.add_subparsers(dest="campaign_content_command")
+    content_attach = campaign_content_sub.add_parser(
+        "attach", help="Attach an installed pack to a campaign."
+    )
+    content_attach.add_argument("campaign")
+    content_attach.add_argument("pack")
+    content_attach.add_argument("--role", required=True)
+    content_attach.set_defaults(handler=handlers.cmd_campaign_content_attach)
+    content_detach = campaign_content_sub.add_parser(
+        "detach", help="Detach a pack. The installed bytes stay."
+    )
+    content_detach.add_argument("campaign")
+    content_detach.add_argument("pack")
+    content_detach.set_defaults(handler=handlers.cmd_campaign_content_detach)
+    content_enable = campaign_content_sub.add_parser(
+        "set-enabled", help="Enable or disable an attached pack."
+    )
+    content_enable.add_argument("campaign")
+    content_enable.add_argument("pack")
+    content_enable.add_argument("--enabled", choices=("true", "false"), required=True)
+    content_enable.set_defaults(handler=handlers.cmd_campaign_content_set_enabled)
+
+    campaign_doc = campaign_sub.add_parser(
+        "doc", help="Attach and detach installed documents."
+    )
+    doc_sub = campaign_doc.add_subparsers(dest="campaign_doc_command")
+    doc_attach = doc_sub.add_parser(
+        "attach", help="Attach an installed document to a campaign."
+    )
+    doc_attach.add_argument("campaign")
+    doc_attach.add_argument("path")
+    doc_attach.add_argument("--role", required=True)
+    doc_attach.add_argument("--gm-only", action="store_true", dest="gm_only")
+    doc_attach.set_defaults(handler=handlers.cmd_campaign_document_attach)
+    doc_detach = doc_sub.add_parser(
+        "detach", help="Detach a document. The installed bytes stay."
+    )
+    doc_detach.add_argument("campaign")
+    doc_detach.add_argument("path")
+    doc_detach.set_defaults(handler=handlers.cmd_campaign_document_detach)
 
     entity = campaign_sub.add_parser("entity", help="Create or update campaign entities.")
     entity_sub = entity.add_subparsers(dest="entity_command")
@@ -294,6 +432,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="text",
         dest="output_format",
     )
+    validate.add_argument(
+        "--live", action="store_true",
+        help="Run bounded environment probes in addition to static checks.",
+    )
+    validate.add_argument(
+        "--channel-probe", action="store_true", dest="channel_probe",
+        help="Also send a real test message. Off by default.",
+    )
     validate.set_defaults(handler=handlers.cmd_campaign_validate)
 
     readiness = campaign_sub.add_parser(
@@ -338,17 +484,53 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class _ArgumentError(Exception):
+    """argparse reported an invalid invocation.
+
+    Raised instead of exiting so `campaign validate` can return its own
+    documented class, 3, rather than argparse's default 2.
+    """
+
+
+class _ExitCode(Exception):
+    """argparse handled --help or --version; carry its exit code."""
+
+    def __init__(self, code: int) -> None:
+        self.code = code
+
+
+class _Parser(argparse.ArgumentParser):
+    """ArgumentParser that reports failures as exceptions instead of exiting."""
+
+    def error(self, message: str) -> Any:
+        raise _ArgumentError(message)
+
+    def exit(self, status: int = 0, message: str | None = None) -> Any:
+        if message:
+            print(message)
+        raise _ExitCode(status)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    parser = build_parser(_Parser)
+    try:
+        args = parser.parse_args(list(argv) if argv is not None else None)
+    except _ExitCode as exit_code:
+        # --help still exits 0.
+        return exit_code.code
+    except _ArgumentError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return handlers.EXIT_INVALID_INVOCATION
     handler = getattr(args, "handler", None)
     if handler is not None:
         return int(handler(args))
     if args.command is None:
         parser.print_help()
         return 0
-    parser.error(f"command {args.command!r} requires a subcommand")
-    return 2
+    print(
+        f"error: command {args.command!r} requires a subcommand", file=sys.stderr
+    )
+    return handlers.EXIT_INVALID_INVOCATION
 
 
 if __name__ == "__main__":

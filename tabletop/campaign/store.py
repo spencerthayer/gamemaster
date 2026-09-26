@@ -44,21 +44,47 @@ class CampaignStore:
             created_at = datetime.now(timezone.utc).isoformat()
         encoded_state = _encode_json({} if system_state is None else system_state)
         with transaction(self.conn):
-            self.conn.execute(
-                "INSERT INTO campaigns "
-                "(campaign_id, name, system_id, setting_id, created_at, system_state, "
-                "system_version) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    campaign_id,
-                    name,
-                    system_id,
-                    setting_id,
-                    created_at,
-                    encoded_state,
-                    system_version,
-                ),
+            self.create_campaign_in_transaction(
+                campaign_id,
+                name,
+                system_id,
+                setting_id=setting_id,
+                created_at=created_at,
+                system_state=system_state,
+                system_version=system_version,
             )
+
+    def create_campaign_in_transaction(
+        self,
+        campaign_id: str,
+        name: str,
+        system_id: str,
+        *,
+        setting_id: str | None = None,
+        created_at: str | None = None,
+        system_state: Mapping[str, Any] | None = None,
+        system_version: str | None = None,
+    ) -> None:
+        """Create one campaign using a transaction already owned by the caller."""
+
+        if created_at is None:
+            created_at = datetime.now(timezone.utc).isoformat()
+        encoded_state = _encode_json({} if system_state is None else system_state)
+        self.conn.execute(
+            "INSERT INTO campaigns "
+            "(campaign_id, name, system_id, setting_id, created_at, system_state, "
+            "system_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                campaign_id,
+                name,
+                system_id,
+                setting_id,
+                created_at,
+                encoded_state,
+                system_version,
+            ),
+        )
 
     def get_campaign(self, campaign_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(

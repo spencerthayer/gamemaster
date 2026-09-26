@@ -106,3 +106,25 @@ volume and is listed as read-write in the Landlock policy.
 The service does not mount `/var/run/docker.sock`. Do not add that mount:
 access to the Docker socket would give the process control over the Docker
 daemon and defeat the container boundary.
+
+## Content trust boundaries
+
+Content is data. It is never executed, and only configured plugin roots may
+run code.
+
+* `gamemaster content inspect PATH` classifies a path as a system plugin, a
+  content pack, a document, or unsupported. It installs nothing and imports
+  nothing.
+* Install refuses executable file types outright and refuses a plugin
+  directory, because a plugin is code and only a configured plugin root may
+  execute one.
+* Installation registers global bytes and attaches nothing. Attachment is a
+  separate, explicit step, so installing can never change what a campaign can
+  see.
+* A setup manifest resolves content paths relative to itself and refuses
+  absolute paths, traversal, symlink escapes, and executable suffixes. A
+  credential-shaped key anywhere in a manifest stops the run, because a setup
+  file belongs in version control.
+* GM control messages are untrusted input. Arguments must be bounded plain
+  identifiers, and the verb set is closed, so a control message cannot smuggle
+  SQL through a read command.

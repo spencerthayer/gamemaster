@@ -12,7 +12,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 import yaml
 
@@ -24,6 +24,7 @@ from tabletop.campaign import sender_binding
 from tabletop.campaign.event_store import EventStore, EventType
 from tabletop.campaign.membership import MembershipStore, validate_participant_id
 from tabletop.campaign.readiness import readiness_report
+from tabletop.campaign.validation import validate_campaign
 from tabletop.campaign.resume import resume_snapshot
 from tabletop.campaign.selection import (
     clear_active_campaign_file,
@@ -32,6 +33,7 @@ from tabletop.campaign.selection import (
 from tabletop.campaign.store import CampaignStore
 from tabletop.cli.player_service_spec import player_compose_definition
 from tabletop.cli.runtime_factory import open_operator_runtime, resolve_campaign_id
+from tabletop.cli.setup_wizard import SetupCancelled
 from tabletop.cli.util import (
     load_plugin_registry,
     migrations_dir,
@@ -52,6 +54,7 @@ from tabletop.importing.store import (
     ImportStore,
     import_status_report,
 )
+from tabletop.runtime import TabletopRuntime
 from tabletop.storage.sqlite import transaction
 
 
@@ -743,6 +746,172 @@ def cmd_session_end(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_scene_command(call: Callable[[TabletopRuntime], dict[str, Any]]) -> int:
+    """Run one scene command against the selected campaign and print it.
+
+    Scene and clock writes go through the runtime's scene operations, so this
+    module issues no scene SQL of its own.
+    """
+
+    runtime = open_operator_runtime()
+    try:
+        result = call(runtime)
+    finally:
+        runtime.shutdown()
+        if runtime._connection is not None:
+            runtime._connection.close()
+    if not result.get("ok"):
+        return _print_runtime_error(result)
+    return 0
+
+
+def _resolve_open_scene_id(runtime: TabletopRuntime) -> str:
+    """Return the open scene id, or fail with an operator-readable message."""
+
+    result = runtime.get_current_scene("{}")
+    if not result.get("ok"):
+        raise SystemExit(
+            (result.get("error") or {}).get("message", "cannot read the current scene")
+        )
+    scene = result["data"]["scene"]
+    if scene is None:
+        raise SystemExit("no open scene")
+    return str(scene["scene_id"])
+
+
+def _print_scene(scene: Mapping[str, Any]) -> None:
+    print(f"scene_id: {scene['scene_id']}")
+    print(f"name: {scene['name']}")
+    print(f"status: {scene['status']}")
+    print(f"started_at: {scene.get('started_at')}")
+    print(f"ended_at: {scene.get('ended_at')}")
+
+
+def cmd_scene_show(_args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.get_current_scene("{}")
+        if result.get("ok") and result["data"]["scene"] is None:
+            print("no open scene")
+        elif result.get("ok"):
+            _print_scene(result["data"]["scene"])
+            present = result["data"]["present_entity_ids"]
+            print("present: " + (", ".join(present) or "nobody recorded"))
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_open(args: argparse.Namespace) -> int:
+    payload = {
+        "scene_id": args.scene_id,
+        "name": args.name,
+        "session_id": args.session_id,
+        "location_entity_id": args.location_entity_id,
+    }
+
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.open_scene(json.dumps(payload))
+        if result.get("ok"):
+            _print_scene(result["data"]["scene"])
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_close(args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        scene_id = args.scene_id or _resolve_open_scene_id(runtime)
+        result = runtime.close_scene(json.dumps({"scene_id": scene_id}))
+        if result.get("ok"):
+            _print_scene(result["data"]["scene"])
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_transition(args: argparse.Namespace) -> int:
+    payload = {
+        "from_scene_id": args.from_scene_id,
+        "scene_id": args.scene_id,
+        "name": args.name,
+        "session_id": args.session_id,
+    }
+
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.transition_scene(json.dumps(payload))
+        if result.get("ok"):
+            _print_scene(result["data"]["scene"])
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_enter(args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        scene_id = args.scene_id or _resolve_open_scene_id(runtime)
+        result = runtime.enter_scene(
+            json.dumps(
+                {
+                    "scene_id": scene_id,
+                    "entity_id": args.entity_id,
+                    "presence_type": args.presence_type,
+                }
+            )
+        )
+        if result.get("ok"):
+            print(f"{args.entity_id} entered {scene_id}")
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_exit(args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        scene_id = args.scene_id or _resolve_open_scene_id(runtime)
+        result = runtime.exit_scene(
+            json.dumps({"scene_id": scene_id, "entity_id": args.entity_id})
+        )
+        if result.get("ok"):
+            print(f"{args.entity_id} left {scene_id}")
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_time_show(_args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.get_game_time("{}")
+        if result.get("ok"):
+            clock = result["data"]["game_time"]
+            if clock is None:
+                print("in-world clock not set")
+            else:
+                print(f"label: {clock['in_world_label']}")
+                print(f"minutes: {clock['in_world_minutes']}")
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_time_set(args: argparse.Namespace) -> int:
+    if args.in_world_label is None and args.in_world_minutes is None:
+        raise SystemExit("campaign time set requires --label or --minutes")
+    payload = {
+        "in_world_label": args.in_world_label,
+        "in_world_minutes": args.in_world_minutes,
+    }
+
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.set_game_time(json.dumps(payload))
+        if result.get("ok"):
+            clock = result["data"]["game_time"]
+            print(f"label: {clock['in_world_label']}")
+            print(f"minutes: {clock['in_world_minutes']}")
+        return result
+
+    return _run_scene_command(call)
+
+
 def cmd_campaign_archive(args: argparse.Namespace) -> int:
     campaign_id = resolve_campaign_id(campaign_id=args.campaign_id)
     conn = open_database()
@@ -904,8 +1073,23 @@ def _compose_service_name(*, gm: bool, participant_id: str | None) -> str:
 
 
 def _readiness_failure(report: Mapping[str, Any]) -> None:
+    """Refuse to launch when the built environment is incomplete."""
     if report["exit_nonzero"]:
         raise ValueError("readiness errors: " + "; ".join(report["errors"]))
+
+
+def _validation_failure(report: Any) -> None:
+    """Refuse to start a campaign whose static validation has failed.
+
+    A warning is not a gate: a campaign with no open scene yet is a normal
+    thing to start. Only a failed check stops the launch.
+    """
+    failures = report.static_failures()
+    if failures:
+        raise ValueError(
+            "validation failed: "
+            + "; ".join(f"{c.check_id}: {c.message}" for c in failures)
+        )
 
 
 def _resolve_launch_context(
@@ -959,15 +1143,7 @@ def _resolve_launch_context(
     requested_participant = None if gm else validate_participant_id(participant_id or "")
     conn = open_database({"TABLETOP_DATABASE_PATH": str(host_database_path)})
     try:
-        _readiness_failure(
-            readiness_report(
-                conn,
-                campaign_id,
-                environ={},
-                require_reviewed=True,
-                check_environment=False,
-            )
-        )
+        _validation_failure(validate_campaign(conn, campaign_id))
         participants = MembershipStore(conn).list_participants(campaign_id)
         if gm:
             gm_rows = [row for row in participants if row["role"] == "gm"]
@@ -1010,6 +1186,8 @@ def _resolve_launch_context(
             action="start",
             container_database_path=container_database_path,
         )
+        # The launch environment is a different question from persisted
+        # campaign state, so it keeps the environment-oriented readiness check.
         _readiness_failure(
             readiness_report(
                 conn,
@@ -1510,26 +1688,85 @@ def cmd_campaign_resume(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Stable exit classes for `campaign validate`. An operator script branches on
+#: these, so the numbers are part of the contract.
+EXIT_READY = 0
+EXIT_VALIDATION_FAILED = 1
+EXIT_RUNTIME_FAILED = 2
+EXIT_INVALID_INVOCATION = 3
+
+
 def cmd_campaign_validate(args: argparse.Namespace) -> int:
-    campaign_id = resolve_campaign_id(campaign_id=args.campaign_id)
+    """Report structured validation, and exit with a stable class.
+
+    Exit 0 ready, 1 validation failed, 2 runtime or environment failure,
+    3 invalid invocation. A live failure is a runtime class, not a validation
+    class: the campaign may be fine and the environment broken.
+    """
+    from tabletop.campaign.live_probes import (
+        ProbeContext,
+        default_probes,
+        merge_live,
+        run_probes,
+    )
+    from tabletop.campaign.validation import CheckStatus, validate_campaign
+
+    try:
+        campaign_id = resolve_campaign_id(campaign_id=args.campaign_id)
+        database_path = require_database_path()
+    except SystemExit:
+        return EXIT_INVALID_INVOCATION
+
     conn = open_database()
     try:
-        report = readiness_report(
-            conn,
-            campaign_id,
-            require_reviewed=bool(getattr(args, "require_reviewed", False)),
-        )
+        report = validate_campaign(conn, campaign_id)
+    except Exception as exc:  # noqa: BLE001 - a runtime failure is exit 2
+        print(f"validation could not run: {exc}", flush=True)
+        return EXIT_RUNTIME_FAILED
     finally:
         conn.close()
+
+    if getattr(args, "live", False) or getattr(args, "channel_probe", False):
+        context = ProbeContext(
+            environ=dict(os.environ),
+            repo_root=_REPO_ROOT,
+            database_path=database_path,
+            campaign_id=campaign_id,
+        )
+        probes = list(default_probes(context))
+        if getattr(args, "channel_probe", False):
+            from tabletop.campaign.live_probes import DELIVERY_PROBE, Probe, ProbeResult
+
+            probes.append(
+                Probe(
+                    DELIVERY_PROBE,
+                    lambda: ProbeResult(
+                        CheckStatus.SKIP,
+                        "no channel delivery target configured for this run",
+                    ),
+                )
+            )
+        report = merge_live(report, run_probes(probes))
+
     if getattr(args, "output_format", "text") == "json":
-        print(json.dumps(report, indent=2, sort_keys=True))
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
     else:
-        print(f"campaign: {report['campaign_id']}")
-        print(f"ok: {report['ok']}")
-        for label in ("errors", "warnings", "notices"):
-            for item in report[label]:
-                print(f"{label[:-1]}: {item}")
-    return 1 if report["exit_nonzero"] else 0
+        _print_validation_report(report)
+
+    # A live failure is a runtime class: the campaign may be fine and the
+    # environment broken. The two classes never both apply.
+    if report.live_failures():
+        return EXIT_RUNTIME_FAILED
+    return EXIT_READY if report.ready else EXIT_VALIDATION_FAILED
+
+
+def _print_validation_report(report) -> None:
+    print(f"campaign: {report.campaign_id}")
+    print(f"ready: {str(report.ready).lower()}")
+    print(f"live: {str(report.live).lower()}")
+    for check in report.checks:
+        print(f"  [{check.status.value}] {check.check_id}"
+              + (f": {check.message}" if check.message else ""))
 
 
 def cmd_campaign_start(args: argparse.Namespace) -> int:
@@ -1602,3 +1839,304 @@ def cmd_campaign_stop(args: argparse.Namespace) -> int:
     if code == 0:
         print(f"stopped {launch.service_name} for campaign {campaign_id}")
     return code
+
+
+def cmd_campaign_setup(args: argparse.Namespace) -> int:
+    """Configure a campaign from a manifest, or through the wizard.
+
+    Prints the plan before anything is written. A dry run stops there.
+    Setup configures and validates; it never starts a process, so the
+    operator sees the exact ``campaign start`` commands to run next.
+    """
+    from tabletop.campaign.setup import (
+        SetupConflictError,
+        SetupManifestError,
+        apply_setup,
+        load_setup_manifest,
+        plan_setup,
+    )
+
+    try:
+        manifest = (
+            load_setup_manifest(Path(args.manifest_path))
+            if args.manifest_path
+            else _run_setup_wizard()
+        )
+    except (SetupManifestError, SetupCancelled) as exc:
+        print(str(exc), flush=True)
+        return 1
+
+    conn = open_database()
+    try:
+        try:
+            plan = plan_setup(conn, manifest)
+        except SetupConflictError as exc:
+            print(str(exc), flush=True)
+            return 1
+
+        _print_setup_plan(plan)
+        if args.dry_run:
+            print("dry run; nothing was written")
+            return 0
+
+        if not args.assume_yes and not _confirm_setup(plan):
+            print("setup cancelled; nothing was written", flush=True)
+            return 1
+
+        apply_setup(conn, manifest)
+    finally:
+        conn.close()
+
+    print(f"configured campaign {manifest.campaign_id}")
+    _print_setup_launch_commands(manifest)
+    return 0
+
+
+def _run_setup_wizard():
+    from tabletop.cli.setup_wizard import WizardPrompts, run_wizard
+
+    return run_wizard(WizardPrompts(ask=input))
+
+
+def _confirm_setup(plan) -> bool:
+    _print_setup_plan(plan)
+    answer = input("apply this plan? (y/n): ").strip().lower()
+    return answer in {"y", "yes"}
+
+
+def _print_setup_plan(plan) -> None:
+    payload = plan.to_dict()
+    print(f"plan for {payload['campaign_id']}:")
+    for action in payload["actions"]:
+        marker = "skip" if action["already_satisfied"] else "do  "
+        detail = f"  {action['detail']}" if action["detail"] else ""
+        print(f"  [{marker}] {action['kind']} {action['target']}{detail}")
+    summary = payload["summary"]
+    print(f"{summary['create']} to create, {summary['already_satisfied']} already satisfied")
+
+
+def _print_setup_launch_commands(manifest) -> None:
+    """Print the exact commands to start. Setup never launches anything itself."""
+    print("")
+    print("Next:")
+    print(f"  gamemaster campaign start {manifest.campaign_id}")
+    print(f"  gamemaster campaign validate {manifest.campaign_id}")
+    print(f"  gamemaster campaign session start --session-id session-1")
+
+
+def cmd_content_inspect(args: argparse.Namespace) -> int:
+    """Classify a path. Writes nothing and executes nothing."""
+
+    from tabletop.documents.content_install import ContentError, inspect_content
+
+    try:
+        inspection = inspect_content(Path(args.path))
+    except ContentError as exc:
+        print(str(exc), flush=True)
+        return 1
+    print(f"path: {inspection.path}")
+    print(f"kind: {inspection.kind.value}")
+    print(f"reason: {inspection.reason}")
+    if inspection.manifest:
+        print(f"id: {inspection.manifest['id']}")
+        print(f"pack_type: {inspection.manifest['pack_type']}")
+        print(f"version: {inspection.manifest['version']}")
+    # Unsupported content is reported, not installed.
+    return 1 if inspection.kind.value == "unsupported" else 0
+
+
+def cmd_content_install(args: argparse.Namespace) -> int:
+    """Install a document or content pack into the global catalog.
+
+    Installation does not attach anything to a campaign. That is a separate,
+    explicit step, so installing can never change what a campaign can see.
+    """
+
+    from tabletop.documents.content_install import (
+        ContentError,
+        ContentKind,
+        inspect_content,
+        install_document,
+        install_pack,
+    )
+
+    conn = open_database()
+    try:
+        inspection = inspect_content(Path(args.path))
+        if inspection.kind is ContentKind.CONTENT_PACK:
+            pack_id = install_pack(conn, Path(args.path))
+            print(f"installed pack {pack_id}")
+        elif inspection.kind is ContentKind.DOCUMENT:
+            document_id = install_document(conn, Path(args.path))
+            print(f"installed document {document_id}")
+        else:
+            print(f"cannot install {inspection.kind.value}: {inspection.reason}", flush=True)
+            return 1
+    except ContentError as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print("Next: attach it with `gamemaster campaign content attach` or `campaign doc attach`.")
+    return 0
+
+
+def cmd_content_list(_args: argparse.Namespace) -> int:
+    from tabletop.documents.content_install import list_installed
+
+    conn = open_database()
+    try:
+        packs = list_installed(conn)
+    finally:
+        conn.close()
+    if not packs:
+        print("no content installed")
+        return 0
+    for pack in packs:
+        print(
+            f"{pack['pack_id']}: {pack['name']} "
+            f"({pack['pack_type']}, {pack['version']})"
+        )
+    return 0
+
+
+def _resolve_campaign_id(target: str | None) -> str:
+    return resolve_campaign_id(campaign_id=target)
+
+
+def _require_installed_document(conn, path_text: str) -> str:
+    """Find the installed document whose source path matches, by content hash."""
+    from tabletop.documents.content_install import content_hash
+
+    path = Path(path_text).expanduser()
+    if not path.is_file():
+        raise SystemExit(f"content is not installed: {path_text}")
+    digest = content_hash(path)
+    row = conn.execute(
+        "SELECT document_id FROM documents WHERE content_hash = ?", (digest,)
+    ).fetchone()
+    if row is None:
+        raise SystemExit(
+            f"content is not installed: {path_text}. Run `gamemaster content install` first."
+        )
+    return str(row["document_id"])
+
+
+def cmd_campaign_content_attach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import CatalogError, ContentCatalog
+
+    conn = open_database()
+    try:
+        campaign_id = _resolve_campaign_id(args.campaign)
+        if CampaignStore(conn).get_campaign(campaign_id) is None:
+            print(f"campaign {campaign_id!r} not found", flush=True)
+            return 1
+        ContentCatalog(conn).attach_pack(campaign_id, args.pack, args.role)
+    except (CatalogError, sqlite3.IntegrityError) as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"attached pack {args.pack} with role {args.role}")
+    return 0
+
+
+def cmd_campaign_content_detach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import ContentCatalog
+
+    conn = open_database()
+    try:
+        ContentCatalog(conn).detach_pack(
+            _resolve_campaign_id(args.campaign), args.pack
+        )
+    finally:
+        conn.close()
+    print(f"detached pack {args.pack}")
+    return 0
+
+
+def cmd_campaign_content_set_enabled(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import CatalogError, ContentCatalog
+
+    enabled = args.enabled == "true"
+    conn = open_database()
+    try:
+        cursor = conn.execute(
+            "UPDATE campaign_content_packs SET enabled = ? "
+            "WHERE campaign_id = ? AND pack_id = ?",
+            (int(enabled), _resolve_campaign_id(args.campaign), args.pack),
+        )
+        if cursor.rowcount != 1:
+            raise CatalogError(f"pack {args.pack!r} is not attached to this campaign")
+        conn.commit()
+    except CatalogError as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"pack {args.pack} enabled={enabled}")
+    return 0
+
+
+def cmd_campaign_document_attach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import CatalogError, ContentCatalog
+
+    conn = open_database()
+    try:
+        document_id = _require_installed_document(conn, args.path)
+        campaign_id = _resolve_campaign_id(args.campaign)
+        if CampaignStore(conn).get_campaign(campaign_id) is None:
+            print(f"campaign {campaign_id!r} not found", flush=True)
+            return 1
+        ContentCatalog(conn).attach_document(
+            campaign_id,
+            document_id,
+            args.role,
+            gm_only=bool(args.gm_only),
+        )
+    except (CatalogError, SystemExit, sqlite3.IntegrityError) as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"attached document {document_id} with role {args.role}")
+    return 0
+
+
+def cmd_campaign_document_detach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import ContentCatalog
+
+    conn = open_database()
+    try:
+        document_id = _require_installed_document(conn, args.path)
+        ContentCatalog(conn).detach_document(
+            _resolve_campaign_id(args.campaign), document_id
+        )
+    except SystemExit as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"detached document {document_id}")
+    return 0
+
+
+def cmd_campaign_gm(args: argparse.Namespace) -> int:
+    """Run a GM read command through the shared router.
+
+    The channel's `/gm` handler calls the same router, so a GM sees identical
+    results and identical visibility from either surface.
+    """
+    from tabletop.orchestration.gm_commands import GmCommandError, GmRouter
+
+    conn = open_database()
+    try:
+        router = GmRouter(conn, resolve_campaign_id())
+        result = router.dispatch(" ".join(args.command))
+    except (GmCommandError, LookupError) as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(json.dumps(result, indent=2, sort_keys=True, default=str))
+    return 0

@@ -71,6 +71,20 @@ _UNSUPPORTED_ACTIONS = frozenset(
     }
 )
 
+_SUPPORTED_ACTIONS = frozenset(
+    {
+        "ability_check",
+        "saving_throw",
+        "attack",
+        "apply_damage",
+        "apply_condition",
+        "roll_initiative",
+        "move",
+        "short_rest",
+        "long_rest",
+    }
+)
+
 
 class Dnd5ePlugin(GameSystemPlugin):
     """Partial 2014 D&D 5e mechanics as StateChange requests."""
@@ -103,6 +117,34 @@ class Dnd5ePlugin(GameSystemPlugin):
                 Capability.RESOURCE_TRACKING,
             }
         )
+
+    def action_requirements(self, action_type: str) -> tuple[str, ...]:
+        """Declare the rules-authoritative parameters each action needs.
+
+        A difficulty class is a rules fact. Without this declaration the
+        planner cannot tell a DC taken from the rules or a GM ruling apart
+        from one the model invented.
+        """
+
+        # Only parameters that are a *mechanical decision* are declared.
+        # Which ability, which condition, and which destination are the
+        # player's free choices, so they are deliberately not declared.
+        if action_type in ("ability_check", "saving_throw"):
+            return ("dc",)
+        if action_type == "attack":
+            return ("attack_bonus",)
+        if action_type == "apply_damage":
+            # The damage number is a mechanical decision. A model may not
+            # pick it, so it is declared rather than left to the model.
+            return ("amount",)
+        return ()
+
+    def handles_action(self, action_type: str) -> bool:
+        """Report which 2014 mechanics this partial plugin actually models."""
+
+        if action_type in _UNSUPPORTED_ACTIONS:
+            return False
+        return action_type in _SUPPORTED_ACTIONS
 
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         """Resolve a supported 2014 mechanic without mutating context state."""

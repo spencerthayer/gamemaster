@@ -1,0 +1,58 @@
+# Setup manifest for the playability dogfood.
+#
+# Read by `gamemaster campaign setup --from`. Content paths are relative to
+# this file and must stay inside its directory.
+#
+# No credential-shaped keys: a setup file belongs in version control, and a
+# key like `api_token` here is either a mistake or a leak.
+
+campaign_id: playability-dogfood
+name: Playability Dogfood
+system_id: freeform
+
+participants:
+  - participant_id: gm-1
+    display_name: The GM
+    role: gm
+    character_ids: [npc-vor]
+  - participant_id: player-1
+    display_name: Ada
+    role: player
+    character_ids: [pc-ada]
+  - participant_id: player-2
+    display_name: Bosch
+    role: player
+    character_ids: [pc-bosch]
+
+characters:
+  - entity_id: pc-ada
+    name: Ada
+    participant_id: player-1
+  - entity_id: pc-bosch
+    name: Bosch
+    participant_id: player-2
+  - entity_id: npc-vor
+    name: Vor
+    participant_id: gm-1
+  - entity_id: loc-hall
+    name: Flooded Hall
+
+content:
+  - path: playability_rules.md
+    role: rules
+  - path: playability_adventure.md
+    role: adventure
+
+starting_state:
+  scene:
+    difficulty: 2
+
+starting_scene:
+  scene_id: scene-1
+  name: Flooded Hall
+  location_entity_id: loc-hall
+  present: [pc-ada, pc-bosch, npc-vor]
+
+game_time:
+  in_world_label: Day 3, dusk
+  in_world_minutes: 2880

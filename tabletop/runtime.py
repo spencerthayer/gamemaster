@@ -16,7 +16,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from tabletop.api.errors import (
     DiceExpressionError,
@@ -26,6 +26,12 @@ from tabletop.api.errors import (
     InvalidResolutionError,
     StorageError,
 )
+from tabletop.api.actions import (
+    ActionProposal,
+    MechanicalParameter,
+    ParameterSource,
+    parse_action_proposal,
+)
 from tabletop.api.events import GameEvent
 from tabletop.api.resolution import StateChange, StateOperation
 from tabletop.api.visibility import Viewpoint, gm_viewpoint, parse_scope
@@ -33,22 +39,44 @@ from tabletop.api.workspace import Workspace, parse_workspace, skill_registratio
 from tabletop.campaign.event_store import (
     EventStore,
     EventType,
+    close_scene_event,
+    entity_entered_event,
+    entity_exited_event,
+    open_scene_event,
     promote_fact as promote_campaign_fact,
     reveal_fact as reveal_campaign_fact,
+    scene_time_changed_event,
 )
 from tabletop.campaign.membership import MembershipStore
-from tabletop.campaign.models import CanonState, Fact, FactScope, KnowledgeState
+from tabletop.campaign.models import (
+    CanonState,
+    Fact,
+    FactScope,
+    GameTime,
+    KnowledgeState,
+    PresenceType,
+    Scene,
+    SceneInvariantError,
+    SceneMember,
+)
 from tabletop.campaign.relationships import resolve_relationship_overlay
 from tabletop.campaign.rulings import Ruling, RulingStore, ruling_from_mapping
 from tabletop.campaign.selection import read_active_campaign_file
+from tabletop.campaign.scenes import SceneStore
 from tabletop.campaign.sender_binding import (
-    SenderBindingError,
     verify_startup_binding,
     verify_turn_sender,
 )
 from tabletop.campaign.setting_events import SettingEventStore, SettingEventType
 from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
+from tabletop.orchestration.clarification import (
+    RuleLookup,
+    RuleSource,
+    StateLookup,
+    resolve_lookup,
+)
+from tabletop.orchestration.planner import Disposition, PlanContext, plan_resolution
 from tabletop.orchestration.prompt_context import (
     PromptContextSnapshot,
     build_player_prompt_context_snapshot,
@@ -414,8 +442,377 @@ class TabletopRuntime:
             ],
         }
 
-    def current_scene(self) -> dict[str, Any]:
-        return self._unavailable("current-scene", phase=11)
+    # -- scene lifecycle -------------------------------------------------
+    #
+    # Every method below composes SceneStore, EventStore, and the existing
+    # campaign archive check. There is deliberately no second lifecycle
+    # service: these are the only writers of the scene tables, and each one
+    # moves rows and events in one transaction.
+
+    def open_scene(self, payload_json: str) -> dict[str, Any]:
+        """Open one scene and record ``scene.opened`` atomically."""
+
+        return self._scene_operation("open-scene", payload_json, self._do_open_scene)
+
+    def close_scene(self, payload_json: str) -> dict[str, Any]:
+        """Close one open scene, exiting everyone still present."""
+
+        return self._scene_operation("close-scene", payload_json, self._do_close_scene)
+
+    def transition_scene(self, payload_json: str) -> dict[str, Any]:
+        """Close scene A and open scene B in one transaction.
+
+        Either both happen or neither does: a campaign must never be left
+        with no open scene because the second half of the move failed.
+        """
+
+        return self._scene_operation(
+            "transition-scene", payload_json, self._do_transition_scene
+        )
+
+    def get_current_scene(self, payload_json: str = "{}") -> dict[str, Any]:
+        """Return the campaign's open scene with its present entities."""
+
+        return self._scene_operation("current-scene", payload_json, self._do_current_scene)
+
+    def enter_scene(self, payload_json: str) -> dict[str, Any]:
+        """Record one presence interval in an open scene."""
+
+        return self._scene_operation("enter-scene", payload_json, self._do_enter_scene)
+
+    def exit_scene(self, payload_json: str) -> dict[str, Any]:
+        """End one presence interval in an open scene."""
+
+        return self._scene_operation("exit-scene", payload_json, self._do_exit_scene)
+
+    def get_game_time(self, payload_json: str = "{}") -> dict[str, Any]:
+        """Return the campaign in-world clock, or None when never set."""
+
+        return self._scene_operation("game-time", payload_json, self._do_get_game_time)
+
+    def set_game_time(self, payload_json: str) -> dict[str, Any]:
+        """Set the campaign in-world clock and record ``scene.time_changed``."""
+
+        return self._scene_operation("set-game-time", payload_json, self._do_set_game_time)
+
+    def _do_open_scene(
+        self, payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        scene_id = _required_string(payload, "scene_id", "open-scene")
+        name = _required_string(payload, "name", "open-scene")
+        if scene_id is None or name is None:
+            return self._error(
+                "open-scene",
+                "invalid_payload",
+                "open-scene requires non-empty scene_id and name.",
+            )
+        with transaction(self._connection):
+            scene = SceneStore(self._connection).open_scene_in_transaction(
+                campaign_id,
+                scene_id,
+                name,
+                session_id=payload.get("session_id"),
+                location_entity_id=payload.get("location_entity_id"),
+                in_world_started_at=payload.get("in_world_started_at"),
+            )
+            self._append_scene_event(
+                campaign_id,
+                open_scene_event(
+                    scene_id=scene.scene_id,
+                    name=scene.name,
+                    started_at=scene.started_at,
+                    session_id=scene.session_id,
+                    location_entity_id=scene.location_entity_id,
+                    in_world_started_at=scene.in_world_started_at,
+                ),
+                session_id=scene.session_id,
+                scene_id=scene.scene_id,
+                occurred_at=scene.started_at,
+            )
+        return self._ok("open-scene", {"scene": _scene_to_dict(scene)})
+
+    def _do_close_scene(
+        self, payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        scene_id = _required_string(payload, "scene_id", "close-scene")
+        if scene_id is None:
+            return self._error(
+                "close-scene", "invalid_payload", "close-scene requires scene_id."
+            )
+        with transaction(self._connection):
+            store = SceneStore(self._connection)
+            present = store.get_present_entity_ids(campaign_id, scene_id)
+            scene = store.close_scene_in_transaction(campaign_id, scene_id)
+            self._append_scene_event(
+                campaign_id,
+                close_scene_event(
+                    scene_id=scene.scene_id,
+                    ended_at=scene.ended_at or "",
+                    exited_entity_ids=present,
+                    in_world_ended_at=scene.in_world_ended_at,
+                ),
+                session_id=scene.session_id,
+                scene_id=scene.scene_id,
+                occurred_at=scene.ended_at,
+            )
+        return self._ok("close-scene", {"scene": _scene_to_dict(scene)})
+
+    def _do_transition_scene(
+        self, payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        scene_id = _required_string(payload, "scene_id", "transition-scene")
+        name = _required_string(payload, "name", "transition-scene")
+        if scene_id is None or name is None:
+            return self._error(
+                "transition-scene",
+                "invalid_payload",
+                "transition-scene requires non-empty scene_id and name.",
+            )
+        from_scene_id = payload.get("from_scene_id")
+        closed_id: str | None = None
+        with transaction(self._connection):
+            store = SceneStore(self._connection)
+            current = store.get_open_scene(campaign_id)
+            if isinstance(from_scene_id, str) and current is not None:
+                if current.scene_id != from_scene_id:
+                    raise SceneInvariantError(
+                        f"open scene is {current.scene_id!r}, not {from_scene_id!r}"
+                    )
+            if current is not None:
+                present = store.get_present_entity_ids(campaign_id, current.scene_id)
+                closed = store.close_scene_in_transaction(campaign_id, current.scene_id)
+                self._append_scene_event(
+                    campaign_id,
+                    close_scene_event(
+                        scene_id=closed.scene_id,
+                        ended_at=closed.ended_at or "",
+                        exited_entity_ids=present,
+                        in_world_ended_at=closed.in_world_ended_at,
+                    ),
+                    session_id=closed.session_id,
+                    scene_id=closed.scene_id,
+                    occurred_at=closed.ended_at,
+                )
+                closed_id = closed.scene_id
+            opened = store.open_scene_in_transaction(
+                campaign_id,
+                scene_id,
+                name,
+                session_id=payload.get("session_id"),
+                location_entity_id=payload.get("location_entity_id"),
+                in_world_started_at=payload.get("in_world_started_at"),
+            )
+            self._append_scene_event(
+                campaign_id,
+                open_scene_event(
+                    scene_id=opened.scene_id,
+                    name=opened.name,
+                    started_at=opened.started_at,
+                    session_id=opened.session_id,
+                    location_entity_id=opened.location_entity_id,
+                    in_world_started_at=opened.in_world_started_at,
+                ),
+                session_id=opened.session_id,
+                scene_id=opened.scene_id,
+                occurred_at=opened.started_at,
+            )
+        return self._ok(
+            "transition-scene",
+            {
+                "scene": _scene_to_dict(opened),
+                "closed_scene_id": closed_id,
+            },
+        )
+
+    def _do_current_scene(
+        self, _payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        store = SceneStore(self._connection)
+        scene = store.get_open_scene(campaign_id)
+        return self._ok(
+            "current-scene",
+            {
+                "scene": None if scene is None else _scene_to_dict(scene),
+                "present_entity_ids": (
+                    []
+                    if scene is None
+                    else list(store.get_present_entity_ids(campaign_id, scene.scene_id))
+                ),
+                "game_time": _game_time_to_dict(store.get_game_time(campaign_id)),
+            },
+        )
+
+    def _do_enter_scene(
+        self, payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        scene_id = _required_string(payload, "scene_id", "enter-scene")
+        entity_id = _required_string(payload, "entity_id", "enter-scene")
+        if scene_id is None or entity_id is None:
+            return self._error(
+                "enter-scene",
+                "invalid_payload",
+                "enter-scene requires scene_id and entity_id.",
+            )
+        raw_presence = payload.get("presence_type")
+        try:
+            presence_type = PresenceType(raw_presence)
+        except ValueError:
+            return self._error(
+                "enter-scene",
+                "invalid_presence_type",
+                "presence_type must be one of "
+                + ", ".join(item.value for item in PresenceType)
+                + ".",
+                data={"presence_type": raw_presence},
+            )
+        with transaction(self._connection):
+            store = SceneStore(self._connection)
+            member = store.enter_in_transaction(
+                campaign_id, scene_id, entity_id, presence_type
+            )
+            self._append_scene_event(
+                campaign_id,
+                entity_entered_event(
+                    scene_id=scene_id,
+                    entity_id=entity_id,
+                    presence_type=presence_type.value,
+                    entered_at=member.entered_at,
+                ),
+                scene_id=scene_id,
+                occurred_at=member.entered_at,
+            )
+        return self._ok("enter-scene", {"member": _member_to_dict(member)})
+
+    def _do_exit_scene(
+        self, payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        scene_id = _required_string(payload, "scene_id", "exit-scene")
+        entity_id = _required_string(payload, "entity_id", "exit-scene")
+        if scene_id is None or entity_id is None:
+            return self._error(
+                "exit-scene",
+                "invalid_payload",
+                "exit-scene requires scene_id and entity_id.",
+            )
+        with transaction(self._connection):
+            store = SceneStore(self._connection)
+            member = store.exit_in_transaction(campaign_id, scene_id, entity_id)
+            self._append_scene_event(
+                campaign_id,
+                entity_exited_event(
+                    scene_id=scene_id,
+                    entity_id=entity_id,
+                    exited_at=member.exited_at or "",
+                ),
+                scene_id=scene_id,
+                occurred_at=member.exited_at,
+            )
+        return self._ok("exit-scene", {"member": _member_to_dict(member)})
+
+    def _do_get_game_time(
+        self, _payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        clock = SceneStore(self._connection).get_game_time(campaign_id)
+        return self._ok("game-time", {"game_time": _game_time_to_dict(clock)})
+
+    def _do_set_game_time(
+        self, payload: Mapping[str, Any], campaign_id: str
+    ) -> dict[str, Any]:
+        raw_minutes = payload.get("in_world_minutes")
+        if raw_minutes is not None and (
+            isinstance(raw_minutes, bool) or not isinstance(raw_minutes, int)
+        ):
+            return self._error(
+                "set-game-time",
+                "invalid_game_time",
+                "in_world_minutes must be an integer when provided.",
+                data={"in_world_minutes": raw_minutes},
+            )
+        with transaction(self._connection):
+            clock = SceneStore(self._connection).set_game_time_in_transaction(
+                campaign_id,
+                in_world_label=payload.get("in_world_label"),
+                in_world_minutes=raw_minutes,
+            )
+            self._append_scene_event(
+                campaign_id,
+                scene_time_changed_event(
+                    in_world_label=clock.in_world_label,
+                    in_world_minutes=clock.in_world_minutes,
+                    changed_at=clock.updated_at,
+                ),
+                occurred_at=clock.updated_at,
+            )
+        return self._ok("set-game-time", {"game_time": _game_time_to_dict(clock)})
+
+    def _append_scene_event(
+        self,
+        campaign_id: str,
+        event: GameEvent,
+        *,
+        session_id: str | None = None,
+        scene_id: str | None = None,
+        occurred_at: str | None = None,
+    ) -> None:
+        EventStore(self._connection).append_in_transaction(
+            self._connection,
+            campaign_id,
+            event,
+            session_id=session_id,
+            scene_id=scene_id,
+            occurred_at=occurred_at,
+        )
+
+    def _scene_operation(
+        self,
+        operation: str,
+        payload_json: str,
+        action: Callable[[Mapping[str, Any], str], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Resolve storage, campaign, and payload once, then run one action.
+
+        Guard errors (missing storage, no campaign, archived campaign, bad
+        JSON) are decided before any write, so a rejected call never opens a
+        transaction.
+        """
+
+        if self._connection is None:
+            return self._storage_required(operation)
+        campaign_id = self.active_campaign
+        if not campaign_id:
+            return self._error(
+                operation,
+                "campaign_not_configured",
+                f"{operation} requires an active campaign.",
+            )
+        try:
+            payload = _scene_payload(payload_json)
+        except ValueError as exc:
+            return self._error(operation, "invalid_payload", str(exc))
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        if campaign is None:
+            return self._error(
+                operation,
+                "campaign_not_found",
+                "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        if campaign.get("archived_at"):
+            return self._error(
+                operation,
+                "campaign_archived",
+                "Active campaign is archived.",
+                data={"campaign": campaign_id},
+            )
+        try:
+            return action(payload, campaign_id)
+        except SceneInvariantError as exc:
+            return self._error(
+                operation,
+                "scene_invalid",
+                str(exc),
+                data={"campaign_id": campaign_id},
+            )
 
     def query_rules(
         self,
@@ -614,6 +1011,183 @@ class TabletopRuntime:
         except (InvalidActionError, InvalidResolutionError, LookupError, ValueError) as exc:
             return self._error("resolve-action", "action_not_resolved", str(exc))
         return self._ok("resolve-action", result.to_dict())
+
+    def submit_action(self, proposal_json: str) -> dict[str, Any]:
+        """Take one ``ActionProposal`` from a model to an authoritative outcome.
+
+        This is the canonical path from natural language to mechanics. The
+        proposal is planned first, authoritative parameters are acquired, and
+        only then is a ``GameAction`` built and handed to the existing
+        ``play_turn`` guard. A proposal that does not plan to ``RESOLVE``
+        never reaches the plugin at all, so the plugin guard is unchanged
+        and remains the only route to a roll or a state change.
+        """
+
+        if self._connection is None:
+            return self._storage_required("submit-action")
+        campaign_id = self.active_campaign
+        if not campaign_id:
+            return self._error(
+                "submit-action",
+                "campaign_not_configured",
+                "submit-action requires an active campaign.",
+            )
+        try:
+            decoded = json.loads(proposal_json) if proposal_json.strip() else {}
+        except json.JSONDecodeError as exc:
+            return self._error("submit-action", "invalid_proposal", str(exc))
+        try:
+            proposal = parse_action_proposal(decoded)
+        except (InvalidActionError, ValueError) as exc:
+            return self._error("submit-action", "invalid_proposal", str(exc))
+
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        if campaign is None:
+            return self._error(
+                "submit-action",
+                "campaign_not_found",
+                "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        if campaign.get("archived_at"):
+            return self._error(
+                "submit-action",
+                "campaign_archived",
+                "Active campaign is archived.",
+                data={"campaign": campaign_id},
+            )
+
+        system_id = str(campaign["system_id"])
+        try:
+            plugin = self._registry.get(system_id)
+        except GameSystemError as exc:
+            return self._error("submit-action", "plugin_unavailable", str(exc))
+
+        plan = plan_resolution(
+            proposal,
+            plugin=plugin,
+            context=self._proposal_plan_context(campaign_id, proposal.actor_id),
+            parameters=self._model_proposed_parameters(proposal),
+        )
+
+        if plan.disposition in _LOOKUP_DISPOSITIONS:
+            lookup = resolve_lookup(
+                missing=plan.missing_parameters,
+                rules=RuleLookup(self._rule_source(plugin, system_id)),
+                rulings=RulingStore(self._connection),
+                state=StateLookup(self._state_values(campaign_id, system_id)),
+                campaign_id=campaign_id,
+                query=proposal.intent,
+                model_proposed=plan.parameters,
+            )
+            if lookup.disposition is not Disposition.RESOLVE:
+                return self._ok(
+                    "submit-action",
+                    {
+                        "disposition": lookup.disposition.value,
+                        "reason": lookup.reason,
+                        "action": None,
+                        "resolution": None,
+                        "missing_parameters": list(lookup.missing_parameters),
+                        "clarification": None,
+                    },
+                )
+            plan = plan_resolution(
+                proposal,
+                plugin=plugin,
+                context=self._proposal_plan_context(campaign_id, proposal.actor_id),
+                parameters=tuple(lookup.parameters.values()),
+            )
+
+        if not plan.is_resolvable or plan.action is None:
+            return self._ok(
+                "submit-action",
+                {
+                    "disposition": plan.disposition.value,
+                    "reason": plan.reason,
+                    "action": None,
+                    "resolution": None,
+                    "missing_parameters": list(plan.missing_parameters),
+                    "clarification": (
+                        None
+                        if plan.clarification is None
+                        else plan.clarification.to_dict()
+                    ),
+                },
+            )
+
+        try:
+            result = play_turn(
+                self._registry,
+                self._connection,
+                plan.action,
+                campaign_id=campaign_id,
+                system_id=system_id,
+            )
+        except (
+            InvalidActionError,
+            InvalidResolutionError,
+            LookupError,
+            ValueError,
+        ) as exc:
+            return self._error("submit-action", "action_not_resolved", str(exc))
+        payload = result.to_dict()
+        payload["disposition"] = Disposition.RESOLVE.value
+        payload["reason"] = plan.reason
+        return self._ok("submit-action", payload)
+
+    def _proposal_plan_context(
+        self, campaign_id: str, actor_id: str
+    ) -> PlanContext:
+        """Build the planner's view of who is present and who may act."""
+
+        scene = SceneStore(self._connection).get_open_scene(campaign_id)
+        present: tuple[str, ...] = ()
+        if scene is not None:
+            present = SceneStore(self._connection).get_present_entity_ids(
+                campaign_id, scene.scene_id
+            )
+        controlled: tuple[str, ...] = ()
+        actor_controls = True
+        if self._workspace is Workspace.PLAYER:
+            controlled = self._player_viewpoint().character_ids
+            actor_controls = actor_id in controlled
+        return PlanContext(
+            present_entity_ids=present,
+            actor_controls_actor=actor_controls,
+            player_controlled_entity_ids=controlled,
+        )
+
+    def _model_proposed_parameters(
+        self, proposal: ActionProposal
+    ) -> tuple[MechanicalParameter, ...]:
+        """Wrap the model's own numbers as proposals, never as authority."""
+
+        return tuple(
+            MechanicalParameter(
+                name=name,
+                value=value,
+                source=ParameterSource.MODEL_PROPOSAL,
+            )
+            for name, value in proposal.parameters.items()
+        )
+
+    def _rule_source(self, plugin: GameSystemPlugin, system_id: str) -> RuleSource:
+        return _PluginRuleSource(plugin, system_id)
+
+    def _state_values(
+        self, campaign_id: str, system_id: str
+    ) -> dict[str, Any]:
+        """Read rule-shaped values the active scene and campaign already hold."""
+
+        values: dict[str, Any] = {}
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        if campaign is not None:
+            values.update(campaign.get("system_state") or {})
+        scene = SceneStore(self._connection).get_open_scene(campaign_id)
+        if scene is not None:
+            values.update(scene.system_state)
+        return values
 
     def roll(self, expression: str) -> dict[str, Any]:
         try:
@@ -1104,6 +1678,12 @@ class TabletopRuntime:
                 "end-session",
                 "campaign_not_configured",
                 "end-session requires an active campaign.",
+            )
+        if not self.campaign_roots:
+            return self._error(
+                "end-session",
+                "campaign_roots_not_configured",
+                "end-session requires at least one configured campaign root.",
             )
         projection_directory = next(
             (
@@ -1732,6 +2312,91 @@ class TabletopRuntime:
             data=data,
         )
 
+
+#: Dispositions whose missing parameters are worth one lookup attempt before
+#: the turn is escalated to the GM.
+_LOOKUP_DISPOSITIONS = frozenset(
+    {Disposition.RULE_LOOKUP, Disposition.STATE_LOOKUP}
+)
+
+
+class _PluginRuleSource:
+    """Read rules-authoritative defaults declared by the active plugin.
+
+    A plugin may state a value its system always uses. That is the rules
+    speaking, not the model, so it can satisfy a declared requirement.
+    """
+
+    def __init__(self, plugin: GameSystemPlugin, system_id: str) -> None:
+        self._plugin = plugin
+        self._system_id = system_id
+
+    def lookup(
+        self, names: tuple[str, ...], campaign_id: str
+    ) -> dict[str, Any]:
+        defaults = self._plugin.default_parameters()
+        return {name: defaults[name] for name in names if name in defaults}
+
+
+
+def _scene_payload(payload_json: str) -> dict[str, Any]:
+    """Parse a scene operation payload into a plain mapping."""
+
+    text = payload_json.strip()
+    if not text:
+        return {}
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"payload is not valid JSON: {exc}") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError("payload must be a JSON object")
+    return decoded
+
+
+def _required_string(
+    payload: Mapping[str, Any], key: str, operation: str
+) -> str | None:
+    """Return a non-empty string field, or None when it is absent or wrong."""
+
+    value = payload.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _scene_to_dict(scene: Scene) -> dict[str, Any]:
+    return {
+        "scene_id": scene.scene_id,
+        "name": scene.name,
+        "status": scene.status.value,
+        "session_id": scene.session_id,
+        "location_entity_id": scene.location_entity_id,
+        "started_at": scene.started_at,
+        "ended_at": scene.ended_at,
+        "in_world_started_at": scene.in_world_started_at,
+        "in_world_ended_at": scene.in_world_ended_at,
+    }
+
+
+def _member_to_dict(member: SceneMember) -> dict[str, Any]:
+    return {
+        "scene_id": member.scene_id,
+        "entity_id": member.entity_id,
+        "presence_type": member.presence_type.value,
+        "entered_at": member.entered_at,
+        "exited_at": member.exited_at,
+    }
+
+
+def _game_time_to_dict(clock: GameTime | None) -> dict[str, Any] | None:
+    if clock is None:
+        return None
+    return {
+        "in_world_label": clock.in_world_label,
+        "in_world_minutes": clock.in_world_minutes,
+        "updated_at": clock.updated_at,
+    }
 
 def _identifier_arg(raw: str) -> str:
     """Read an id from a bare string or a JSON object, ignoring lifecycle fields."""

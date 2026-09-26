@@ -112,3 +112,34 @@ See [tutorial-04-adding-a-channel.md](./tutorial-04-adding-a-channel.md).
 
 - [reference-skills-communication.md](./reference-skills-communication.md) — the MeTTa surface (`send`, `receive`, `websearch`).
 - [reference-configuration.md](./reference-configuration.md) — channel parameters.
+
+## Message identity
+
+Every inbound message carries the identity its transport already provides.
+That is what makes a channel retry a duplicate rather than a second turn.
+
+| Channel | Message identity | Conversation |
+|---|---|---|
+| Telegram | chat id + message id | chat id |
+| Slack | channel + timestamp (`ts`) | channel |
+| Mattermost | post id | channel |
+| WebSocket | client `seq` | connection |
+| IRC | hash of the raw protocol line | channel |
+
+The types are `InboundMessage` and `OutboundMessage` in
+`src/channel_message.py`.
+
+> The types live in `src/`, not under `channels/`, because `channels` is both a
+> namespace package and `src/channels.py`. A module under `channels/` is
+> unreachable by that name in the Omega runtime, where `src/` is first on
+> `sys.path`.
+
+Messages used to be joined into one string with `" | "`. That lost every
+message id and made a literal `" | "` in a player's text indistinguishable from
+a separator. `commChannelReceive` now returns structured messages.
+
+## Delivery guarantees
+
+Delivery is at-least-once on every channel except WebSocket, which is
+exactly-once given a stable `client_seq` and server acknowledgement. See
+`docs/failure-modes.md` for what happens when a send cannot be confirmed.

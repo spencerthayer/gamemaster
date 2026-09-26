@@ -129,7 +129,7 @@ _CAMPAIGN_ONLY_SKILLS: tuple[SkillSpec, ...] = (
         name="current-scene",
         description="Return the active scene from authoritative campaign state",
         parameters=(),
-        runtime_method="current_scene",
+        runtime_method="get_current_scene",
     ),
     SkillSpec(
         name="get-party-state",
@@ -180,12 +180,13 @@ _CAMPAIGN_ONLY_SKILLS: tuple[SkillSpec, ...] = (
         runtime_method="query_rules",
     ),
     SkillSpec(
-        name="resolve-action",
+        name="submit-action",
         description=(
-            "Resolve a structured game action through the active game-system plugin"
+            "Submit an action proposal for deterministic planning and, when "
+            "the rules decide, resolution through the active game-system plugin"
         ),
-        parameters=("action_in_quotes",),
-        runtime_method="resolve_action",
+        parameters=("proposal_in_quotes",),
+        runtime_method="submit_action",
     ),
     SkillSpec(
         name="roll",
@@ -261,7 +262,7 @@ _PLAYER_SKILL_NAMES = frozenset(
         "get-fact",
         "get-relationships",
         "get-ruling",
-        "resolve-action",
+        "submit-action",
         "roll",
         "current-campaign",
         "read-session",

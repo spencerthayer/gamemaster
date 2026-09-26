@@ -59,8 +59,38 @@ class CommChannel:
         pass
 
     def receive(self) -> str:
-        """Receive message from the communication channel"""
+        """Receive one message as text.
+
+        Retained as the narrow primitive. Adapters that carry a native
+        message identity should override ``receive_messages`` instead; the
+        default here synthesizes one from the text.
+        """
         raise NotImplementedError()
+
+    def receive_messages(self) -> list:
+        """Receive zero or more messages, each with its native identity.
+
+        The default wraps ``receive`` in a single synthetic message so an
+        adapter that has no identity to report still participates in the
+        structured path rather than needing its own plumbing.
+        """
+        from src.channel_message import InboundMessage, synthetic_message_id
+
+        text = self.receive()
+        if not text:
+            return []
+        return [
+            InboundMessage(
+                channel=self.channel_id,
+                external_message_id=synthetic_message_id(self.channel_id, text, 0),
+                text=text,
+            )
+        ]
+
+    @property
+    def channel_id(self) -> str:
+        """This channel's stable name, set at registration."""
+        return getattr(self, "_channel_id", "unknown")
 
     def send(self, message: str) -> None:
         """Send message via the communication channel"""
@@ -76,6 +106,7 @@ def registerCommChannel(id: str, channel: CommChannel) -> None:
     """
     global _commChannelRegistry
     logger.info(f"registerCommChannel: registering communication channel {id}")
+    channel._channel_id = id
     _commChannelRegistry[id] = channel
 
 _commchannel: CommChannel = None
@@ -94,12 +125,30 @@ def commChannelStart(commchannel):
     _commchannel.start()
 
 def commChannelReceive():
-    """Receive message from selected communication channel"""
+    """Receive message text from the selected channel.
+
+    Returns text, because the MeTTa loop does ``(repr (receive))`` and sends
+    the result to the model as the human message. Returning structured
+    objects here would put a Python repr of a dataclass in the prompt instead
+    of what the player typed. Identity is available from
+    ``commChannelReceiveMessages``; the loop does not need it.
+
+    Control messages are handled and removed here, as before.
+    """
+    return " | ".join(message.text for message in commChannelReceiveMessages())
+
+def commChannelReceiveMessages():
+    """Receive messages with their native identities.
+
+    A retry of the same native message keeps the same id, so a caller can
+    deduplicate on identity instead of on text equality.
+    """
     global _commchannel
-    messages = _commchannel.receive().split(" | ")
-    return " | ".join(
-        message for message in messages if not handle_control_message(message)
-    )
+    return [
+        message
+        for message in _commchannel.receive_messages()
+        if not handle_control_message(message.text)
+    ]
 
 def commChannelSend(message):
     """Send message via selected communication channel"""

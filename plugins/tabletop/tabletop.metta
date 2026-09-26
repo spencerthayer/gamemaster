@@ -110,9 +110,9 @@
      (add-skill query-rules
        "Query active tabletop rules and return source-aware runtime results"
        (query_in_quotes))
-     (add-skill resolve-action
-       "Resolve a structured game action through the active game-system plugin"
-       (action_in_quotes))
+     (add-skill submit-action
+       "Submit an action proposal for deterministic planning and resolution"
+       (proposal_in_quotes))
      (add-skill roll
        "Roll a system-agnostic dice expression through the deterministic runtime dice engine"
        (expression_in_quotes))
@@ -168,9 +168,9 @@
      (add-skill query-rules
        "Query active tabletop rules and return source-aware runtime results"
        (query_in_quotes))
-     (add-skill resolve-action
-       "Resolve a structured game action through the active game-system plugin"
-       (action_in_quotes))
+     (add-skill submit-action
+       "Submit an action proposal for deterministic planning and resolution"
+       (proposal_in_quotes))
      (add-skill roll
        "Roll a system-agnostic dice expression through the deterministic runtime dice engine"
        (expression_in_quotes))
@@ -254,8 +254,8 @@
 (= (query-rules $query)
    (py-call (omega_tabletop_adapter.query_rules $query)))
 
-(= (resolve-action $action)
-   (py-call (omega_tabletop_adapter.resolve_action $action)))
+(= (submit-action $proposal)
+   (py-call (omega_tabletop_adapter.submit_action $proposal)))
 
 (= (roll $expression)
    (py-call (omega_tabletop_adapter.roll $expression)))

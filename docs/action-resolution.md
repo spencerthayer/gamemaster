@@ -76,6 +76,86 @@ may include `approach`. Those keys belong to plugins.
 Structural validation rejects empty `action_type`, a non-`EntityRef` actor,
 and malformed targets. It does not validate action names.
 
+## ActionProposal
+
+What a speaker seems to be trying to do, before anything is decided. This is
+model intent, not mechanics, and it is deliberately separate from
+`GameAction`: a proposal may name no action type, may target something that
+is not present, and may say plainly that it is unsure. None of that is an
+error.
+
+| Field | Meaning |
+|---|---|
+| `actor_id` | Required non-empty string. The acting character. |
+| `intent` | Required non-empty string. What they are trying to do, in plain language. |
+| `uncertainty` | Optional string. What the model is unsure about. A required signal, not an apology. |
+| `proposed_action_type` | Optional string. May be null when no mechanic is implied. |
+| `target_refs` | Zero or more entity ids. |
+| `parameters` | The model's own guesses, as a mapping. Never authoritative. |
+| `needs_resolution` | Whether this turn needs planning at all. Defaults to true. |
+
+`parse_action_proposal` rejects unknown fields rather than dropping them. A
+model that invents a field such as `difficulty_class` is pushing a mechanical
+value through a side channel, and silently discarding it would hide exactly
+the mistake this contract exists to catch. Parsing is pure and cannot create
+authoritative state.
+
+## MechanicalParameter and provenance
+
+A bare value cannot say where it came from, which is why a model's guess and
+a GM's ruling must not look alike once they reach a plugin.
+
+`MechanicalParameter` carries a `name`, a `value`, a `source`, and an
+optional `reference` pointing at the rule, ruling, or record the value came
+from. `ParameterSource` is a closed set:
+
+| Source | Rules-authoritative |
+|---|---|
+| `model_proposal` | No |
+| `campaign_state` | Yes |
+| `attached_rules` | Yes |
+| `ruling` | Yes |
+| `system_default` | Yes |
+
+A plugin declares which parameters an action type needs through
+`action_requirements(action_type)`, and may state values its own rules always
+use through `default_parameters()`. A declared requirement is
+rules-authoritative, so a value whose only source is `model_proposal` cannot
+satisfy one. Both hooks default to empty, so existing plugins stay
+compatible without a second API version.
+
+`handles_action(action_type)` lets a plugin report the mechanics it models,
+so the planner can mark an unimplemented mechanic unsupported before
+building anything.
+
+## The deterministic planner
+
+`plan_resolution` is a pure function. It does not persist, roll, retrieve,
+or call a model, and it never constructs a `GameAction` unless every value in
+that action is already authoritative. The order of the checks is the
+contract:
+
+1. No proposed mechanic → `narrative`. Most player input is talking.
+2. The plugin does not implement the type → `unsupported`.
+3. The actor is not the player's to act → `player_clarification`.
+4. The target is absent, or several candidates fit →
+   `player_clarification`. Player ambiguity is a question for the player,
+   never for the GM: escalating it would interrupt play to ask something the
+   player already knows.
+5. A required parameter has no authoritative value → `rule_lookup` or
+   `state_lookup`, then `gm_ruling` only when no lookup can answer.
+6. Otherwise → `resolve`, with a sanitized `GameAction`.
+
+`TabletopRuntime.submit_action` is the canonical path from natural language
+to mechanics. It plans the proposal, acquires authoritative parameters, and
+only then hands a `GameAction` to the existing `play_turn` guard. A proposal
+that does not plan to `resolve` never reaches the plugin, so the plugin
+guard remains the only route to a roll or a state change.
+
+Lookups try attached rules, then a current unsuperseded ruling, then
+campaign state, and only then escalate to the GM. None of them writes a fact,
+a ruling, or an event, so asking a question cannot become canon.
+
 ## ResolutionContext
 
 Data supplied to a plugin for one resolve call. Not a service locator.

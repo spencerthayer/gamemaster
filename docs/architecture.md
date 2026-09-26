@@ -137,3 +137,81 @@ SQLite is the authoritative store. The event log is append-only and immutable;
 state projections derive from events where practical. Human-readable campaign
 projection files (markdown/YAML per campaign) are operator-friendly views of
 the same truth, never a second authority.
+
+## Scenes and the campaign clock
+
+`SceneStore` (`tabletop/campaign/scenes.py`) is the only writer of `scenes`,
+`scene_members`, and `campaign_clock`. Each mutation owns a transaction and
+emits nothing; callers that own the event log use the `*_in_transaction`
+variants so rows and their events move together.
+
+`TabletopRuntime` exposes the scene lifecycle: `open_scene`, `close_scene`,
+`transition_scene`, `get_current_scene`, `enter_scene`, `exit_scene`,
+`get_game_time`, and `set_game_time`. There is deliberately no second
+lifecycle service. `transition_scene` closes the current scene and opens the
+next in one transaction, so a campaign is never left with no open scene
+because the second half of the move failed.
+
+A turn that does not name a scene writes into the campaign's open scene, so
+scene-scoped state changes land where play is actually happening.
+
+## Resume and prompt context
+
+`build_scene_snapshot` (`tabletop/campaign/scene_snapshot.py`) is the single
+read-only answer to "where is this campaign right now". Operator resume and
+model prompt context both read it.
+
+- It takes a `viewpoint` as a required argument. Choosing one implicitly is
+  how GM-only state reaches a player prompt.
+- It reads the event log, never chat history, and never summarizes a
+  transcript.
+- It writes nothing.
+- Resume returns the latest scene even when it is closed, so a scene stays
+  inspectable after a restart instead of the snapshot reporting "none".
+  A campaign that has never opened a scene reports `None`, not a placeholder.
+- Prompt context renders the snapshot as readable text; handing the model the
+  raw mapping would put a Python repr in the prompt.
+
+## Validation
+
+`tabletop.campaign.validation` produces typed checks with stable ids such as
+`campaign.exists` and `participant.gm.count`. `tabletop.campaign.readiness`
+still exists for callers that want human-readable prose; the two answer
+different questions and both are legitimate.
+
+Readiness decides whether a *campaign* is sound. It deliberately ignores live
+checks, because a broken environment is not a broken campaign. The CLI
+separates the two exit classes: 1 for a failed static check, 2 for a runtime or
+environment failure. A campaign that is configured correctly on a machine with
+no Docker exits 2, not 1.
+
+Live probes are explicit, injectable callables rather than hidden side
+effects. Each is bounded by a timeout, and a probe that raises or hangs becomes
+a failed check instead of taking the process down. Credentials are reported by
+slot name, never by value.
+
+`--channel-probe` is separate from `--live` because it is the only probe that
+sends a real message. It is never implied.
+
+## The turn
+
+The turn is the orchestration identity. One human message, its context, its
+generations, its action effects, and its delivery all hang off it.
+
+```
+ingress -> claim turn -> context -> proposal -> planner
+  -> (player clarification | rule lookup | GM ruling)
+  -> GameSystemPlugin -> Resolution -> authoritative commit
+  -> generation receipt -> delivery outbox -> channel
+```
+
+A channel retry carrying the same native message identity returns the turn
+that already owns it, so one message produces one turn and one set of
+authoritative effects.
+
+`GameAction` is a mechanical action only the plugin guard produces. A model
+submits an `ActionProposal`, which may name no action type and may admit
+uncertainty; the deterministic planner decides what, if anything, it becomes.
+
+An action's claim, its `action.resolved` event, and its state changes commit in
+one transaction. Recovery reads that ledger rather than rerunning the action.

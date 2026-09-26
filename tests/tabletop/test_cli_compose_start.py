@@ -650,7 +650,45 @@ def test_archived_campaign_is_refused_before_compose(
         )
 
 
-def test_readiness_refusal_prevents_compose(monkeypatch: pytest.MonkeyPatch) -> None:
+def _ready_report():
+    from tabletop.campaign.validation import CheckStatus, ValidationCheck, ValidationReport
+
+    return ValidationReport(
+        campaign_id="night",
+        checks=(ValidationCheck("campaign.exists", CheckStatus.PASS),),
+    )
+
+
+def test_validation_refusal_prevents_compose() -> None:
+    """A failed static check blocks the start before compose is touched."""
+    from tabletop.campaign.validation import CheckStatus, ValidationCheck, ValidationReport
+
+    failing = ValidationReport(
+        campaign_id="night",
+        checks=(
+            ValidationCheck("campaign.exists", CheckStatus.PASS),
+            ValidationCheck("participant.gm.count", CheckStatus.FAIL, "expected one gm"),
+        ),
+    )
+    with pytest.raises(ValueError, match="validation failed"):
+        handlers._validation_failure(failing)
+
+
+def test_validation_warnings_do_not_block_a_start() -> None:
+    from tabletop.campaign.validation import CheckStatus, ValidationCheck, ValidationReport
+
+    warned = ValidationReport(
+        campaign_id="night",
+        checks=(
+            ValidationCheck("campaign.exists", CheckStatus.PASS),
+            ValidationCheck("scene.structure", CheckStatus.WARN, "no open scene"),
+        ),
+    )
+    handlers._validation_failure(warned)
+
+
+def test_readiness_refusal_blocks_the_launch() -> None:
+    """An incomplete launch environment stops the start before compose runs."""
     report = {
         "campaign_id": "night",
         "errors": ["pending import proposals"],
@@ -659,17 +697,21 @@ def test_readiness_refusal_prevents_compose(monkeypatch: pytest.MonkeyPatch) -> 
         "ok": False,
         "exit_nonzero": True,
     }
-    monkeypatch.setattr(handlers, "readiness_report", lambda *args, **kwargs: report)
     with pytest.raises(ValueError, match="readiness errors"):
-        handlers._resolve_launch_context(
-            "start",
-            campaign_id="night",
-            participant_id="ada-player",
-            channel="telegram",
-            host_database_path=Path("unused.sqlite3"),
-            container_database_path="/container/db",
-            runtime_compose_dir=Path("compose"),
-        )
+        handlers._readiness_failure(report)
+
+
+def test_readiness_refusal_allows_a_clean_environment() -> None:
+    handlers._readiness_failure(
+        {
+            "campaign_id": "night",
+            "errors": [],
+            "warnings": ["no open session"],
+            "notices": [],
+            "ok": True,
+            "exit_nonzero": False,
+        }
+    )
 
 
 def test_source_names_are_absent_from_generated_yaml(tmp_path: Path) -> None:

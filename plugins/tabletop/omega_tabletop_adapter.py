@@ -195,8 +195,8 @@ def query_campaign(query: Any) -> str:
     return _invoke("query_campaign", _text(query))
 
 
-def resolve_action(action: Any) -> str:
-    return _invoke("resolve_action", _text(action))
+def submit_action(proposal: Any) -> str:
+    return _invoke("submit_action", _text(proposal))
 
 
 def roll(expression: Any) -> str:

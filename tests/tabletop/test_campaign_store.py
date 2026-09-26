@@ -202,9 +202,8 @@ def test_delete_removes_key_and_absent_key_is_noop(store: CampaignStore) -> None
 def test_scene_changes_require_matching_campaign_scene(store: CampaignStore) -> None:
     _create_campaign(store)
     store.conn.execute(
-        "INSERT INTO scenes "
-        "(scene_id, campaign_id, name, opened_at, system_state) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO scenes (scene_id, campaign_id, name, status, started_at, system_state) "
+        "VALUES (?, ?, ?, 'open', ?, ?)",
         ("scene-1", "campaign-1", "Crossroads", "2026-09-22T00:00:00Z", "{}"),
     )
     change = StateChange(

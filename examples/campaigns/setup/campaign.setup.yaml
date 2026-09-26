@@ -1,0 +1,65 @@
+# Declarative campaign setup.
+#
+# This file describes a campaign that does not exist yet. Reading it writes
+# nothing and executes nothing. `gamemaster campaign setup --from PATH` turns
+# it into a plan you can review, then applies it.
+#
+# Unknown fields are rejected rather than ignored: a typo in `system_id`
+# would otherwise silently configure a campaign nobody asked for.
+#
+# Content paths are relative to this file and must stay inside its directory.
+
+campaign_id: black-company
+name: The Black Company
+system_id: freeform
+setting_id: marcus
+
+participants:
+  - participant_id: gm-1
+    display_name: The GM
+    role: gm
+    character_ids: [npc-vor]
+  - participant_id: player-1
+    display_name: Ada
+    role: player
+    character_ids: [pc-ada]
+  - participant_id: player-2
+    display_name: Bosch
+    role: player
+    character_ids: [pc-bosch]
+
+characters:
+  - entity_id: pc-ada
+    name: Ada
+    participant_id: player-1
+  - entity_id: pc-bosch
+    name: Bosch
+    participant_id: player-2
+  - entity_id: npc-vor
+    name: Vor
+    participant_id: gm-1
+  - entity_id: loc-fort
+    name: The Fort
+
+content:
+  - path: rules/freeform-rules.md
+    role: rules
+  - path: adventure/black-company.md
+    role: adventure
+  - path: notes/gm-only.md
+    role: notes
+    gm_only: true
+
+starting_state:
+  scene:
+    flood_level: waist
+
+starting_scene:
+  scene_id: scene-1
+  name: The Flooded Hall
+  location_entity_id: loc-fort
+  present: [pc-ada, pc-bosch, npc-vor]
+
+game_time:
+  in_world_label: Day 3, dusk
+  in_world_minutes: 2880

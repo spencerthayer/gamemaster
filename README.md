@@ -364,3 +364,73 @@ Bootstrapped from
 Omega is experimental and non-deterministic; read the upstream disclaimer in
 the Omega README before exposing it to untrusted input.
 Licensed under Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+## Validating a campaign
+
+`campaign validate` runs structured checks with stable ids and exits with a
+documented class.
+
+```bash
+gamemaster campaign validate <campaign-id>              # text
+gamemaster campaign validate <campaign-id> --format json
+gamemaster campaign validate <campaign-id> --live       # bounded environment probes
+gamemaster campaign validate <campaign-id> --live --channel-probe   # also sends a test message
+```
+
+| Exit | Meaning |
+|---|---|
+| 0 | Ready |
+| 1 | A static validation check failed |
+| 2 | A runtime or environment failure (including any live probe) |
+| 3 | Invalid invocation |
+
+A live failure is a *runtime* class, not a validation class: a campaign can be
+perfectly configured while the environment is broken. `--channel-probe` is
+separate from `--live` because it is the only probe that sends a real message,
+and it must be asked for explicitly.
+
+### Check ids
+
+These are part of the contract. An operator script or a future UI matches on
+them, so renaming one is a breaking change even when the meaning is unchanged.
+
+`campaign.exists`, `campaign.archived`, `campaign.paths`,
+`plugin.compatible`, `plugin.state`, `participant.gm.count`,
+`participant.identity.unique`, `character.ownership`, `import.reviewed`,
+`database.writable`, `session.current`, `scene.structure`.
+
+Live probes are prefixed `live.`; the delivery probe is `channel.probe.delivery`.
+
+### What is and is not a gate
+
+A **failure** blocks. A **warning** does not: a campaign with no open scene yet
+is a normal thing to start. A **skip** is honest, not a pass: a missing
+credential is reported as a skip so nobody mistakes an unverified environment
+for a verified one.
+
+Validation writes nothing. Database writability is proven with a transaction
+that is rolled back, never by leaving a probe row behind.
+
+## Dogfood
+
+The milestone is exercised by two dogfood tests.
+
+The deterministic one runs on every suite pass, with no Docker and no
+credentials:
+
+```bash
+python3.11 -m pytest tests/play_transcripts -q
+```
+
+It drives dialogue, an ambiguous target, GM escalation, a ruling, a resolved
+action, a GM-only secret, a scene transition, a restart from disk, and a
+continuation that depends on restored state, all through public services.
+
+The container one is opt-in, because it needs a real Docker daemon:
+
+```bash
+GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration -q
+```
+
+A skipped container test is not a pass. The release gate records an
+unverified container gate as unverified rather than met.

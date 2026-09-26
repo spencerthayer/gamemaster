@@ -44,9 +44,8 @@ def conn(tmp_path: Path):
         system_state={"resources": {"hp": 12}},
     )
     connection.execute(
-        "INSERT INTO scenes "
-        "(scene_id, campaign_id, name, opened_at, system_state) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO scenes (scene_id, campaign_id, name, status, started_at, system_state) "
+        "VALUES (?, ?, ?, 'open', ?, ?)",
         ("scene-1", "campaign-1", "Crossroads", "2026-09-22T00:00:00Z", "{}"),
     )
     try:
@@ -319,28 +318,6 @@ def test_contradiction_and_payloadless_play_events_are_recognized() -> None:
             target_id=None,
             payload={"reason": "conflict"},
             occurred_at="2026-09-22T00:00:00Z",
-        ),
-        PersistedEvent(
-            campaign_id="campaign-1",
-            sequence=2,
-            event_type=EventType.SCENE_OPENED.value,
-            session_id=None,
-            scene_id="scene-1",
-            actor_id=None,
-            target_id=None,
-            payload={},
-            occurred_at="2026-09-22T00:00:01Z",
-        ),
-        PersistedEvent(
-            campaign_id="campaign-1",
-            sequence=3,
-            event_type=EventType.SCENE_CLOSED.value,
-            session_id=None,
-            scene_id="scene-1",
-            actor_id=None,
-            target_id=None,
-            payload={},
-            occurred_at="2026-09-22T00:00:02Z",
         ),
         PersistedEvent(
             campaign_id="campaign-1",

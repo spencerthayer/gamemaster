@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Callable, Mapping, assert_never
 
 from tabletop.api.events import GameEvent
-from tabletop.campaign.event_store import EventStore, EventType
+from tabletop.campaign.event_store import EventStore, EventType, close_scene_event
 from tabletop.campaign.projections import (
     CampaignProjection,
     project_campaign,
     write_projection,
 )
+from tabletop.campaign.scenes import SceneStore
 from tabletop.retrieval.lexical import LexicalRetriever
 from tabletop.retrieval.models import RetrievalNamespace
 from tabletop.storage.sqlite import transaction
@@ -192,6 +193,9 @@ class SessionLifecycle:
         step = END_SESSION_CHECKLIST[step_number - 1]
         with transaction(self._connection):
             if step is EndSessionStep.CLOSE_EVENT_RANGE:
+                # The scene closes before the session ends, so no scene is
+                # ever left open for a session that has already finished.
+                self._close_open_scene(session, closed_at=session.ended_at)
                 if session.ended_at is not None:
                     EventStore(self._connection).append_in_transaction(
                         self._connection,
@@ -237,6 +241,38 @@ class SessionLifecycle:
                     f"{session.session_id}"
                 )
         return session
+
+
+    def _close_open_scene(self, session: Session, *, closed_at: str | None) -> None:
+        """Close the campaign's open scene and record ``scene.closed``.
+
+        Called inside the closing transaction. A session that ends with an
+        open scene would leave presence rows and a partial unique index
+        pointing at a session that no longer exists.
+        """
+
+        store = SceneStore(self._connection)
+        scene = store.get_open_scene(session.campaign_id)
+        if scene is None:
+            return
+        present = store.get_present_entity_ids(session.campaign_id, scene.scene_id)
+        closed = store.close_scene_in_transaction(
+            session.campaign_id, scene.scene_id, ended_at=closed_at
+        )
+        EventStore(self._connection).append_in_transaction(
+            self._connection,
+            session.campaign_id,
+            close_scene_event(
+                scene_id=closed.scene_id,
+                ended_at=closed.ended_at or "",
+                exited_entity_ids=present,
+                in_world_ended_at=closed.in_world_ended_at,
+            ),
+            session_id=closed.session_id or session.session_id,
+            scene_id=closed.scene_id,
+            occurred_at=closed.ended_at,
+        )
+
 
     def _write_summary(self, session_id: str, summary: str | None) -> None:
         with transaction(self._connection):

@@ -1,0 +1,15 @@
+case_id: ambiguous-target
+description: Two hostiles, no target named. The player is asked, not the GM.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate], [npc-hound, The Hound]]
+present: [npc-gate, npc-hound]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada attacks
+      proposed_action_type: check
+      target_refs: []
+      uncertainty: which one Ada means
+    expect:
+      disposition: player_clarification
+      expect_events: []
+      response_contains_any: ["Which one are you acting on"]

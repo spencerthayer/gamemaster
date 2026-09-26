@@ -20,3 +20,11 @@ The layout is:
 Projection writes use temporary files and atomic replacement so an interrupted
 write cannot truncate an existing file. Rebuilding the same source projection
 produces byte-identical output.
+
+## Describing a campaign that does not exist yet
+
+These files are generated projections. To *describe* a new campaign, use a
+setup manifest instead; see `setup/README.md`. The two are deliberately named
+differently: `campaign.yaml` is a projection produced from SQLite, and
+`campaign.setup.yaml` is a hand-authored input read to create one. Overloading
+one filename would give it two meanings in the same directory tree.

@@ -1,0 +1,13 @@
+case_id: dialogue
+description: Ada speaks to the gate. Nothing mechanical happens.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada asks the gate politely to open
+      proposed_action_type: null
+    expect:
+      disposition: narrative
+      expect_events: []
+      response_contains_any: ["no mechanical action"]

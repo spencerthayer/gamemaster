@@ -1,0 +1,13 @@
+case_id: interrupted-action
+description: An action named mid-motion and then abandoned resolves nothing.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada begins to force the gate, then stops
+      proposed_action_type: null
+      uncertainty: Ada changed her mind
+    expect:
+      disposition: narrative
+      expect_events: []

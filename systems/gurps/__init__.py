@@ -21,6 +21,18 @@ from tabletop.api.resolution import (
 )
 from tabletop.dice import roller
 
+_SUPPORTED_ACTIONS = frozenset(
+    {
+        "skill_check",
+        "contest",
+        "attack",
+        "active_defense",
+        "apply_damage",
+        "hit_location",
+        "spend_fatigue",
+    }
+)
+
 
 class GurpsPlugin(GameSystemPlugin):
     @property
@@ -47,6 +59,23 @@ class GurpsPlugin(GameSystemPlugin):
                 Capability.RESOURCE_TRACKING,
             }
         )
+
+    def action_requirements(self, action_type: str) -> tuple[str, ...]:
+        """Declare the rules-authoritative parameters each action needs.
+
+        A skill check needs a target skill and difficulty, and an attack needs
+        a skill and difficulty to roll against. These come from the rules or
+        a GM ruling, never from the model guessing a number.
+        """
+
+        if action_type in ("skill_check", "contest", "attack", "active_defense"):
+            return ("skill", "difficulty")
+        return ()
+
+    def handles_action(self, action_type: str) -> bool:
+        """Report which mechanics this partial gurps plugin models."""
+
+        return action_type in _SUPPORTED_ACTIONS
 
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         handler = {

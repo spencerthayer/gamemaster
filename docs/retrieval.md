@@ -113,3 +113,26 @@ a full tool result with a stub, the stub keeps the tool name and arguments
 needed to reconstruct that result. For a retrieved source, that means retaining
 the refetch tool and its arguments rather than only a human-readable citation
 or summary.
+
+## Content authority
+
+Authority comes from a semantic role on a campaign attachment. A retrieval
+score is a ranking signal inside one tier, never a grant of authority.
+
+Mechanics precedence, highest first:
+
+1. `campaign rulings` — a confirmed, unsuperseded ruling
+2. `campaign house rules`
+3. `adventure-specific mechanics` — an attached adventure pack
+4. `enabled supplements` — an attached setting
+5. `active system rules` — an attached rules document
+6. `GM adjudication`
+
+`character`, `notes`, and `reference` map to source material and may not answer
+a mechanics question. A chunk whose role is unknown is treated the same way:
+unclassified text cannot claim authority it was never granted.
+
+A campaign note matching a query at 0.99 does not outrank an attached rules
+document matching at 0.10. Score breaks ties only inside a single tier, and
+lower-tier disagreements are preserved as conflicts for GM inspection rather
+than discarded.

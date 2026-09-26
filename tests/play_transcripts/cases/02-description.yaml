@@ -1,0 +1,13 @@
+case_id: description
+description: Ada describes what she sees. That is narration, not an action.
+entities: [[pc-ada, Ada], [npc-gate, The Rusted Gate]]
+present: [npc-gate]
+turns:
+  - proposal:
+      actor_id: pc-ada
+      intent: Ada surveys the flooded hall and notes the water rising
+      proposed_action_type: null
+      uncertainty: none; this is description
+    expect:
+      disposition: narrative
+      expect_events: []

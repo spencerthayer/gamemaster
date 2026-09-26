@@ -83,6 +83,7 @@ class CampaignProjection:
     archived_at: str | None = None
     participants: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     character_controls: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    campaign_clock: Mapping[str, Any] | None = None
 
 
 def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
@@ -100,6 +101,7 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
     archived_at: str | None = None
     participants: dict[str, dict[str, Any]] = {}
     character_controls: dict[str, dict[str, Any]] = {}
+    campaign_clock: dict[str, Any] | None = None
 
     for event in events:
         if campaign_id is not None and event.campaign_id != campaign_id:
@@ -236,8 +238,19 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
                     raise ValueError("character_control.ended requires control_id")
             case EventType.CAMPAIGN_FORKED:
                 pass
-            case EventType.SCENE_OPENED | EventType.SCENE_CLOSED:
-                pass
+            case EventType.SCENE_OPENED:
+                opened = _open_projected_scene(event, scenes)
+                scenes[opened["scene_id"]] = opened
+            case EventType.SCENE_CLOSED:
+                scenes = _close_projected_scene(event, scenes)
+            case EventType.SCENE_ENTITY_ENTERED:
+                scenes = _enter_projected_member(event, scenes)
+            case EventType.SCENE_ENTITY_EXITED:
+                scenes = _exit_projected_member(event, scenes)
+            case EventType.SCENE_LOCATION_CHANGED:
+                scenes = _change_projected_location(event, scenes)
+            case EventType.SCENE_TIME_CHANGED:
+                campaign_clock = _project_campaign_clock(event)
             case _:
                 assert_never(event_type)
 
@@ -259,6 +272,7 @@ def project_campaign(events: Iterable[PersistedEvent]) -> CampaignProjection:
         archived_at=archived_at,
         participants=copy.deepcopy(participants),
         character_controls=copy.deepcopy(character_controls),
+        campaign_clock=copy.deepcopy(campaign_clock),
     )
 
 
@@ -296,6 +310,155 @@ def _end_projected_session(
         ended_at=ended_at if isinstance(ended_at, str) else event.occurred_at,
     )
     return sessions
+
+
+def _scene_key(event: PersistedEvent) -> str:
+    """Resolve the scene an event names, rejecting an unnamed scene."""
+
+    scene_id = event.scene_id or event.payload.get("scene_id")
+    if not isinstance(scene_id, str) or not scene_id:
+        raise ValueError(f"{event.event_type} requires a non-empty scene_id")
+    return scene_id
+
+
+def _require_scene_key(
+    event: PersistedEvent,
+    scenes: Mapping[str, Any],
+) -> str:
+    """Resolve the scene an event names, rejecting an unopened scene.
+
+    Dependent scene events must not invent state: replaying a close or a
+    presence change without the open that created the scene would fabricate
+    a scene the log never says existed.
+    """
+
+    scene_id = _scene_key(event)
+    if scene_id not in scenes:
+        raise ValueError(f"{event.event_type} has no opened scene: {scene_id}")
+    return scene_id
+
+
+def _open_projected_scene(
+    event: PersistedEvent,
+    scenes: Mapping[str, Any],
+) -> dict[str, Any]:
+    scene_id = _scene_key(event)
+    if scene_id in scenes:
+        raise ValueError(f"scene.opened repeats an opened scene: {scene_id}")
+    name = event.payload.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("scene.opened requires a non-empty name")
+    started_at = event.payload.get("started_at")
+    if not isinstance(started_at, str) or not started_at:
+        raise ValueError("scene.opened requires started_at")
+    return {
+        "scene_id": scene_id,
+        "name": name,
+        "status": "open",
+        "session_id": event.payload.get("session_id"),
+        "location_entity_id": event.payload.get("location_entity_id"),
+        "in_world_started_at": event.payload.get("in_world_started_at"),
+        "started_at": started_at,
+        "ended_at": None,
+        "members": {},
+    }
+
+
+def _close_projected_scene(
+    event: PersistedEvent,
+    scenes: dict[str, Any],
+) -> dict[str, Any]:
+    scene_id = _require_scene_key(event, scenes)
+    ended_at = event.payload.get("ended_at")
+    if not isinstance(ended_at, str) or not ended_at:
+        ended_at = event.occurred_at
+    scene = dict(scenes[scene_id])
+    scene["status"] = "closed"
+    scene["ended_at"] = ended_at
+    in_world_ended_at = event.payload.get("in_world_ended_at")
+    if isinstance(in_world_ended_at, str):
+        scene["in_world_ended_at"] = in_world_ended_at
+    # The close is what removed everyone still present, so replay applies the
+    # same explicit exit list rather than assuming a whole-scene sweep.
+    for entity_id in event.payload.get("exited_entity_ids", ()):
+        member = dict(scene["members"].get(str(entity_id), {}))
+        member["scene_id"] = scene_id
+        member["entity_id"] = str(entity_id)
+        member.setdefault("presence_type", None)
+        member.setdefault("entered_at", scene["started_at"])
+        member["exited_at"] = ended_at
+        scene["members"][str(entity_id)] = member
+    scenes[scene_id] = scene
+    return scenes
+
+
+def _enter_projected_member(
+    event: PersistedEvent,
+    scenes: dict[str, Any],
+) -> dict[str, Any]:
+    scene_id = _require_scene_key(event, scenes)
+    entity_id = event.payload.get("entity_id")
+    if not isinstance(entity_id, str) or not entity_id:
+        raise ValueError("scene.entity_entered requires entity_id")
+    entered_at = event.payload.get("entered_at")
+    if not isinstance(entered_at, str) or not entered_at:
+        raise ValueError("scene.entity_entered requires entered_at")
+    scene = dict(scenes[scene_id])
+    members = dict(scene["members"])
+    # Re-entry starts a fresh interval, so it replaces the previous one.
+    members[entity_id] = {
+        "scene_id": scene_id,
+        "entity_id": entity_id,
+        "presence_type": event.payload.get("presence_type"),
+        "entered_at": entered_at,
+        "exited_at": None,
+    }
+    scene["members"] = members
+    scenes[scene_id] = scene
+    return scenes
+
+
+def _exit_projected_member(
+    event: PersistedEvent,
+    scenes: dict[str, Any],
+) -> dict[str, Any]:
+    scene_id = _require_scene_key(event, scenes)
+    entity_id = event.payload.get("entity_id")
+    if not isinstance(entity_id, str) or not entity_id:
+        raise ValueError("scene.entity_exited requires entity_id")
+    scene = dict(scenes[scene_id])
+    members = dict(scene["members"])
+    if entity_id not in members:
+        raise ValueError(
+            f"scene.entity_exited has no presence record: {entity_id} in {scene_id}"
+        )
+    exited_at = event.payload.get("exited_at")
+    member = dict(members[entity_id])
+    member["exited_at"] = exited_at if isinstance(exited_at, str) else event.occurred_at
+    members[entity_id] = member
+    scene["members"] = members
+    scenes[scene_id] = scene
+    return scenes
+
+
+def _change_projected_location(
+    event: PersistedEvent,
+    scenes: dict[str, Any],
+) -> dict[str, Any]:
+    scene_id = _require_scene_key(event, scenes)
+    scene = dict(scenes[scene_id])
+    scene["location_entity_id"] = event.payload.get("location_entity_id")
+    scenes[scene_id] = scene
+    return scenes
+
+
+def _project_campaign_clock(event: PersistedEvent) -> dict[str, Any]:
+    changed_at = event.payload.get("changed_at")
+    return {
+        "in_world_label": event.payload.get("in_world_label"),
+        "in_world_minutes": event.payload.get("in_world_minutes"),
+        "updated_at": changed_at if isinstance(changed_at, str) else event.occurred_at,
+    }
 
 
 def _ruling_from_event(event: PersistedEvent) -> ProjectedRuling | None:

@@ -143,8 +143,10 @@ def test_resume_report_is_read_only(tmp_path: Path) -> None:
     _stage_structured(db)
     before = authoritative_state_digest(db, "night")
     snap = resume_snapshot(db, "night")
-    assert snap["in_world_date"] == "unknown"
-    assert snap["scene"] == "unknown"
+    # A campaign with no scene and no clock set reports absence, not the
+    # "unknown" placeholder the snapshot used before scenes were authoritative.
+    assert snap["in_world_date"] is None
+    assert snap["scene"] is None
     assert "authoritative_contradictions" in snap
     assert "pending_imports" in snap
     assert "pending_import_conflicts" in snap
