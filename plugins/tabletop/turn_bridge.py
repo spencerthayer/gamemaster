@@ -195,3 +195,67 @@ class TurnBridge:
             # A turn already past this point is not an error worth raising
             # over: a retry replays the same steps.
             return self.turns.require(turn_id)
+
+
+def commit_action_effect(
+    conn: sqlite3.Connection,
+    *,
+    campaign_id: str,
+    turn_id: str,
+    ordinal: int,
+    action: Any,
+    resolution: Any,
+    scene_id: str | None = None,
+) -> Any:
+    """Apply one resolved action and its effect claim in a single transaction.
+
+    The claim, the ``action.resolved`` event, and the state changes commit
+    together. Writing the claim separately would leave two failure modes: a
+    claim that says committed when the effect is not, and an effect that exists
+    with no claim, so a recovery pass would rerun it.
+    """
+    from tabletop.campaign.event_store import apply_resolved_action_in_transaction
+    from tabletop.storage.sqlite import transaction
+
+    turns = TurnJobStore(conn)
+    with transaction(conn):
+        existing = turns.claim_action_in_transaction(turn_id, ordinal, action.action_type)
+        if existing == "committed":
+            # Already committed. The caller reads the stored outcome; rerolling
+            # here would apply a second mechanical effect.
+            return None
+
+        def _record(persisted: Any) -> None:
+            turns.commit_action_in_transaction(
+                turn_id, ordinal, event_sequence=persisted.sequence
+            )
+
+        return apply_resolved_action_in_transaction(
+            conn,
+            campaign_id,
+            action,
+            resolution,
+            scene_id=scene_id,
+            on_committed=_record,
+        )
+
+
+def _committed_outcome(
+    conn: sqlite3.Connection, campaign_id: str, turn_id: str, ordinal: int
+) -> Any:
+    """Rebuild the recorded result of an action already committed."""
+    from tabletop.api.events import GameEvent
+    from tabletop.campaign.event_store import EventStore
+
+    claim = next(
+        c
+        for c in TurnJobStore(conn).action_claims(turn_id)
+        if int(c["ordinal"]) == ordinal
+    )
+    sequence = int(claim["event_sequence"])
+    for event in EventStore(conn).read(campaign_id):
+        if event.sequence == sequence:
+            return GameEvent(
+                event_type=event.event_type, payload=event.payload
+            )
+    raise LookupError(f"turn {turn_id} claims event {sequence} that is not in the log")

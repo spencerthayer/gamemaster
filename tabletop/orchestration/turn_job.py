@@ -239,31 +239,50 @@ class TurnJobStore:
         a recovery pass reads it rather than rerunning the action.
         """
         with transaction(self.conn):
-            existing = self.conn.execute(
-                "SELECT status FROM turn_action_effects WHERE turn_id = ? AND ordinal = ?",
-                (turn_id, ordinal),
-            ).fetchone()
-            if existing is not None:
-                return str(existing["status"])
-            self.conn.execute(
-                "INSERT INTO turn_action_effects "
-                "(turn_id, ordinal, action_type, status, claimed_at) "
-                "VALUES (?, ?, ?, 'claimed', ?)",
-                (turn_id, ordinal, action_type, _now()),
-            )
+            return self.claim_action_in_transaction(turn_id, ordinal, action_type)
+
+    def claim_action_in_transaction(
+        self, turn_id: str, ordinal: int, action_type: str
+    ) -> str:
+        """Claim one action slot inside a caller-owned transaction.
+
+        The effect's claim must land in the same transaction as the event and
+        state changes it describes, so a rollback cannot leave a claim
+        describing an effect that does not exist.
+        """
+        existing = self.conn.execute(
+            "SELECT status FROM turn_action_effects WHERE turn_id = ? AND ordinal = ?",
+            (turn_id, ordinal),
+        ).fetchone()
+        if existing is not None:
+            return str(existing["status"])
+        self.conn.execute(
+            "INSERT INTO turn_action_effects "
+            "(turn_id, ordinal, action_type, status, claimed_at) "
+            "VALUES (?, ?, ?, 'claimed', ?)",
+            (turn_id, ordinal, action_type, _now()),
+        )
         return "claimed"
 
     def commit_action(
         self, turn_id: str, ordinal: int, *, event_sequence: int
     ) -> None:
         with transaction(self.conn):
-            cursor = self.conn.execute(
-                "UPDATE turn_action_effects SET status = 'committed', "
-                "committed_at = ?, event_sequence = ? WHERE turn_id = ? AND ordinal = ?",
-                (_now(), event_sequence, turn_id, ordinal),
+            self.commit_action_in_transaction(
+                turn_id, ordinal, event_sequence=event_sequence
             )
-            if cursor.rowcount != 1:
-                raise LookupError(f"no action claim for turn {turn_id} ordinal {ordinal}")
+
+    def commit_action_in_transaction(
+        self, turn_id: str, ordinal: int, *, event_sequence: int
+    ) -> None:
+        """Commit a claim inside a caller-owned transaction."""
+        cursor = self.conn.execute(
+            "UPDATE turn_action_effects SET status = 'committed', "
+            "committed_at = ?, event_sequence = ? WHERE turn_id = ? AND ordinal = ?",
+            (_now(), event_sequence, turn_id, ordinal),
+        )
+        if cursor.rowcount != 1:
+            raise LookupError(f"no action claim for turn {turn_id} ordinal {ordinal}")
 
     def mark_action_not_applicable(self, turn_id: str, ordinal: int) -> None:
         with transaction(self.conn):

@@ -11,7 +11,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Mapping, Sequence, assert_never
+from typing import Any, Callable, Mapping, Sequence, assert_never
 
 from tabletop.api.actions import GameAction
 from tabletop.api.events import GameEvent
@@ -492,6 +492,30 @@ def apply_resolved_action(
 ) -> PersistedEvent:
     """Append ``action.resolved`` and apply its ``state_changes`` in one transaction."""
 
+    with transaction(conn):
+        return apply_resolved_action_in_transaction(
+            conn, campaign_id, action, resolution, scene_id=scene_id
+        )
+
+
+def apply_resolved_action_in_transaction(
+    conn: sqlite3.Connection,
+    campaign_id: str,
+    action: GameAction,
+    resolution: Resolution,
+    *,
+    scene_id: str | None = None,
+    on_committed: Callable[[PersistedEvent], None] | None = None,
+) -> PersistedEvent:
+    """Apply one resolved action inside a caller-owned transaction.
+
+    ``on_committed`` runs after the event and its state changes are written but
+    before the transaction commits. A durable turn uses it to record the
+    effect claim, so the claim, the event, and the state change all land
+    together or not at all. A claim written outside this transaction could
+    survive a crash while its effect did not, or the reverse.
+    """
+
     payload = action_resolved_payload(
         action=action,
         status=resolution.status,
@@ -502,23 +526,24 @@ def apply_resolved_action(
     )
     event_store = EventStore(conn)
     campaign_store = CampaignStore(conn)
-    with transaction(conn):
-        persisted = event_store.append_in_transaction(
-            conn,
-            campaign_id,
-            GameEvent(
-                event_type=EventType.ACTION_RESOLVED.value,
-                payload=payload,
-                actor=action.actor,
-                target=action.targets[0] if action.targets else None,
-            ),
-            scene_id=scene_id,
-        )
-        campaign_store.apply_state_changes_in_transaction(
-            campaign_id,
-            resolution.state_changes,
-            scene_id=scene_id,
-        )
+    persisted = event_store.append_in_transaction(
+        conn,
+        campaign_id,
+        GameEvent(
+            event_type=EventType.ACTION_RESOLVED.value,
+            payload=payload,
+            actor=action.actor,
+            target=action.targets[0] if action.targets else None,
+        ),
+        scene_id=scene_id,
+    )
+    campaign_store.apply_state_changes_in_transaction(
+        campaign_id,
+        resolution.state_changes,
+        scene_id=scene_id,
+    )
+    if on_committed is not None:
+        on_committed(persisted)
     return persisted
 
 
