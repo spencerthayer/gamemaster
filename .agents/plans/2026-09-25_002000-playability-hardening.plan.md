@@ -281,12 +281,12 @@ If the same check fails again without new evidence, change the diagnostic method
 
 | Field | Current state |
 |---|---|
-| Phase | P1 through P5 complete. P6 Content Authority not started. |
-| Active task | Task 33: content catalog schema |
-| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 1388 passed, 7 skipped at commit f9c0a25 (baseline was 885 passed, 7 skipped) |
-| Current approach | P1 proved scene authority across a restart. P2 proved natural language reaches mechanics only through deterministic planning. P3 made setup reproducible. P4 made validation machine-readable. P5 made the turn durable: one effect per turn, receipt-first ingress, and delivery guarantees that do not overstate the transport. Continue with P6. |
-| Blockers / open decisions | None. Docker is unavailable in this environment, so the P8 container gate (Tasks 45 and 47 step 3) will be recorded `inconclusive` rather than pass. |
-| Next action | Task 21: add `tabletop/campaign/validation.py` with stable structured check IDs |
+| Phase | All eight phases implemented. Release gate run. |
+| Active task | None |
+| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 1568 passed, 15 skipped at 7fbf438. `GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration -q` -> 14 passed in 96.79s. Live validation reports ready=true. |
+| Current approach | P1 scene authority; P2 natural language only through deterministic planning; P3 reproducible setup; P4 machine-readable validation with stable exit classes; P5 durable turns with transport-honest delivery; P6 content authority by role, not score; P7 one GM router behind two clients; P8 deterministic and container dogfood. |
+| Blockers / open decisions | None blocking. Two criteria are explicitly unverified rather than met: exactly-once WebSocket delivery against a real remote transport, and live model generation. No provider credentials were available, so generation was exercised through the deterministic path only. |
+| Next action | Merge `PLAYABILITY-1`. No PR has been opened; opening one is a separate decision. |
 
 ## Proposed pull-request slices
 
