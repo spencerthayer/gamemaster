@@ -80,7 +80,15 @@ def session_database(tmp_path: Path) -> tuple[sqlite3.Connection, Path]:
     )
     events.append(
         "campaign-1",
-        GameEvent(event_type="scene.opened", payload={}),
+        GameEvent(
+            event_type="scene.opened",
+            payload={
+                "scene_id": "scene-1",
+                "name": "Crossroads",
+                "started_at": "2026-09-22T01:00:00+00:00",
+            },
+        ),
+        scene_id="scene-1",
         occurred_at="1999-01-01T00:00:00+00:00",
     )
     events.append(
@@ -91,7 +99,15 @@ def session_database(tmp_path: Path) -> tuple[sqlite3.Connection, Path]:
     )
     events.append(
         "campaign-1",
-        GameEvent(event_type="scene.closed", payload={}),
+        GameEvent(
+            event_type="scene.closed",
+            payload={
+                "scene_id": "scene-1",
+                "ended_at": "2026-09-22T02:00:00+00:00",
+                "exited_entity_ids": [],
+            },
+        ),
+        scene_id="scene-1",
         session_id="session-1",
         occurred_at="1999-01-01T00:00:00+00:00",
     )

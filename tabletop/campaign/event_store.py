@@ -46,6 +46,10 @@ class EventType(str, Enum):
     RULING_PROMOTED = "ruling.promoted"
     SCENE_OPENED = "scene.opened"
     SCENE_CLOSED = "scene.closed"
+    SCENE_ENTITY_ENTERED = "scene.entity_entered"
+    SCENE_ENTITY_EXITED = "scene.entity_exited"
+    SCENE_LOCATION_CHANGED = "scene.location_changed"
+    SCENE_TIME_CHANGED = "scene.time_changed"
     SESSION_STARTED = "session.started"
     SESSION_ENDED = "session.ended"
     QUEST_MUTATED = "quest.mutated"
@@ -80,6 +84,10 @@ def event_domain(event_type: EventType) -> str:
             | EventType.RULING_PROMOTED
             | EventType.SCENE_OPENED
             | EventType.SCENE_CLOSED
+            | EventType.SCENE_ENTITY_ENTERED
+            | EventType.SCENE_ENTITY_EXITED
+            | EventType.SCENE_LOCATION_CHANGED
+            | EventType.SCENE_TIME_CHANGED
             | EventType.SESSION_STARTED
             | EventType.SESSION_ENDED
             | EventType.QUEST_MUTATED
@@ -93,6 +101,132 @@ def event_domain(event_type: EventType) -> str:
             return "play"
         case _:
             assert_never(event_type)
+
+
+def open_scene_event(
+    *,
+    scene_id: str,
+    name: str,
+    started_at: str,
+    session_id: str | None = None,
+    location_entity_id: str | None = None,
+    in_world_started_at: str | None = None,
+) -> GameEvent:
+    """Build the ``scene.opened`` event for one new scene."""
+
+    return GameEvent(
+        event_type=EventType.SCENE_OPENED.value,
+        payload={
+            "scene_id": scene_id,
+            "name": name,
+            "session_id": session_id,
+            "location_entity_id": location_entity_id,
+            "in_world_started_at": in_world_started_at,
+            "started_at": started_at,
+        },
+    )
+
+
+def close_scene_event(
+    *,
+    scene_id: str,
+    ended_at: str,
+    exited_entity_ids: Sequence[str] = (),
+    in_world_ended_at: str | None = None,
+) -> GameEvent:
+    """Build the ``scene.closed`` event, naming everyone the close removed.
+
+    ``exited_entity_ids`` is explicit so replay can reproduce the presence
+    rows the close ended without re-deriving them from a default.
+    """
+
+    return GameEvent(
+        event_type=EventType.SCENE_CLOSED.value,
+        payload={
+            "scene_id": scene_id,
+            "ended_at": ended_at,
+            "in_world_ended_at": in_world_ended_at,
+            "exited_entity_ids": list(exited_entity_ids),
+        },
+    )
+
+
+def entity_entered_event(
+    *,
+    scene_id: str,
+    entity_id: str,
+    presence_type: str,
+    entered_at: str,
+) -> GameEvent:
+    """Build the ``scene.entity_entered`` event for one presence interval."""
+
+    return GameEvent(
+        event_type=EventType.SCENE_ENTITY_ENTERED.value,
+        payload={
+            "scene_id": scene_id,
+            "entity_id": entity_id,
+            "presence_type": presence_type,
+            "entered_at": entered_at,
+        },
+    )
+
+
+def entity_exited_event(
+    *,
+    scene_id: str,
+    entity_id: str,
+    exited_at: str,
+) -> GameEvent:
+    """Build the ``scene.entity_exited`` event ending one presence interval."""
+
+    return GameEvent(
+        event_type=EventType.SCENE_ENTITY_EXITED.value,
+        payload={
+            "scene_id": scene_id,
+            "entity_id": entity_id,
+            "exited_at": exited_at,
+        },
+    )
+
+
+def scene_location_changed_event(
+    *,
+    scene_id: str,
+    location_entity_id: str | None,
+    changed_at: str,
+) -> GameEvent:
+    """Build the ``scene.location_changed`` event for a move."""
+
+    return GameEvent(
+        event_type=EventType.SCENE_LOCATION_CHANGED.value,
+        payload={
+            "scene_id": scene_id,
+            "location_entity_id": location_entity_id,
+            "changed_at": changed_at,
+        },
+    )
+
+
+def scene_time_changed_event(
+    *,
+    in_world_label: str | None,
+    in_world_minutes: int | None,
+    changed_at: str,
+) -> GameEvent:
+    """Build the ``scene.time_changed`` event for the campaign clock.
+
+    This event carries no ``scene_id``: the clock belongs to the campaign, so
+    attributing it to whichever scene happened to be open would misstate it.
+    """
+
+    return GameEvent(
+        event_type=EventType.SCENE_TIME_CHANGED.value,
+        payload={
+            "in_world_label": in_world_label,
+            "in_world_minutes": in_world_minutes,
+            "changed_at": changed_at,
+        },
+    )
 
 
 def action_resolved_payload(

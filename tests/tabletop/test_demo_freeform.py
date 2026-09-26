@@ -188,7 +188,15 @@ def test_freeform_example_campaign_runs_end_to_end(tmp_path: Path) -> None:
     )
     events.append(
         _CAMPAIGN_ID,
-        GameEvent(event_type=EventType.SCENE_OPENED.value),
+        GameEvent(
+            event_type=EventType.SCENE_OPENED.value,
+            payload={
+                "scene_id": _SCENE_ID,
+                "name": "Flooded Archive",
+                "session_id": _SESSION_ID,
+                "started_at": _STARTED_AT,
+            },
+        ),
         session_id=_SESSION_ID,
         scene_id=_SCENE_ID,
         occurred_at=_STARTED_AT,

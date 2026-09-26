@@ -71,7 +71,11 @@ def test_replay_records_campaign_identity_and_source_sequence() -> None:
         scene_id="crossroads",
         actor_id=None,
         target_id=None,
-        payload={},
+        payload={
+            "scene_id": "crossroads",
+            "name": "Crossroads",
+            "started_at": "2026-09-22T00:00:00Z",
+        },
         occurred_at="2026-09-22T00:00:00Z",
     )
 

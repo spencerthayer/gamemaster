@@ -49,6 +49,12 @@ REPLAY_REQUIRED = frozenset(
         EventType.QUEST_MUTATED,
         EventType.CAMPAIGN_ARCHIVED,
         EventType.CAMPAIGN_RESTORED,
+        EventType.SCENE_OPENED,
+        EventType.SCENE_CLOSED,
+        EventType.SCENE_ENTITY_ENTERED,
+        EventType.SCENE_ENTITY_EXITED,
+        EventType.SCENE_LOCATION_CHANGED,
+        EventType.SCENE_TIME_CHANGED,
         EventType.PARTICIPANT_ADDED,
         EventType.PARTICIPANT_REMOVED,
         EventType.CHARACTER_CONTROL_GRANTED,
@@ -62,12 +68,7 @@ AUDIT_ONLY = frozenset(
         EventType.CAMPAIGN_FORKED,
     }
 )
-DECLARED_BUT_UNEMITTED = frozenset(
-    {
-        EventType.SCENE_OPENED,
-        EventType.SCENE_CLOSED,
-    }
-)
+DECLARED_BUT_UNEMITTED = frozenset()
 
 # Dependent events without their parent record raise. Fact axis events keep
 # the historical synthesize-a-partial-record behavior so a promote that
@@ -77,6 +78,10 @@ ORPHAN_RAISES = frozenset(
     {
         EventType.RULING_PROMOTED,
         EventType.SESSION_ENDED,
+        EventType.SCENE_CLOSED,
+        EventType.SCENE_ENTITY_ENTERED,
+        EventType.SCENE_ENTITY_EXITED,
+        EventType.SCENE_LOCATION_CHANGED,
     }
 )
 
@@ -123,8 +128,7 @@ def test_audit_events_do_not_invent_campaign_system_keys() -> None:
     events = (
         event(EventType.CANON_CONTRADICTION_DETECTED, {"reason": "conflict"}),
         event(EventType.DOCUMENT_PURGED, {"document_id": "doc-1"}),
-        event(EventType.SCENE_OPENED, {}, scene_id="scene-1"),
-        event(EventType.SCENE_CLOSED, {}, scene_id="scene-1"),
+        event(EventType.CAMPAIGN_FORKED, {"source_campaign_id": "campaign-0"}),
     )
     projection = project_campaign(events)
     assert projection.campaign_system == {}
@@ -166,6 +170,36 @@ def _fact_proposed(sequence: int = 1) -> PersistedEvent:
         sequence=sequence,
     )
 
+
+
+def _scene_opened(sequence: int = 1) -> PersistedEvent:
+    return event(
+        EventType.SCENE_OPENED,
+        {
+            "scene_id": "scene-1",
+            "name": "Crossroads",
+            "session_id": None,
+            "location_entity_id": None,
+            "in_world_started_at": None,
+            "started_at": "2026-09-22T00:00:00Z",
+        },
+        sequence=sequence,
+        scene_id="scene-1",
+    )
+
+
+def _scene_entity_entered(sequence: int = 2) -> PersistedEvent:
+    return event(
+        EventType.SCENE_ENTITY_ENTERED,
+        {
+            "scene_id": "scene-1",
+            "entity_id": "hero",
+            "presence_type": "pc",
+            "entered_at": "2026-09-22T00:10:00Z",
+        },
+        sequence=sequence,
+        scene_id="scene-1",
+    )
 
 def _sequence(event_type: EventType) -> tuple[tuple[PersistedEvent, ...], tuple[PersistedEvent, ...]]:
     if event_type is EventType.FACT_PROPOSED:
@@ -327,8 +361,70 @@ def _sequence(event_type: EventType) -> tuple[tuple[PersistedEvent, ...], tuple[
                 sequence=2,
             ),
         )
+    if event_type is EventType.SCENE_OPENED:
+        return (), (_scene_opened(),)
+    if event_type is EventType.SCENE_CLOSED:
+        opened = _scene_opened()
+        return (opened,), (
+            opened,
+            event(
+                EventType.SCENE_CLOSED,
+                {
+                    "scene_id": "scene-1",
+                    "ended_at": "2026-09-22T01:00:00Z",
+                    "exited_entity_ids": [],
+                },
+                sequence=2,
+                scene_id="scene-1",
+            ),
+        )
+    if event_type is EventType.SCENE_ENTITY_ENTERED:
+        opened = _scene_opened()
+        return (opened,), (opened, _scene_entity_entered())
+    if event_type is EventType.SCENE_ENTITY_EXITED:
+        opened = _scene_opened()
+        entered = _scene_entity_entered()
+        return (opened, entered), (
+            opened,
+            entered,
+            event(
+                EventType.SCENE_ENTITY_EXITED,
+                {
+                    "scene_id": "scene-1",
+                    "entity_id": "hero",
+                    "exited_at": "2026-09-22T00:30:00Z",
+                },
+                sequence=3,
+                scene_id="scene-1",
+            ),
+        )
+    if event_type is EventType.SCENE_LOCATION_CHANGED:
+        opened = _scene_opened()
+        return (opened,), (
+            opened,
+            event(
+                EventType.SCENE_LOCATION_CHANGED,
+                {
+                    "scene_id": "scene-1",
+                    "location_entity_id": "hero",
+                    "changed_at": "2026-09-22T00:05:00Z",
+                },
+                sequence=2,
+                scene_id="scene-1",
+            ),
+        )
+    if event_type is EventType.SCENE_TIME_CHANGED:
+        return (), (
+            event(
+                EventType.SCENE_TIME_CHANGED,
+                {
+                    "in_world_label": "Day 1",
+                    "in_world_minutes": 0,
+                    "changed_at": "2026-09-22T00:00:00Z",
+                },
+            ),
+        )
     raise AssertionError(f"no sequence for {event_type}")
-
 
 def test_replay_required_events_change_projection() -> None:
     """Each replay-required event changes the projection versus its prefix."""
