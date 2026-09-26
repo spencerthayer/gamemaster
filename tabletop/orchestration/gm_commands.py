@@ -595,3 +595,112 @@ def gm_cancel_turn(
         "cancelled": True,
         "authoritative_effects_committed": committed,
     }
+
+
+class GmExplainError(RuntimeError):
+    """A turn explanation was refused."""
+
+
+def explain_turn_for_gm(
+    conn: sqlite3.Connection,
+    campaign_id: str,
+    turn_id: str,
+    *,
+    viewpoint_is_gm: bool = True,
+    viewpoint: Viewpoint | None = None,
+) -> dict[str, Any]:
+    """Explain one turn end to end, from input through delivery.
+
+    A read-only join over durable records. Anything the log does not record is
+    reported as absent rather than reconstructed from chat history, so an
+    explanation can never invent a step that did not happen.
+    """
+    from tabletop.campaign.event_store import EventStore
+    from tabletop.orchestration.delivery import DeliveryStore, GenerationReceiptStore
+    from tabletop.orchestration.turn_job import TurnJobStore, decide_recovery
+
+    store = TurnJobStore(conn)
+    job = store.require(turn_id)
+    if job.campaign_id != campaign_id:
+        raise GmExplainError(f"turn {turn_id!r} is not in campaign {campaign_id!r}")
+
+    receipts = GenerationReceiptStore(conn).list_for_turn(turn_id)
+    deliveries = DeliveryStore(conn).list_for_turn(turn_id)
+    claims = store.action_claims(turn_id)
+    events = EventStore(conn).read(campaign_id)
+
+    action, resolution, rolls, state_changes, effect_event = _mechanical_evidence(
+        events, claims
+    )
+    parameters = [
+        dict(item) for receipt in receipts for item in receipt.parameters
+    ]
+    rule_references = [
+        reference for reference in (resolution or {}).get("rule_references", [])
+    ]
+
+    return {
+        "turn_id": turn_id,
+        "status": job.status,
+        "input": {"text": job.input_text},
+        "ingress": {
+            "channel": job.channel,
+            "conversation_id": job.conversation_id,
+            "external_message_id": job.external_message_id,
+            # A principal is channel-account identity, so it is GM-only
+            # evidence even though the input text is not.
+            "principal": job.principal_id if viewpoint_is_gm else None,
+        },
+        "action": action,
+        "mechanical_parameters": parameters,
+        "resolution": resolution,
+        "rolls": rolls,
+        "state_changes": state_changes,
+        "rule_references": rule_references,
+        "action_effect": None if not claims else dict(claims[0]),
+        "generations": [receipt.to_dict() for receipt in receipts],
+        "deliveries": [
+            {
+                "delivery_id": d.delivery_id,
+                "channel": d.channel,
+                "segment": d.segment,
+                "status": d.status,
+                "attempts": d.attempts,
+                "remote_ack": d.remote_ack,
+            }
+            for d in deliveries
+        ],
+        "output": _joined_output(deliveries),
+        "recovery": decide_recovery(store, turn_id).to_dict(),
+    }
+
+
+def _mechanical_evidence(events, claims):
+    """Pull the action, resolution, rolls, and state changes from the log."""
+    sequences = {
+        int(claim["event_sequence"])
+        for claim in claims
+        if claim["status"] == "committed" and claim["event_sequence"] is not None
+    }
+    for event in events:
+        if event.sequence in sequences and event.event_type == "action.resolved":
+            payload = event.payload
+            return (
+                payload.get("action"),
+                {
+                    "status": payload.get("status"),
+                    "outcome": payload.get("outcome"),
+                    "explanation": payload.get("explanation"),
+                },
+                payload.get("rolls", ()),
+                payload.get("state_changes", ()),
+                event.sequence,
+            )
+    return None, None, [], [], None
+
+
+def _joined_output(deliveries) -> str | None:
+    """The text that was actually sent, in segment order."""
+    if not deliveries:
+        return None
+    return "\n".join(d.text for d in sorted(deliveries, key=lambda d: d.segment))

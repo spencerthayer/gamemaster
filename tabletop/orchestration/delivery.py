@@ -43,6 +43,7 @@ class GenerationReceipt:
     prompt_sha256: str | None = None
     response_sha256: str | None = None
     output_segments: tuple[str, ...] = ()
+    parameters: tuple[Mapping[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -58,6 +59,7 @@ class GenerationReceipt:
             "prompt_sha256": self.prompt_sha256,
             "response_sha256": self.response_sha256,
             "output_segments": list(self.output_segments),
+            "parameters": [dict(item) for item in self.parameters],
         }
 
 
@@ -209,6 +211,7 @@ class GenerationReceiptStore:
         prompt_text: str | None = None,
         response_text: str | None = None,
         output_segments: Sequence[str] = (),
+        parameters: Sequence[Mapping[str, Any]] = (),
     ) -> GenerationReceipt:
         receipt_id = uuid.uuid4().hex
         with transaction(self.conn):
@@ -216,8 +219,8 @@ class GenerationReceiptStore:
                 "INSERT INTO generation_receipts "
                 "(receipt_id, turn_id, ordinal, created_at, provider, model, "
                 "tokens_in, tokens_out, latency_ms, prompt_sha256, response_sha256, "
-                "output_segments) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "output_segments, parameters) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     receipt_id,
                     turn_id,
@@ -231,6 +234,7 @@ class GenerationReceiptStore:
                     _sha256(prompt_text),
                     _sha256(response_text),
                     _segments_json(output_segments),
+                    _parameters_json(parameters),
                 ),
             )
         return self.require(turn_id, ordinal)
@@ -264,6 +268,12 @@ def _segments_json(segments: Sequence[str]) -> str:
     return json.dumps(list(segments), separators=(",", ":"))
 
 
+def _parameters_json(parameters: Sequence[Mapping[str, Any]]) -> str:
+    import json
+
+    return json.dumps([dict(item) for item in parameters], separators=(",", ":"))
+
+
 def _receipt_from_row(row: sqlite3.Row) -> GenerationReceipt:
     import json
 
@@ -271,6 +281,10 @@ def _receipt_from_row(row: sqlite3.Row) -> GenerationReceipt:
         segments = tuple(json.loads(row["output_segments"]))
     except (TypeError, ValueError):
         segments = ()
+    try:
+        parameters = tuple(json.loads(row["parameters"]))
+    except (TypeError, ValueError, KeyError, IndexError):
+        parameters = ()
     return GenerationReceipt(
         receipt_id=str(row["receipt_id"]),
         turn_id=str(row["turn_id"]),
@@ -284,6 +298,7 @@ def _receipt_from_row(row: sqlite3.Row) -> GenerationReceipt:
         prompt_sha256=row["prompt_sha256"],
         response_sha256=row["response_sha256"],
         output_segments=segments,
+        parameters=parameters,
     )
 
 
