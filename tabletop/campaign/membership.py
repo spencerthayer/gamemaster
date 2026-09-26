@@ -148,15 +148,34 @@ class MembershipStore:
         *,
         principal_id: str | None = None,
     ) -> str:
+        with transaction(self.conn):
+            return self.bind_principal_in_transaction(
+                campaign_id,
+                participant_id,
+                channel,
+                external_id,
+                principal_id=principal_id,
+            )
+
+    def bind_principal_in_transaction(
+        self,
+        campaign_id: str,
+        participant_id: str,
+        channel: str,
+        external_id: str,
+        *,
+        principal_id: str | None = None,
+    ) -> str:
+        """Bind one channel principal using a caller-owned transaction."""
+
         if principal_id is None:
             principal_id = str(uuid.uuid4())
-        with transaction(self.conn):
-            self.conn.execute(
-                "INSERT INTO participant_principals "
-                "(principal_id, campaign_id, participant_id, channel, external_id) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (principal_id, campaign_id, participant_id, channel, external_id),
-            )
+        self.conn.execute(
+            "INSERT INTO participant_principals "
+            "(principal_id, campaign_id, participant_id, channel, external_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (principal_id, campaign_id, participant_id, channel, external_id),
+        )
         return principal_id
 
     def unbind_principal(

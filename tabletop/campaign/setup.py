@@ -19,6 +19,8 @@ from typing import Any, Mapping, Sequence
 
 import yaml
 
+from tabletop.campaign.models import PresenceType
+
 #: Fields that look like credentials rather than configuration. A setup file
 #: that carries a token is a mistake, and a mistake worth failing on.
 _CREDENTIAL_KEY_PATTERN = re.compile(
@@ -363,3 +365,339 @@ def _resolve_inside(base_dir: Path, raw_path: str) -> Path:
     if not resolved.exists():
         raise SetupManifestError(f"setup content path does not exist: {raw_path}")
     return resolved
+
+
+# -- planning and idempotent application ------------------------------------
+
+
+class SetupConflictError(RuntimeError):
+    """An existing row disagrees with the manifest and must not be overwritten."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class SetupAction:
+    """One planned step, with enough detail to review it before applying."""
+
+    kind: str
+    target: str
+    detail: str = ""
+    #: True when the row already exists and is identical, so applying is a no-op.
+    already_satisfied: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "target": self.target,
+            "detail": self.detail,
+            "already_satisfied": self.already_satisfied,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class SetupPlan:
+    """The full set of steps a manifest implies, in application order."""
+
+    manifest: CampaignSetupManifest
+    actions: tuple[SetupAction, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "campaign_id": self.manifest.campaign_id,
+            "actions": [action.to_dict() for action in self.actions],
+            "summary": {
+                "total": len(self.actions),
+                "create": sum(1 for a in self.actions if not a.already_satisfied),
+                "already_satisfied": sum(1 for a in self.actions if a.already_satisfied),
+            },
+        }
+
+    @property
+    def has_work(self) -> bool:
+        """True when applying would change something."""
+        return any(not action.already_satisfied for action in self.actions)
+
+
+def plan_setup(conn, manifest: CampaignSetupManifest) -> SetupPlan:
+    """Describe what applying this manifest would do. Writes nothing.
+
+    A step already satisfied is reported rather than repeated, which is what
+    makes a rerun safe. A step whose existing row disagrees with the manifest
+    is a conflict, not an update: setup configures, it does not silently
+    rewrite authoritative data an operator may have changed by hand.
+    """
+    from tabletop.campaign.membership import MembershipStore
+    from tabletop.campaign.scenes import SceneStore
+    from tabletop.campaign.store import CampaignStore
+
+    store = CampaignStore(conn)
+    membership = MembershipStore(conn)
+    scenes = SceneStore(conn)
+    campaign_id = manifest.campaign_id
+    actions: list[SetupAction] = []
+
+    existing = store.get_campaign(campaign_id)
+    if existing is None:
+        actions.append(SetupAction(kind="CREATE campaign", target=campaign_id,
+                                   detail=f"{manifest.name} on {manifest.system_id}"))
+    else:
+        if existing["system_id"] != manifest.system_id:
+            raise SetupConflictError(
+                f"campaign {campaign_id!r} uses system {existing['system_id']!r}, "
+                f"but the manifest declares {manifest.system_id!r}"
+            )
+        if existing["name"] != manifest.name:
+            raise SetupConflictError(
+                f"campaign {campaign_id!r} is named {existing['name']!r}, "
+                f"but the manifest declares {manifest.name!r}"
+            )
+        actions.append(
+            SetupAction(
+                kind="CREATE campaign",
+                target=campaign_id,
+                detail="already present and identical",
+                already_satisfied=True,
+            )
+        )
+
+    for participant in manifest.participants:
+        rows = {row["participant_id"]: row for row in membership.list_participants(campaign_id)}
+        row = rows.get(participant.participant_id)
+        if row is None:
+            actions.append(
+                SetupAction(
+                    kind="ADD participant",
+                    target=participant.participant_id,
+                    detail=f"{participant.display_name} ({participant.role})",
+                )
+            )
+        elif row["role"] != participant.role or row["display_name"] != participant.display_name:
+            raise SetupConflictError(
+                f"participant {participant.participant_id!r} exists with different "
+                "authoritative data"
+            )
+        else:
+            actions.append(
+                SetupAction(
+                    kind="ADD participant",
+                    target=participant.participant_id,
+                    detail="already present and identical",
+                    already_satisfied=True,
+                )
+            )
+
+    for channel, external_id, _participant_id in _all_principals(manifest):
+        key = f"{channel}:{external_id}"
+        if (channel, external_id) in {
+            (row["channel"], row["external_id"])
+            for row in membership.list_principals(campaign_id)
+        }:
+            actions.append(
+                SetupAction(
+                    kind="BIND principal",
+                    target=key,
+                    detail="already bound",
+                    already_satisfied=True,
+                )
+            )
+        else:
+            actions.append(SetupAction(kind="BIND principal", target=key, detail=channel))
+
+    for entity_id, name, owner in manifest.characters:
+        row = store.get_entity(campaign_id, entity_id)
+        if row is None:
+            actions.append(
+                SetupAction(
+                    kind="GRANT character",
+                    target=entity_id,
+                    detail=f"{name}" + (f" owned by {owner}" if owner else ""),
+                )
+            )
+        elif row["name"] != name:
+            raise SetupConflictError(
+                f"entity {entity_id!r} is named {row['name']!r}, "
+                f"but the manifest declares {name!r}"
+            )
+        else:
+            actions.append(
+                SetupAction(
+                    kind="GRANT character",
+                    target=entity_id,
+                    detail="already present and identical",
+                    already_satisfied=True,
+                )
+            )
+        if owner is not None and not _has_control(membership, campaign_id, owner, entity_id):
+            actions.append(
+                SetupAction(
+                    kind="GRANT control", target=entity_id, detail=f"{owner} owns it"
+                )
+            )
+
+    installed = {
+        str(row[0])
+        for row in conn.execute("SELECT source_path FROM documents").fetchall()
+    }
+    for item in manifest.content:
+        actions.append(
+            SetupAction(
+                kind="INSTALL content",
+                target=item.path.name,
+                detail=f"role={item.role}" + (" gm_only" if item.gm_only else ""),
+                # A document already ingested from this path needs no second
+                # install, so a rerun is a genuine no-op.
+                already_satisfied=str(item.path) in installed,
+            )
+        )
+
+    if manifest.starting_state:
+        wanted = manifest.starting_state.get("scene") or {}
+        existing_scene = (
+            None
+            if manifest.starting_scene is None
+            else scenes.get_scene(campaign_id, manifest.starting_scene.scene_id)
+        )
+        already = bool(existing_scene) and existing_scene.system_state == dict(wanted)
+        actions.append(
+            SetupAction(
+                kind="APPLY starting state",
+                target=campaign_id,
+                detail="scene state",
+                already_satisfied=already,
+            )
+        )
+
+    if manifest.starting_scene is not None:
+        scene = manifest.starting_scene
+        if scenes.get_scene(campaign_id, scene.scene_id) is not None:
+            actions.append(
+                SetupAction(
+                    kind="OPEN scene",
+                    target=scene.scene_id,
+                    detail="already present and identical",
+                    already_satisfied=True,
+                )
+            )
+        else:
+            actions.append(
+                SetupAction(kind="OPEN scene", target=scene.scene_id, detail=scene.name)
+            )
+
+    if manifest.game_time is not None:
+        satisfied = scenes.get_game_time(campaign_id) is not None
+        actions.append(
+            SetupAction(
+                kind="SET game time",
+                target=campaign_id,
+                detail=str(manifest.game_time.get("in_world_label", "")),
+                already_satisfied=satisfied,
+            )
+        )
+
+    return SetupPlan(manifest=manifest, actions=tuple(actions))
+
+
+def _all_principals(manifest: CampaignSetupManifest):
+    for participant in manifest.participants:
+        for channel, external_id in participant.principals:
+            yield (channel, external_id, participant.participant_id)
+
+
+def _has_control(membership, campaign_id: str, participant_id: str, entity_id: str) -> bool:
+    return any(
+        row["participant_id"] == participant_id and row["entity_id"] == entity_id
+        for row in membership.list_controls(campaign_id)
+    )
+
+
+def apply_setup(conn, manifest: CampaignSetupManifest) -> SetupPlan:
+    """Apply a manifest, creating only what is missing.
+
+    The whole database portion runs in one ``BEGIN IMMEDIATE`` so a failure
+    part-way leaves nothing half-configured. A rerun over the same manifest
+    creates nothing the second time: every step is checked before it is
+    written, and a step whose existing row disagrees raises rather than
+    overwriting authoritative data an operator may have changed by hand.
+    """
+
+    from tabletop.campaign.membership import MembershipStore
+    from tabletop.campaign.scenes import SceneStore
+    from tabletop.campaign.store import CampaignStore
+    from tabletop.storage.sqlite import transaction
+
+    plan = plan_setup(conn, manifest)
+    if not plan.has_work:
+        return plan
+
+    store = CampaignStore(conn)
+    membership = MembershipStore(conn)
+    scenes = SceneStore(conn)
+    campaign_id = manifest.campaign_id
+
+    with transaction(conn):
+        if store.get_campaign(campaign_id) is None:
+            store.create_campaign_in_transaction(
+                campaign_id,
+                manifest.name,
+                manifest.system_id,
+                setting_id=manifest.setting_id,
+                system_state=manifest.starting_state.get("campaign"),
+            )
+
+        for participant in manifest.participants:
+            rows = {
+                row["participant_id"]: row
+                for row in membership.list_participants(campaign_id)
+            }
+            if participant.participant_id not in rows:
+                membership.add_participant_in_transaction(
+                    campaign_id,
+                    participant.participant_id,
+                    participant.display_name,
+                    participant.role,
+                )
+
+        bound = {
+            (row["channel"], row["external_id"])
+            for row in membership.list_principals(campaign_id)
+        }
+        for channel, external_id, participant_id in _all_principals(manifest):
+            if (channel, external_id) not in bound:
+                membership.bind_principal_in_transaction(
+                    campaign_id, participant_id, channel, external_id
+                )
+
+        for entity_id, name, _owner in manifest.characters:
+            if store.get_entity(campaign_id, entity_id) is None:
+                store.upsert_entity_in_transaction(campaign_id, entity_id, name)
+
+        for entity_id, _name, owner in manifest.characters:
+            if owner is not None and not _has_control(
+                membership, campaign_id, owner, entity_id
+            ):
+                membership.grant_control_in_transaction(
+                    campaign_id, owner, entity_id, "owner"
+                )
+
+        scene = manifest.starting_scene
+        if scene is not None and scenes.get_scene(campaign_id, scene.scene_id) is None:
+            scenes.open_scene_in_transaction(
+                campaign_id,
+                scene.scene_id,
+                scene.name,
+                location_entity_id=scene.location_entity_id,
+                in_world_started_at=scene.in_world_started_at,
+                system_state=manifest.starting_state.get("scene"),
+            )
+            for entity_id in scene.present:
+                scenes.enter_in_transaction(
+                    campaign_id, scene.scene_id, entity_id, PresenceType.NPC
+                )
+
+        if manifest.game_time is not None and scenes.get_game_time(campaign_id) is None:
+            scenes.set_game_time_in_transaction(
+                campaign_id,
+                in_world_label=manifest.game_time.get("in_world_label"),
+                in_world_minutes=manifest.game_time.get("in_world_minutes"),
+            )
+
+    return plan_setup(conn, manifest)
