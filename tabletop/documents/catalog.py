@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from tabletop.storage.sqlite import transaction
 
@@ -201,3 +201,51 @@ def _pack_from_row(row: sqlite3.Row) -> InstalledPack:
         system_id=row["system_id"],
         version=row["version"],
     )
+
+
+def authority_aware_search(
+    conn,
+    campaign_id: str,
+    query: str,
+    *,
+    viewpoint_is_gm: bool = True,
+    search: Callable[[str], list[Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Answer a query using the campaign's attached content, by authority.
+
+    ``search`` returns scored chunks for a query, normally an FTS lookup. The
+    winner is chosen by semantic role first and score second, so a matching
+    campaign note cannot outrank an attached rules document. Candidates the
+    viewpoint may not see are dropped before ranking, not after.
+    """
+    from tabletop.retrieval.precedence import select_by_authority
+
+    catalog = ContentCatalog(conn)
+    attached = catalog.player_visible_documents(
+        campaign_id, viewpoint_is_gm=viewpoint_is_gm
+    )
+    roles = {item["document_id"]: item["role"] for item in attached}
+    if search is None:
+        return None
+    candidates = [
+        chunk
+        for chunk in search(query)
+        if getattr(getattr(chunk, "source", None), "document_id", None) in roles
+    ]
+    result = select_by_authority(candidates, roles=roles)
+    if result is None:
+        return None
+    return {
+        "document_id": result.answer.source.document_id,
+        "role": roles[result.answer.source.document_id],
+        "tier": result.tier,
+        "text": result.answer.text,
+        "score": result.answer.score,
+        "conflicts": [
+            {
+                "document_id": conflict.conflicting.source.document_id,
+                "tier": conflict.conflicting_tier,
+            }
+            for conflict in result.conflicts
+        ],
+    }

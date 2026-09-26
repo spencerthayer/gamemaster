@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping, Protocol
+from typing import Mapping, Protocol, Sequence
 
 from tabletop.retrieval.models import RetrievalNamespace, RetrievedChunk
 
@@ -113,3 +113,70 @@ class PrecedenceResolver:
 
 def _normalized_answer(answer: RetrievedChunk) -> str:
     return " ".join(answer.text.casefold().split())
+
+
+#: Tier for each semantic role. Authority comes from the role, never from a
+#: score: a perfectly matching campaign note must not outrank attached rules.
+#:
+#: ``MECHANICS_PRECEDENCE`` is in descending authority order, so an earlier
+#: tier wins. A character sheet is not campaign house rules, so `character`
+#: falls through to source material with the other non-authoritative roles.
+ROLE_TIERS: Mapping[str, str] = MappingProxyType(
+    {
+        "adventure": "adventure-specific mechanics",
+        "setting": "enabled supplements",
+        "rules": "active system rules",
+        "character": "source material",
+        "notes": "source material",
+        "reference": "source material",
+    }
+)
+
+
+def select_by_authority(
+    answers: Sequence["RetrievedChunk"],
+    *,
+    roles: Mapping[str, str],
+    kind: str = "mechanics",
+) -> PrecedenceResult | None:
+    """Pick the highest-tier answer, breaking ties only inside one tier.
+
+    ``roles`` maps a chunk's source id to its semantic role. A chunk with no
+    known role is treated as ``source material``: unclassified text cannot
+    claim authority it was never granted.
+    """
+    try:
+        policy = _POLICIES[kind]
+    except KeyError as exc:
+        raise ValueError(f"unknown precedence kind: {kind!r}") from exc
+
+    def _document_id(answer: RetrievedChunk) -> str:
+        return answer.source.document_id
+
+    by_tier: dict[str, list[RetrievedChunk]] = {}
+    for answer in answers:
+        # A chunk whose role is unknown is treated as source material:
+        # unclassified text cannot claim authority it was never granted.
+        role = roles.get(_document_id(answer), "")
+        tier = ROLE_TIERS.get(role, "source material")
+        by_tier.setdefault(tier, []).append(answer)
+
+    ordered = [tier for tier in policy if tier in by_tier]
+    if not ordered:
+        return None
+    winning_tier = ordered[0]
+    # Score decides the winner inside one tier and nothing else.
+    winner = max(by_tier[winning_tier], key=lambda a: a.score)
+
+    conflicts = tuple(
+        AdvisoryConflict(
+            winning_tier=winning_tier,
+            winner=winner,
+            conflicting_tier=tier,
+            conflicting=answer,
+        )
+        for tier in ordered[1:]
+        for answer in by_tier[tier]
+        if _normalized_answer(answer) != _normalized_answer(winner)
+    )
+    return PrecedenceResult(answer=winner, tier=winning_tier, conflicts=conflicts)
