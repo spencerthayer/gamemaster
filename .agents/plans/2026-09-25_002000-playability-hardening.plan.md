@@ -281,12 +281,12 @@ If the same check fails again without new evidence, change the diagnostic method
 
 | Field | Current state |
 |---|---|
-| Phase | Planning complete; implementation not started |
-| Active task | None |
-| Last confirmed result | Read-only repository mapping completed; no implementation tests were run |
-| Current approach | P1 and P2 establish authority foundations; P3 and P4 make setup reproducible; P5 and P6 harden turns and evidence; P7 adds GM clients; P8 proves the real release gate |
-| Blockers / open decisions | None for branch creation; live provider and channel credentials are required only for opt-in live verification |
-| Next action | After implementation is requested, run Task 0 and create branch `PLAYABILITY-1` before editing code |
+| Phase | P1 Scene Lifecycle complete. P2 Natural Language not started. |
+| Active task | Task 8: ActionProposal contract |
+| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 996 passed, 7 skipped at commit 88aa965 (baseline was 885 passed, 7 skipped) |
+| Current approach | P1 is delivered and proven across a real process and database reopen. Continue with P2: proposal contract, provenance, planner, clarification routing, runtime integration, Omega cutover, transcript harness and cases. |
+| Blockers / open decisions | None. Docker is unavailable in this environment, so the P8 container gate (Tasks 45 and 47 step 3) will be recorded `inconclusive` rather than pass. |
+| Next action | Task 8: add `ActionProposal` and `parse_action_proposal` beside `GameAction` in `tabletop/api/actions.py` |
 
 ## Proposed pull-request slices
 
@@ -1494,3 +1494,11 @@ Tests must catch behavior, boundaries, precedence, transitions, persistence, vis
 | 2026-09-25 | Architecture decision | Durable turn must be central | Existing turn and prompt receipts are diagnostic and disconnect from channel ingress, session, scene, generation, and delivery | Add turn jobs, action effect claims, generation receipts, and delivery outbox; keep receipts subordinate to the turn. |
 | 2026-09-25 | Delivery decision | Exactly-once must reflect transport reality | WebSocket has stable `client_seq` and server ack; other inspected adapters lack a universal remote idempotency key | Use WebSocket for exactly-once release proof; report other transports as durable at-least-once with ambiguity. |
 | 2026-09-25 | Planning, implementation checks | Implementation should not begin during a plan-only request | No code, migration, dependency, commit, branch, container, or test mutation was performed | Await implementation authorization, then execute Task 0. |
+| 2026-09-25 | Task 0, branch `PLAYABILITY-1` at 2545ccd | Baseline recorded before any change | 885 passed, 7 skipped in 29.96s; Python 3.11.16, SQLite 3.53.4, Docker unavailable | Baseline is a fact, not a license to weaken a test. |
+| 2026-09-25 | Task 1, scene lifecycle schema | Migration `0021_scene_lifecycle.sql` and its tests pass from a real 0001-0020 database | 17 passed; full suite 902 passed, 7 skipped | The plan's `location_entity_id` foreign key is not expressible: `entities` is unique per (owner scope, owner id), never by `entity_id` alone. Used same-campaign triggers and a delete-clearing trigger instead. Recorded as a plan correction, not a weakened invariant. |
+| 2026-09-25 | Task 2, typed scene store | Scene, presence, and clock invariants hold and every method owns its transaction | 24 passed; full suite 926 passed, 7 skipped | Found that bounds were compared as text in both Python and the schema CHECK constraints, so `Z` and `+00:00` spellings of one instant could sort differently. Fixed by comparing parsed instants in Python and canonicalizing every written timestamp to one form. |
+| 2026-09-25 | Task 3, scene events and replay | All six scene event types are emitted, classified replay-required, and orphans rejected | 26 passed in the focused pair; full suite 942 passed, 7 skipped | Fixtures that emitted scene events with empty payloads were updated: these events no longer tolerate a missing name or start time. `DECLARED_BUT_UNEMITTED` is now empty. |
+| 2026-09-25 | Task 4, scene runtime operations | Every scene operation moves rows and events together, and a failed transition leaves neither | 37 passed across scene, session, and turn; full suite 960 passed, 7 skipped | Two real defects found and fixed: `end_session` indexed `campaign_roots[0]` unconditionally and raised IndexError with no root configured; the `current-scene` skill still pointed at the phase-11 stub. |
+| 2026-09-25 | Task 5, structured scene snapshot | Resume and prompt context read one viewpoint-required snapshot and write no events | 17 passed in the focused pair; full suite 974 passed, 7 skipped | `RulingStore.search` filters by LIKE and cannot answer "what precedent currently applies", so added `list_active` rather than faking it with an empty pattern. |
+| 2026-09-25 | Task 6, scene and time CLI | Every documented subcommand works through a real process and fails nonzero on invalid transitions | 16 passed; full suite 990 passed, 7 skipped | Handlers issue no scene SQL; they call the P1 runtime methods. |
+| 2026-09-25 | Task 7, P1 restart acceptance | Scene B survives a process kill and database reopen; scene A stays inspectable; no presence outlives its scene; chat history is never read | 6 passed in the acceptance file, 54 in the P1 focused set, full suite 996 passed, 7 skipped | P1 acceptance criteria are met. Docker-dependent gates remain unavailable in this environment. |
