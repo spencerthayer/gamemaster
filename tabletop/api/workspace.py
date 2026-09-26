@@ -129,7 +129,7 @@ _CAMPAIGN_ONLY_SKILLS: tuple[SkillSpec, ...] = (
         name="current-scene",
         description="Return the active scene from authoritative campaign state",
         parameters=(),
-        runtime_method="current_scene",
+        runtime_method="get_current_scene",
     ),
     SkillSpec(
         name="get-party-state",

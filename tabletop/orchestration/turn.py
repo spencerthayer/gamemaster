@@ -138,6 +138,10 @@ def play_turn(
     writing state.
     """
     started = time.perf_counter()
+    # A turn with no explicit scene acts in the campaign's open scene, so
+    # scene-scoped state changes land where play is actually happening.
+    if scene_id is None:
+        scene_id = current_open_scene_id(conn, campaign_id)
     context = build_resolution_context(
         conn,
         campaign_id=campaign_id,
@@ -239,6 +243,16 @@ def build_resolution_context(
         scene_id=scene_id,
         state=state,
     )
+
+
+def current_open_scene_id(conn: sqlite3.Connection, campaign_id: str) -> str | None:
+    """Return the campaign's open scene id, or None when no scene is open."""
+
+    row = conn.execute(
+        "SELECT scene_id FROM scenes WHERE campaign_id = ? AND status = 'open'",
+        (campaign_id,),
+    ).fetchone()
+    return None if row is None else str(row["scene_id"])
 
 
 def resolve_entity_overlay(
