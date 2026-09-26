@@ -189,6 +189,50 @@ def build_parser(
     )
     time_set.set_defaults(handler=handlers.cmd_time_set)
 
+    campaign_content = campaign_sub.add_parser(
+        "content", help="Attach and detach installed content packs."
+    )
+    campaign_content_sub = campaign_content.add_subparsers(dest="campaign_content_command")
+    content_attach = campaign_content_sub.add_parser(
+        "attach", help="Attach an installed pack to a campaign."
+    )
+    content_attach.add_argument("campaign")
+    content_attach.add_argument("pack")
+    content_attach.add_argument("--role", required=True)
+    content_attach.set_defaults(handler=handlers.cmd_campaign_content_attach)
+    content_detach = campaign_content_sub.add_parser(
+        "detach", help="Detach a pack. The installed bytes stay."
+    )
+    content_detach.add_argument("campaign")
+    content_detach.add_argument("pack")
+    content_detach.set_defaults(handler=handlers.cmd_campaign_content_detach)
+    content_enable = campaign_content_sub.add_parser(
+        "set-enabled", help="Enable or disable an attached pack."
+    )
+    content_enable.add_argument("campaign")
+    content_enable.add_argument("pack")
+    content_enable.add_argument("--enabled", choices=("true", "false"), required=True)
+    content_enable.set_defaults(handler=handlers.cmd_campaign_content_set_enabled)
+
+    campaign_doc = campaign_sub.add_parser(
+        "doc", help="Attach and detach installed documents."
+    )
+    doc_sub = campaign_doc.add_subparsers(dest="campaign_doc_command")
+    doc_attach = doc_sub.add_parser(
+        "attach", help="Attach an installed document to a campaign."
+    )
+    doc_attach.add_argument("campaign")
+    doc_attach.add_argument("path")
+    doc_attach.add_argument("--role", required=True)
+    doc_attach.add_argument("--gm-only", action="store_true", dest="gm_only")
+    doc_attach.set_defaults(handler=handlers.cmd_campaign_document_attach)
+    doc_detach = doc_sub.add_parser(
+        "detach", help="Detach a document. The installed bytes stay."
+    )
+    doc_detach.add_argument("campaign")
+    doc_detach.add_argument("path")
+    doc_detach.set_defaults(handler=handlers.cmd_campaign_document_detach)
+
     entity = campaign_sub.add_parser("entity", help="Create or update campaign entities.")
     entity_sub = entity.add_subparsers(dest="entity_command")
     entity_create = entity_sub.add_parser("create", help="Create a campaign entity.")

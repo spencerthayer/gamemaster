@@ -1977,7 +1977,7 @@ def cmd_content_install(args: argparse.Namespace) -> int:
         return 1
     finally:
         conn.close()
-    print("Next: attach it to a campaign with `campaign document attach`.")
+    print("Next: attach it with `gamemaster campaign content attach` or `campaign doc attach`.")
     return 0
 
 
@@ -1997,4 +1997,125 @@ def cmd_content_list(_args: argparse.Namespace) -> int:
             f"{pack['pack_id']}: {pack['name']} "
             f"({pack['pack_type']}, {pack['version']})"
         )
+    return 0
+
+
+def _resolve_campaign_id(target: str | None) -> str:
+    return resolve_campaign_id(campaign_id=target)
+
+
+def _require_installed_document(conn, path_text: str) -> str:
+    """Find the installed document whose source path matches, by content hash."""
+    from tabletop.documents.content_install import content_hash
+
+    path = Path(path_text).expanduser()
+    if not path.is_file():
+        raise SystemExit(f"content is not installed: {path_text}")
+    digest = content_hash(path)
+    row = conn.execute(
+        "SELECT document_id FROM documents WHERE content_hash = ?", (digest,)
+    ).fetchone()
+    if row is None:
+        raise SystemExit(
+            f"content is not installed: {path_text}. Run `gamemaster content install` first."
+        )
+    return str(row["document_id"])
+
+
+def cmd_campaign_content_attach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import CatalogError, ContentCatalog
+
+    conn = open_database()
+    try:
+        campaign_id = _resolve_campaign_id(args.campaign)
+        if CampaignStore(conn).get_campaign(campaign_id) is None:
+            print(f"campaign {campaign_id!r} not found", flush=True)
+            return 1
+        ContentCatalog(conn).attach_pack(campaign_id, args.pack, args.role)
+    except (CatalogError, sqlite3.IntegrityError) as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"attached pack {args.pack} with role {args.role}")
+    return 0
+
+
+def cmd_campaign_content_detach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import ContentCatalog
+
+    conn = open_database()
+    try:
+        ContentCatalog(conn).detach_pack(
+            _resolve_campaign_id(args.campaign), args.pack
+        )
+    finally:
+        conn.close()
+    print(f"detached pack {args.pack}")
+    return 0
+
+
+def cmd_campaign_content_set_enabled(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import CatalogError, ContentCatalog
+
+    enabled = args.enabled == "true"
+    conn = open_database()
+    try:
+        cursor = conn.execute(
+            "UPDATE campaign_content_packs SET enabled = ? "
+            "WHERE campaign_id = ? AND pack_id = ?",
+            (int(enabled), _resolve_campaign_id(args.campaign), args.pack),
+        )
+        if cursor.rowcount != 1:
+            raise CatalogError(f"pack {args.pack!r} is not attached to this campaign")
+        conn.commit()
+    except CatalogError as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"pack {args.pack} enabled={enabled}")
+    return 0
+
+
+def cmd_campaign_document_attach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import CatalogError, ContentCatalog
+
+    conn = open_database()
+    try:
+        document_id = _require_installed_document(conn, args.path)
+        campaign_id = _resolve_campaign_id(args.campaign)
+        if CampaignStore(conn).get_campaign(campaign_id) is None:
+            print(f"campaign {campaign_id!r} not found", flush=True)
+            return 1
+        ContentCatalog(conn).attach_document(
+            campaign_id,
+            document_id,
+            args.role,
+            gm_only=bool(args.gm_only),
+        )
+    except (CatalogError, SystemExit, sqlite3.IntegrityError) as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"attached document {document_id} with role {args.role}")
+    return 0
+
+
+def cmd_campaign_document_detach(args: argparse.Namespace) -> int:
+    from tabletop.documents.catalog import ContentCatalog
+
+    conn = open_database()
+    try:
+        document_id = _require_installed_document(conn, args.path)
+        ContentCatalog(conn).detach_document(
+            _resolve_campaign_id(args.campaign), document_id
+        )
+    except SystemExit as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print(f"detached document {document_id}")
     return 0
