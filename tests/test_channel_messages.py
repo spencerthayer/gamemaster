@@ -154,3 +154,58 @@ def test_a_message_serializes_without_secrets() -> None:
     payload = _message().to_dict()
     assert set(payload) >= {"channel", "external_message_id", "text"}
     assert hashlib.sha256  # payload is plain data
+
+
+# -- the loop contract ------------------------------------------------------
+
+
+def test_receive_returns_text_because_the_loop_reprs_it() -> None:
+    """The MeTTa loop sends ``(repr (receive))`` to the model.
+
+    Returning structured objects here would put a Python dataclass repr in
+    the prompt instead of the player's words, and the agent stops responding.
+    Caught by CI, not locally.
+    """
+    from src import channels as src_channels
+    from src.channel_message import InboundMessage
+
+    class _Stub(src_channels.CommChannel):
+        def receive(self) -> str:  # pragma: no cover - unused
+            return ""
+
+        def receive_messages(self):
+            return [
+                InboundMessage(
+                    channel="mockchannel", external_message_id="1", text="hello there"
+                )
+            ]
+
+    src_channels._commchannel = _Stub()
+    result = src_channels.commChannelReceive()
+    assert isinstance(result, str)
+    assert result == "hello there"
+    assert "InboundMessage" not in result
+    assert "external_message_id" not in result
+
+
+def test_identity_is_available_through_the_structured_entry_point() -> None:
+    from src import channels as src_channels
+    from src.channel_message import InboundMessage
+
+    class _Stub(src_channels.CommChannel):
+        def receive(self) -> str:  # pragma: no cover - unused
+            return ""
+
+        def receive_messages(self):
+            return [
+                InboundMessage(
+                    channel="telegram", external_message_id="42", text="first"
+                ),
+                InboundMessage(
+                    channel="telegram", external_message_id="43", text="second"
+                ),
+            ]
+
+    src_channels._commchannel = _Stub()
+    messages = src_channels.commChannelReceiveMessages()
+    assert [m.external_message_id for m in messages] == ["42", "43"]

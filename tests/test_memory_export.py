@@ -482,7 +482,7 @@ def test_commchannel_receive_dispatches_control_commands(monkeypatch):
     )
     channels._commchannel_id = "telegram"
 
-    assert [m.text for m in channels.commChannelReceive()] == ["alice: hello"]
+    assert channels.commChannelReceive() == "alice: hello"
     assert principals == [authenticated_user_id]
     assert replies == ["Memory export complete"]
 
@@ -513,7 +513,7 @@ def test_commchannel_receive_denies_export_without_authenticated_user(monkeypatc
     )
     channels._commchannel_id = "telegram"
 
-    assert channels.commChannelReceive() == []
+    assert channels.commChannelReceive() == ""
     assert replies == ["Memory export denied: an authenticated user is required."]
 
 
@@ -543,7 +543,7 @@ def test_commchannel_receive_dispatches_websocket_export(monkeypatch):
     channels._commchannel = _stub_channel("/memory-export both", replies=replies)
     channels._commchannel_id = "websocket"
 
-    assert channels.commChannelReceive() == []
+    assert channels.commChannelReceive() == ""
     assert commands == ["/memory-export both"]
     assert principals == [
         f"websocket:{hashlib.sha256(websocket_token.encode('utf-8')).hexdigest()}"
@@ -586,4 +586,4 @@ def test_commchannel_receive_does_not_consume_command_mentions(monkeypatch):
     )
     channels._commchannel_id = "telegram"
 
-    assert [m.text for m in channels.commChannelReceive()] == [message]
+    assert channels.commChannelReceive() == message

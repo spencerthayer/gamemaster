@@ -125,18 +125,28 @@ def commChannelStart(commchannel):
     _commchannel.start()
 
 def commChannelReceive():
-    """Receive messages from the selected channel, with their identities.
+    """Receive message text from the selected channel.
 
-    Control messages are handled and removed. The rest are returned as
-    structured messages rather than one string joined by a separator, so a
-    literal " | " in a player's text is just text and duplicate suppression
-    works on message identity instead of on equality.
+    Returns text, because the MeTTa loop does ``(repr (receive))`` and sends
+    the result to the model as the human message. Returning structured
+    objects here would put a Python repr of a dataclass in the prompt instead
+    of what the player typed. Identity is available from
+    ``commChannelReceiveMessages``; the loop does not need it.
+
+    Control messages are handled and removed here, as before.
+    """
+    return " | ".join(message.text for message in commChannelReceiveMessages())
+
+def commChannelReceiveMessages():
+    """Receive messages with their native identities.
+
+    A retry of the same native message keeps the same id, so a caller can
+    deduplicate on identity instead of on text equality.
     """
     global _commchannel
-    received = _commchannel.receive_messages()
     return [
         message
-        for message in received
+        for message in _commchannel.receive_messages()
         if not handle_control_message(message.text)
     ]
 
