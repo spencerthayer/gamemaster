@@ -21,7 +21,7 @@ _SKILLS = {
     "current-scene",
     "query-rules",
     "query-campaign",
-    "resolve-action",
+    "submit-action",
     "roll",
     "get-entity",
     "get-relationships",

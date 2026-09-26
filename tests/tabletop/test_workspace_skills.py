@@ -62,7 +62,7 @@ _CAMPAIGN_EXTRA = frozenset(
         "current-campaign",
         "query-campaign",
         "query-rules",
-        "resolve-action",
+        "submit-action",
         "roll",
         "get-entity",
         "get-fact",
@@ -374,3 +374,36 @@ def test_metta_registers_from_workspace_payload_not_a_flat_global_list() -> None
     for required in _SETTING_FORBIDDEN:
         assert f"(add-skill {required}" in campaign_block
 
+
+
+# -- P2 cutover: the model submits proposals, never structured actions -------
+
+
+def test_campaign_workspace_exposes_submit_action_and_not_resolve_action() -> None:
+    names = {skill.name for skill in Workspace.CAMPAIGN.skills}
+    assert "submit-action" in names
+    assert "resolve-action" not in names
+
+
+def test_player_workspace_exposes_submit_action_and_not_resolve_action() -> None:
+    names = {skill.name for skill in Workspace.PLAYER.skills}
+    assert "submit-action" in names
+    assert "resolve-action" not in names
+
+
+def test_no_workspace_still_exposes_the_removed_action_skill() -> None:
+    for workspace in Workspace:
+        names = {skill.name for skill in workspace.skills}
+        assert "resolve-action" not in names, workspace
+
+
+def test_the_adapter_no_longer_exposes_a_structured_action_entry_point() -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "tabletop_adapter_cutover_test", _ADAPTER_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert hasattr(module, "submit_action")
+    assert not hasattr(module, "resolve_action")

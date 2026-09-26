@@ -21,7 +21,7 @@ _ALLOWED = frozenset(
         "get-fact",
         "get-relationships",
         "get-ruling",
-        "resolve-action",
+        "submit-action",
         "roll",
         "current-campaign",
         "read-session",
