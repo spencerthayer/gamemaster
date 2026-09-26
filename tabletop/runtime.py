@@ -26,6 +26,12 @@ from tabletop.api.errors import (
     InvalidResolutionError,
     StorageError,
 )
+from tabletop.api.actions import (
+    ActionProposal,
+    MechanicalParameter,
+    ParameterSource,
+    parse_action_proposal,
+)
 from tabletop.api.events import GameEvent
 from tabletop.api.resolution import StateChange, StateOperation
 from tabletop.api.visibility import Viewpoint, gm_viewpoint, parse_scope
@@ -65,6 +71,13 @@ from tabletop.campaign.sender_binding import (
 from tabletop.campaign.setting_events import SettingEventStore, SettingEventType
 from tabletop.campaign.store import CampaignStore
 from tabletop.dice.roller import roll as roll_dice
+from tabletop.orchestration.clarification import (
+    RuleLookup,
+    RuleSource,
+    StateLookup,
+    resolve_lookup,
+)
+from tabletop.orchestration.planner import Disposition, PlanContext, plan_resolution
 from tabletop.orchestration.prompt_context import (
     PromptContextSnapshot,
     build_player_prompt_context_snapshot,
@@ -999,6 +1012,181 @@ class TabletopRuntime:
         except (InvalidActionError, InvalidResolutionError, LookupError, ValueError) as exc:
             return self._error("resolve-action", "action_not_resolved", str(exc))
         return self._ok("resolve-action", result.to_dict())
+
+    def submit_action(self, proposal_json: str) -> dict[str, Any]:
+        """Take one ``ActionProposal`` from a model to an authoritative outcome.
+
+        This is the canonical path from natural language to mechanics. The
+        proposal is planned first, authoritative parameters are acquired, and
+        only then is a ``GameAction`` built and handed to the existing
+        ``play_turn`` guard. A proposal that does not plan to ``RESOLVE``
+        never reaches the plugin at all, so the plugin guard is unchanged
+        and remains the only route to a roll or a state change.
+        """
+
+        if self._connection is None:
+            return self._storage_required("submit-action")
+        campaign_id = self.active_campaign
+        if not campaign_id:
+            return self._error(
+                "submit-action",
+                "campaign_not_configured",
+                "submit-action requires an active campaign.",
+            )
+        try:
+            decoded = json.loads(proposal_json) if proposal_json.strip() else {}
+        except json.JSONDecodeError as exc:
+            return self._error("submit-action", "invalid_proposal", str(exc))
+        try:
+            proposal = parse_action_proposal(decoded)
+        except (InvalidActionError, ValueError) as exc:
+            return self._error("submit-action", "invalid_proposal", str(exc))
+
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        if campaign is None:
+            return self._error(
+                "submit-action",
+                "campaign_not_found",
+                "Active campaign was not found.",
+                data={"campaign": campaign_id},
+            )
+        if campaign.get("archived_at"):
+            return self._error(
+                "submit-action",
+                "campaign_archived",
+                "Active campaign is archived.",
+                data={"campaign": campaign_id},
+            )
+
+        system_id = str(campaign["system_id"])
+        try:
+            plugin = self._registry.get(system_id)
+        except GameSystemError as exc:
+            return self._error("submit-action", "plugin_unavailable", str(exc))
+
+        plan = plan_resolution(
+            proposal,
+            plugin=plugin,
+            context=self._proposal_plan_context(campaign_id, proposal.actor_id),
+            parameters=self._model_proposed_parameters(proposal),
+        )
+
+        if plan.disposition in _LOOKUP_DISPOSITIONS:
+            lookup = resolve_lookup(
+                missing=plan.missing_parameters,
+                rules=RuleLookup(self._rule_source(plugin, system_id)),
+                rulings=RulingStore(self._connection),
+                state=StateLookup(self._state_values(campaign_id, system_id)),
+                campaign_id=campaign_id,
+                query=proposal.intent,
+                model_proposed=plan.parameters,
+            )
+            if lookup.disposition is not Disposition.RESOLVE:
+                return self._ok(
+                    "submit-action",
+                    {
+                        "disposition": lookup.disposition.value,
+                        "reason": lookup.reason,
+                        "action": None,
+                        "missing_parameters": list(lookup.missing_parameters),
+                        "clarification": None,
+                    },
+                )
+            plan = plan_resolution(
+                proposal,
+                plugin=plugin,
+                context=self._proposal_plan_context(campaign_id, proposal.actor_id),
+                parameters=tuple(lookup.parameters.values()),
+            )
+
+        if not plan.is_resolvable or plan.action is None:
+            return self._ok(
+                "submit-action",
+                {
+                    "disposition": plan.disposition.value,
+                    "reason": plan.reason,
+                    "action": None,
+                    "missing_parameters": list(plan.missing_parameters),
+                    "clarification": (
+                        None
+                        if plan.clarification is None
+                        else plan.clarification.to_dict()
+                    ),
+                },
+            )
+
+        try:
+            result = play_turn(
+                self._registry,
+                self._connection,
+                plan.action,
+                campaign_id=campaign_id,
+                system_id=system_id,
+            )
+        except (
+            InvalidActionError,
+            InvalidResolutionError,
+            LookupError,
+            ValueError,
+        ) as exc:
+            return self._error("submit-action", "action_not_resolved", str(exc))
+        payload = result.to_dict()
+        payload["disposition"] = Disposition.RESOLVE.value
+        payload["reason"] = plan.reason
+        return self._ok("submit-action", payload)
+
+    def _proposal_plan_context(
+        self, campaign_id: str, actor_id: str
+    ) -> PlanContext:
+        """Build the planner's view of who is present and who may act."""
+
+        scene = SceneStore(self._connection).get_open_scene(campaign_id)
+        present: tuple[str, ...] = ()
+        if scene is not None:
+            present = SceneStore(self._connection).get_present_entity_ids(
+                campaign_id, scene.scene_id
+            )
+        controlled: tuple[str, ...] = ()
+        actor_controls = True
+        if self._workspace is Workspace.PLAYER:
+            controlled = self._player_viewpoint().character_ids
+            actor_controls = actor_id in controlled
+        return PlanContext(
+            present_entity_ids=present,
+            actor_controls_actor=actor_controls,
+            player_controlled_entity_ids=controlled,
+        )
+
+    def _model_proposed_parameters(
+        self, proposal: ActionProposal
+    ) -> tuple[MechanicalParameter, ...]:
+        """Wrap the model's own numbers as proposals, never as authority."""
+
+        return tuple(
+            MechanicalParameter(
+                name=name,
+                value=value,
+                source=ParameterSource.MODEL_PROPOSAL,
+            )
+            for name, value in proposal.parameters.items()
+        )
+
+    def _rule_source(self, plugin: GameSystemPlugin, system_id: str) -> RuleSource:
+        return _PluginRuleSource(plugin, system_id)
+
+    def _state_values(
+        self, campaign_id: str, system_id: str
+    ) -> dict[str, Any]:
+        """Read rule-shaped values the active scene and campaign already hold."""
+
+        values: dict[str, Any] = {}
+        campaign = CampaignStore(self._connection).get_campaign(campaign_id)
+        if campaign is not None:
+            values.update(campaign.get("system_state") or {})
+        scene = SceneStore(self._connection).get_open_scene(campaign_id)
+        if scene is not None:
+            values.update(scene.system_state)
+        return values
 
     def roll(self, expression: str) -> dict[str, Any]:
         try:
@@ -2122,6 +2310,31 @@ class TabletopRuntime:
             f"{operation} is registered at the Omega boundary but is implemented in Phase {phase}.",
             data=data,
         )
+
+
+#: Dispositions whose missing parameters are worth one lookup attempt before
+#: the turn is escalated to the GM.
+_LOOKUP_DISPOSITIONS = frozenset(
+    {Disposition.RULE_LOOKUP, Disposition.STATE_LOOKUP}
+)
+
+
+class _PluginRuleSource:
+    """Read rules-authoritative defaults declared by the active plugin.
+
+    A plugin may state a value its system always uses. That is the rules
+    speaking, not the model, so it can satisfy a declared requirement.
+    """
+
+    def __init__(self, plugin: GameSystemPlugin, system_id: str) -> None:
+        self._plugin = plugin
+        self._system_id = system_id
+
+    def lookup(
+        self, names: tuple[str, ...], campaign_id: str
+    ) -> dict[str, Any]:
+        defaults = self._plugin.default_parameters()
+        return {name: defaults[name] for name in names if name in defaults}
 
 
 

@@ -175,6 +175,15 @@ class GameSystemPlugin(ABC):
         """
         return True
 
+    def default_parameters(self) -> Mapping[str, Any]:
+        """Values this system's rules always use, by parameter name.
+
+        A default is the system rules speaking, so it can satisfy a declared
+        requirement. A model proposing the same name is not. Empty by
+        default: a plugin that has no fixed values declares nothing.
+        """
+        return {}
+
     def initialize(self) -> None:
         """Prepare plugin resources. Safe no-op by default."""
 
