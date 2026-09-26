@@ -279,18 +279,27 @@ def _check_targets(
 
     present_set = set(context.present_entity_ids)
     candidates = tuple(ref for ref in proposal.target_refs if ref in present_set)
+    absent = tuple(ref for ref in proposal.target_refs if ref not in present_set)
 
-    if not candidates:
+    if absent:
+        # A named target that is not here is a question, not a detail to drop.
+        # Silently narrowing to the present targets would apply an effect to
+        # fewer entities than the player asked for without saying so, and
+        # carrying the absent one into the action would act on an entity that
+        # is not in the scene at all.
         return ResolutionPlan(
             disposition=Disposition.PLAYER_CLARIFICATION,
-            reason="no named target is present in the current scene",
+            reason="a named target is not present in the current scene",
             clarification=ClarificationRequest(
                 question=(
-                    f"{', '.join(proposal.target_refs)} is not here. "
+                    f"{', '.join(absent)} is not here. "
+                    "Which of these did you mean?"
+                    if candidates
+                    else f"{', '.join(absent)} is not here. "
                     "What are you acting on?"
                 ),
                 # The player picks from what is actually here.
-                candidate_refs=present,
+                candidate_refs=candidates or present,
                 subject=proposal.actor_id,
             ),
         )

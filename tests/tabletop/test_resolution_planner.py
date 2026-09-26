@@ -329,3 +329,26 @@ def test_a_plan_reports_why_it_stopped() -> None:
     )
     assert plan.reason
     assert "dc" in plan.reason
+
+
+def test_a_partly_absent_target_asks_the_player_instead_of_acting() -> None:
+    """Naming two targets when only one is present is ambiguous, not a detail.
+
+    Silently narrowing to the present target would apply the effect to fewer
+    entities than the player asked for. Carrying the absent one into the action
+    would act on an entity that is not in the scene at all.
+    """
+    plan = plan_resolution(
+        _proposal(target_refs=("npc-gate", "npc-hound")),
+        plugin=_Plugin({"ability_check": ("dc",)}),
+        context=_context(present=("pc-ada", "npc-gate")),
+        parameters=(
+            MechanicalParameter(name="dc", value=15, source=ParameterSource.RULING),
+        ),
+    )
+    assert plan.disposition is Disposition.PLAYER_CLARIFICATION
+    assert plan.action is None
+    assert plan.clarification is not None
+    assert "npc-hound" in plan.clarification.question
+    # The player chooses from what is actually present.
+    assert plan.clarification.candidate_refs == ("npc-gate",)
