@@ -24,10 +24,14 @@ from tabletop.api.actions import MechanicalParameter, ParameterSource
 from tabletop.campaign.rulings import RulingStore
 from tabletop.orchestration.planner import Disposition, ResolutionPlan
 
-#: A pending clarification is held in memory for the life of the process.
-#: Durable storage of the turn itself is Task 25; until then, an unanswered
-#: question is not a campaign fact and must not be persisted as one.
-_PENDING: dict[tuple[int, str], "PendingClarification"] = {}
+# A pending clarification is held in memory by the store that owns it, for the
+# life of that store. Durable turn storage exists; an unanswered question is not
+# a campaign fact, so it is not persisted and it does not survive a restart.
+#
+# It was once a module-level dict keyed by ``id(conn)``, which is a bug: CPython
+# reuses the address of a freed object, so a newly opened connection could
+# inherit a question belonging to one that no longer existed. Instance state
+# has no such hazard and no cross-campaign leakage.
 
 
 @dataclass(frozen=True)
@@ -54,7 +58,8 @@ class ClarificationStore:
     """
 
     def __init__(self, conn: sqlite3.Connection) -> None:
-        self._key = id(conn)
+        self._conn = conn
+        self._pending: dict[str, PendingClarification] = {}
 
     def open(
         self, turn_id: str, *, question: str, candidates: Sequence[str] = ()
@@ -62,11 +67,11 @@ class ClarificationStore:
         pending = PendingClarification(
             turn_id=turn_id, question=question, candidates=tuple(candidates)
         )
-        _PENDING[(self._key, turn_id)] = pending
+        self._pending[turn_id] = pending
         return pending
 
     def pending_for_turn(self, turn_id: str) -> PendingClarification | None:
-        return _PENDING.get((self._key, turn_id))
+        return self._pending.get(turn_id)
 
     def answer(self, turn_id: str, choice: str) -> str:
         """Resolve one pending question.
@@ -81,14 +86,14 @@ class ClarificationStore:
                 f"{choice!r} is not one of the offered choices: "
                 f"{', '.join(pending.candidates)}"
             )
-        del _PENDING[(self._key, turn_id)]
+        del self._pending[turn_id]
         return choice
 
     def cancel(self, turn_id: str) -> None:
-        _PENDING.pop((self._key, turn_id), None)
+        self._pending.pop(turn_id, None)
 
     def _pending_for_turn(self, turn_id: str) -> PendingClarification:
-        pending = _PENDING.get((self._key, turn_id))
+        pending = self._pending.get(turn_id)
         if pending is None:
             raise LookupError(f"turn {turn_id!r} has no pending clarification")
         return pending
