@@ -46,15 +46,61 @@ not truth.
 
 ### `scenes`
 
+Rebuilt by migration `0021_scene_lifecycle.sql` with explicit lifecycle
+state. Existing rows are backfilled: a row with no `closed_at` becomes
+`status = 'open'` and keeps its plugin-owned `system_state`.
+
 | Column | Purpose |
 |---|---|
 | `scene_id` | Stable primary key for one scene. |
 | `campaign_id` | Owning campaign. Deleting the campaign deletes its scenes. |
-| `session_id` | Optional containing session. Deleting that session clears this reference without deleting the scene. |
+| `session_id` | Optional containing session. Deleting that session clears this reference without deleting the scene. A trigger rejects a session from another campaign. |
 | `name` | Human-readable scene name. |
-| `opened_at` | Scene opening time. |
-| `closed_at` | Optional scene closing time. |
+| `status` | `open` or `closed`. A partial unique index allows at most one `open` scene per campaign. |
+| `location_entity_id` | Optional campaign entity the scene is located at. A soft reference, not a foreign key: `entities` is unique per owner rather than by `entity_id` alone, so SQLite cannot express it as one. A same-campaign trigger enforces the real invariant, and deleting the entity clears the reference. |
+| `in_world_started_at` | Optional in-world time the scene began. |
+| `in_world_ended_at` | Optional in-world time the scene ended. |
+| `started_at` | Wall-clock scene opening time. |
+| `ended_at` | Optional wall-clock scene closing time. |
 | `system_state` | JSON object for scene-level state owned by the selected game-system plugin. Migration `0004_scene_state.sql` adds this column. |
+
+Mutable narrative state deliberately stays out of `scenes`. It lives in
+events, facts, relationships, and other campaign records.
+
+### `scene_members`
+
+Who is present in a scene. Created by `0021_scene_lifecycle.sql`.
+
+| Column | Purpose |
+|---|---|
+| `scene_id` | Owning scene. Deleting the scene deletes its presence rows. |
+| `entity_id` | Present entity. A trigger rejects an entity from another campaign. |
+| `presence_type` | `pc`, `npc`, `summon`, or `prop`. |
+| `entered_at` | When this presence interval began. |
+| `exited_at` | Optional end of the interval. Null while the entity is present. |
+
+Presence carries no visibility column. Who may learn about a present entity
+is viewpoint policy, resolved when a snapshot is built, not a fact about
+presence. Closing a scene exits everyone still present, so presence never
+outlives the scene it was recorded in.
+
+### `campaign_clock`
+
+The campaign-wide in-world clock, one row per campaign. Created by
+`0021_scene_lifecycle.sql`.
+
+| Column | Purpose |
+|---|---|
+| `campaign_id` | Owning campaign, and the primary key. |
+| `in_world_label` | Optional human-readable in-world time, such as `Day 2, dusk`. |
+| `in_world_minutes` | Optional in-world minutes since the campaign's start. |
+| `updated_at` | When the clock was last set. |
+
+Every timestamp the scene store writes uses one canonical form: UTC, whole
+seconds, suffixed `Z`. The `ended_at >= started_at` and
+`exited_at >= entered_at` checks compare text, so two spellings of the same
+moment would otherwise sort differently and let a scene appear to end before
+it started.
 
 ### `entities`
 
@@ -295,6 +341,12 @@ later source purge remove independently owned campaign canon.
 | `0013_one_open_session.sql` | one open session per campaign |
 | `0014_setting_events.sql` | append-only `setting_events` |
 | `0015_turn_receipts.sql` | diagnostic `turn_receipts`, not campaign canon |
+| `0016_prompt_context_receipts.sql` | diagnostic prompt-context receipts |
+| `0017_campaign_system_version.sql` | `campaigns.system_version` |
+| `0018_campaign_archived_at.sql` | `campaigns.archived_at` |
+| `0019_membership.sql` | `participants`, `participant_principals`, `character_controls` |
+| `0020_import_batches.sql` | import batch bookkeeping |
+| `0021_scene_lifecycle.sql` | scene lifecycle columns, `scene_members`, `campaign_clock` |
 
 ## Event history
 
@@ -314,6 +366,33 @@ knowledge.
 Sessions open through `start-session` (`session.started`) and close through
 `end-session` (`session.ended`). At most one session per campaign has a
 null `ended_at`.
+
+Scenes are explicit. Six event types rebuild scene identity, lifecycle,
+presence, location, and the campaign clock:
+
+| Event | Carries |
+|---|---|
+| `scene.opened` | `scene_id`, `name`, `session_id`, `location_entity_id`, `in_world_started_at`, `started_at` |
+| `scene.closed` | `scene_id`, `ended_at`, `in_world_ended_at`, `exited_entity_ids` |
+| `scene.entity_entered` | `scene_id`, `entity_id`, `presence_type`, `entered_at` |
+| `scene.entity_exited` | `scene_id`, `entity_id`, `exited_at` |
+| `scene.location_changed` | `scene_id`, `location_entity_id`, `changed_at` |
+| `scene.time_changed` | `in_world_label`, `in_world_minutes`, `changed_at` |
+
+`scene.closed` names everyone it removed, so replay reproduces the presence
+rows the close ended instead of assuming a whole-scene sweep. Re-entry
+replaces the previous presence interval rather than stacking.
+
+`scene.time_changed` carries no `scene_id`: the clock belongs to the
+campaign, so attributing it to whichever scene happened to be open would
+misstate it.
+
+Every scene event except `scene.time_changed` depends on a recorded
+`scene.opened`. Replay rejects a close, presence, or location change naming a
+scene the log never says was opened, rather than inventing one.
+
+Ending a session closes its open scene before `session.ended`, so no scene or
+presence row outlives the session that was playing in it.
 
 Current rows remain authoritative. Projections are derived and are not a
 second write path.

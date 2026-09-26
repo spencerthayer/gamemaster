@@ -137,3 +137,37 @@ SQLite is the authoritative store. The event log is append-only and immutable;
 state projections derive from events where practical. Human-readable campaign
 projection files (markdown/YAML per campaign) are operator-friendly views of
 the same truth, never a second authority.
+
+## Scenes and the campaign clock
+
+`SceneStore` (`tabletop/campaign/scenes.py`) is the only writer of `scenes`,
+`scene_members`, and `campaign_clock`. Each mutation owns a transaction and
+emits nothing; callers that own the event log use the `*_in_transaction`
+variants so rows and their events move together.
+
+`TabletopRuntime` exposes the scene lifecycle: `open_scene`, `close_scene`,
+`transition_scene`, `get_current_scene`, `enter_scene`, `exit_scene`,
+`get_game_time`, and `set_game_time`. There is deliberately no second
+lifecycle service. `transition_scene` closes the current scene and opens the
+next in one transaction, so a campaign is never left with no open scene
+because the second half of the move failed.
+
+A turn that does not name a scene writes into the campaign's open scene, so
+scene-scoped state changes land where play is actually happening.
+
+## Resume and prompt context
+
+`build_scene_snapshot` (`tabletop/campaign/scene_snapshot.py`) is the single
+read-only answer to "where is this campaign right now". Operator resume and
+model prompt context both read it.
+
+- It takes a `viewpoint` as a required argument. Choosing one implicitly is
+  how GM-only state reaches a player prompt.
+- It reads the event log, never chat history, and never summarizes a
+  transcript.
+- It writes nothing.
+- Resume returns the latest scene even when it is closed, so a scene stays
+  inspectable after a restart instead of the snapshot reporting "none".
+  A campaign that has never opened a scene reports `None`, not a placeholder.
+- Prompt context renders the snapshot as readable text; handing the model the
+  raw mapping would put a Python repr in the prompt.
