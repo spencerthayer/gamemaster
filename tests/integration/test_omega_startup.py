@@ -188,7 +188,9 @@ def test_omega_loads_tabletop_and_shuts_down() -> None:
             text=True,
         )
         assert skills.returncode == 0, skills.stderr
-        assert "resolve-action" in skills.stdout
+        # The model submits proposals; it never builds a structured action.
+        assert "submit-action" in skills.stdout
+        assert "resolve-action" not in skills.stdout
         assert "promote-ruling" in skills.stdout
         sealed = subprocess.run(
             [

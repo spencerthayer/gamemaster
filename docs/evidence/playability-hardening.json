@@ -1,0 +1,16 @@
+{
+  "milestone": "playability-hardening",
+  "tracker": "PLAYABILITY-1",
+  "head": "b6026679ba7b3d176944766487460db18bd2b350",
+  "python": "3.11.16",
+  "docker": "Docker version 29.4.2, build 055a478",
+  "gates": {
+    "unit": {
+      "command": "python3.11 -m pytest tests/ -q",
+      "note": "see final report"
+    },
+    "container": {
+      "command": "GAMEMASTER_RUN_DOCKER=1 python3.11 -m pytest tests/integration -q"
+    }
+  }
+}
