@@ -123,6 +123,23 @@ def build_parser(
     )
     setup_cmd.set_defaults(handler=handlers.cmd_campaign_setup)
 
+    content = subparsers.add_parser(
+        "content", help="Inspect, install, and list global content."
+    )
+    content_sub = content.add_subparsers(dest="content_command")
+    content_inspect = content_sub.add_parser(
+        "inspect", help="Classify a path without installing it."
+    )
+    content_inspect.add_argument("path")
+    content_inspect.set_defaults(handler=handlers.cmd_content_inspect)
+    content_install = content_sub.add_parser(
+        "install", help="Install content into the global catalog."
+    )
+    content_install.add_argument("path")
+    content_install.set_defaults(handler=handlers.cmd_content_install)
+    content_list = content_sub.add_parser("list", help="List installed content.")
+    content_list.set_defaults(handler=handlers.cmd_content_list)
+
     scene = campaign_sub.add_parser(
         "scene", help="Inspect and drive the authoritative scene."
     )

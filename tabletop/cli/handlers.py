@@ -1922,3 +1922,79 @@ def _print_setup_launch_commands(manifest) -> None:
     print(f"  gamemaster campaign start {manifest.campaign_id}")
     print(f"  gamemaster campaign validate {manifest.campaign_id}")
     print(f"  gamemaster campaign session start --session-id session-1")
+
+
+def cmd_content_inspect(args: argparse.Namespace) -> int:
+    """Classify a path. Writes nothing and executes nothing."""
+
+    from tabletop.documents.content_install import ContentError, inspect_content
+
+    try:
+        inspection = inspect_content(Path(args.path))
+    except ContentError as exc:
+        print(str(exc), flush=True)
+        return 1
+    print(f"path: {inspection.path}")
+    print(f"kind: {inspection.kind.value}")
+    print(f"reason: {inspection.reason}")
+    if inspection.manifest:
+        print(f"id: {inspection.manifest['id']}")
+        print(f"pack_type: {inspection.manifest['pack_type']}")
+        print(f"version: {inspection.manifest['version']}")
+    # Unsupported content is reported, not installed.
+    return 1 if inspection.kind.value == "unsupported" else 0
+
+
+def cmd_content_install(args: argparse.Namespace) -> int:
+    """Install a document or content pack into the global catalog.
+
+    Installation does not attach anything to a campaign. That is a separate,
+    explicit step, so installing can never change what a campaign can see.
+    """
+
+    from tabletop.documents.content_install import (
+        ContentError,
+        ContentKind,
+        inspect_content,
+        install_document,
+        install_pack,
+    )
+
+    conn = open_database()
+    try:
+        inspection = inspect_content(Path(args.path))
+        if inspection.kind is ContentKind.CONTENT_PACK:
+            pack_id = install_pack(conn, Path(args.path))
+            print(f"installed pack {pack_id}")
+        elif inspection.kind is ContentKind.DOCUMENT:
+            document_id = install_document(conn, Path(args.path))
+            print(f"installed document {document_id}")
+        else:
+            print(f"cannot install {inspection.kind.value}: {inspection.reason}", flush=True)
+            return 1
+    except ContentError as exc:
+        print(str(exc), flush=True)
+        return 1
+    finally:
+        conn.close()
+    print("Next: attach it to a campaign with `campaign document attach`.")
+    return 0
+
+
+def cmd_content_list(_args: argparse.Namespace) -> int:
+    from tabletop.documents.content_install import list_installed
+
+    conn = open_database()
+    try:
+        packs = list_installed(conn)
+    finally:
+        conn.close()
+    if not packs:
+        print("no content installed")
+        return 0
+    for pack in packs:
+        print(
+            f"{pack['pack_id']}: {pack['name']} "
+            f"({pack['pack_type']}, {pack['version']})"
+        )
+    return 0
