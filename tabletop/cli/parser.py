@@ -101,6 +101,55 @@ def build_parser() -> argparse.ArgumentParser:
     session_end = session_sub.add_parser("end", help="End the open session.")
     session_end.set_defaults(handler=handlers.cmd_session_end)
 
+    scene = campaign_sub.add_parser(
+        "scene", help="Inspect and drive the authoritative scene."
+    )
+    scene_sub = scene.add_subparsers(dest="scene_command")
+    scene_show = scene_sub.add_parser("show", help="Show the current scene.")
+    scene_show.set_defaults(handler=handlers.cmd_scene_show)
+    scene_open = scene_sub.add_parser("open", help="Open a new scene.")
+    scene_open.add_argument("--scene-id", required=True, dest="scene_id")
+    scene_open.add_argument("--name", required=True)
+    scene_open.add_argument("--session-id", default=None, dest="session_id")
+    scene_open.add_argument("--location", default=None, dest="location_entity_id")
+    scene_open.set_defaults(handler=handlers.cmd_scene_open)
+    scene_close = scene_sub.add_parser("close", help="Close the open scene.")
+    scene_close.add_argument("--scene-id", default=None, dest="scene_id")
+    scene_close.set_defaults(handler=handlers.cmd_scene_close)
+    scene_transition = scene_sub.add_parser(
+        "transition", help="Close the open scene and open another."
+    )
+    scene_transition.add_argument("--from", default=None, dest="from_scene_id")
+    scene_transition.add_argument("--scene-id", required=True, dest="scene_id")
+    scene_transition.add_argument("--name", required=True)
+    scene_transition.add_argument("--session-id", default=None, dest="session_id")
+    scene_transition.set_defaults(handler=handlers.cmd_scene_transition)
+    scene_enter = scene_sub.add_parser("enter", help="Record a present entity.")
+    scene_enter.add_argument("--entity-id", required=True, dest="entity_id")
+    scene_enter.add_argument("--scene-id", default=None, dest="scene_id")
+    scene_enter.add_argument(
+        "--presence-type", required=True, dest="presence_type",
+        choices=("pc", "npc", "summon", "prop"),
+    )
+    scene_enter.set_defaults(handler=handlers.cmd_scene_enter)
+    scene_exit = scene_sub.add_parser("exit", help="End a present entity's presence.")
+    scene_exit.add_argument("--entity-id", required=True, dest="entity_id")
+    scene_exit.add_argument("--scene-id", default=None, dest="scene_id")
+    scene_exit.set_defaults(handler=handlers.cmd_scene_exit)
+
+    time_cmd = campaign_sub.add_parser(
+        "time", help="Read and set the campaign in-world clock."
+    )
+    time_sub = time_cmd.add_subparsers(dest="time_command")
+    time_show = time_sub.add_parser("show", help="Show the in-world clock.")
+    time_show.set_defaults(handler=handlers.cmd_time_show)
+    time_set = time_sub.add_parser("set", help="Set the in-world clock.")
+    time_set.add_argument("--label", default=None, dest="in_world_label")
+    time_set.add_argument(
+        "--minutes", default=None, type=int, dest="in_world_minutes"
+    )
+    time_set.set_defaults(handler=handlers.cmd_time_set)
+
     entity = campaign_sub.add_parser("entity", help="Create or update campaign entities.")
     entity_sub = entity.add_subparsers(dest="entity_command")
     entity_create = entity_sub.add_parser("create", help="Create a campaign entity.")

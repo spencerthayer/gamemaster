@@ -12,7 +12,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 import yaml
 
@@ -52,6 +52,7 @@ from tabletop.importing.store import (
     ImportStore,
     import_status_report,
 )
+from tabletop.runtime import TabletopRuntime
 from tabletop.storage.sqlite import transaction
 
 
@@ -741,6 +742,172 @@ def cmd_session_end(_args: argparse.Namespace) -> int:
         return _print_runtime_error(result)
     print("ended session")
     return 0
+
+
+def _run_scene_command(call: Callable[[TabletopRuntime], dict[str, Any]]) -> int:
+    """Run one scene command against the selected campaign and print it.
+
+    Scene and clock writes go through the runtime's scene operations, so this
+    module issues no scene SQL of its own.
+    """
+
+    runtime = open_operator_runtime()
+    try:
+        result = call(runtime)
+    finally:
+        runtime.shutdown()
+        if runtime._connection is not None:
+            runtime._connection.close()
+    if not result.get("ok"):
+        return _print_runtime_error(result)
+    return 0
+
+
+def _resolve_open_scene_id(runtime: TabletopRuntime) -> str:
+    """Return the open scene id, or fail with an operator-readable message."""
+
+    result = runtime.get_current_scene("{}")
+    if not result.get("ok"):
+        raise SystemExit(
+            (result.get("error") or {}).get("message", "cannot read the current scene")
+        )
+    scene = result["data"]["scene"]
+    if scene is None:
+        raise SystemExit("no open scene")
+    return str(scene["scene_id"])
+
+
+def _print_scene(scene: Mapping[str, Any]) -> None:
+    print(f"scene_id: {scene['scene_id']}")
+    print(f"name: {scene['name']}")
+    print(f"status: {scene['status']}")
+    print(f"started_at: {scene.get('started_at')}")
+    print(f"ended_at: {scene.get('ended_at')}")
+
+
+def cmd_scene_show(_args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.get_current_scene("{}")
+        if result.get("ok") and result["data"]["scene"] is None:
+            print("no open scene")
+        elif result.get("ok"):
+            _print_scene(result["data"]["scene"])
+            present = result["data"]["present_entity_ids"]
+            print("present: " + (", ".join(present) or "nobody recorded"))
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_open(args: argparse.Namespace) -> int:
+    payload = {
+        "scene_id": args.scene_id,
+        "name": args.name,
+        "session_id": args.session_id,
+        "location_entity_id": args.location_entity_id,
+    }
+
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.open_scene(json.dumps(payload))
+        if result.get("ok"):
+            _print_scene(result["data"]["scene"])
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_close(args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        scene_id = args.scene_id or _resolve_open_scene_id(runtime)
+        result = runtime.close_scene(json.dumps({"scene_id": scene_id}))
+        if result.get("ok"):
+            _print_scene(result["data"]["scene"])
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_transition(args: argparse.Namespace) -> int:
+    payload = {
+        "from_scene_id": args.from_scene_id,
+        "scene_id": args.scene_id,
+        "name": args.name,
+        "session_id": args.session_id,
+    }
+
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.transition_scene(json.dumps(payload))
+        if result.get("ok"):
+            _print_scene(result["data"]["scene"])
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_enter(args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        scene_id = args.scene_id or _resolve_open_scene_id(runtime)
+        result = runtime.enter_scene(
+            json.dumps(
+                {
+                    "scene_id": scene_id,
+                    "entity_id": args.entity_id,
+                    "presence_type": args.presence_type,
+                }
+            )
+        )
+        if result.get("ok"):
+            print(f"{args.entity_id} entered {scene_id}")
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_scene_exit(args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        scene_id = args.scene_id or _resolve_open_scene_id(runtime)
+        result = runtime.exit_scene(
+            json.dumps({"scene_id": scene_id, "entity_id": args.entity_id})
+        )
+        if result.get("ok"):
+            print(f"{args.entity_id} left {scene_id}")
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_time_show(_args: argparse.Namespace) -> int:
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.get_game_time("{}")
+        if result.get("ok"):
+            clock = result["data"]["game_time"]
+            if clock is None:
+                print("in-world clock not set")
+            else:
+                print(f"label: {clock['in_world_label']}")
+                print(f"minutes: {clock['in_world_minutes']}")
+        return result
+
+    return _run_scene_command(call)
+
+
+def cmd_time_set(args: argparse.Namespace) -> int:
+    if args.in_world_label is None and args.in_world_minutes is None:
+        raise SystemExit("campaign time set requires --label or --minutes")
+    payload = {
+        "in_world_label": args.in_world_label,
+        "in_world_minutes": args.in_world_minutes,
+    }
+
+    def call(runtime: TabletopRuntime) -> dict[str, Any]:
+        result = runtime.set_game_time(json.dumps(payload))
+        if result.get("ok"):
+            clock = result["data"]["game_time"]
+            print(f"label: {clock['in_world_label']}")
+            print(f"minutes: {clock['in_world_minutes']}")
+        return result
+
+    return _run_scene_command(call)
 
 
 def cmd_campaign_archive(args: argparse.Namespace) -> int:
