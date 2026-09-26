@@ -165,3 +165,39 @@ def test_a_live_failure_does_not_by_itself_unready_a_campaign(
     # The environment is broken, not the campaign.
     assert merged.to_dict()["ready"] is False
     assert any(check.check_id.startswith("live.") for check in merged.failures())
+
+
+# -- every default probe must survive a real invocation ---------------------
+
+
+def test_no_default_probe_raises_on_a_real_context(context: ProbeContext) -> None:
+    """A probe that crashes reports a failure, so one must not exist.
+
+    Two probes once referenced `Path` without importing it. The runner turned
+    that into a failed check, which was honest but hid a code defect behind an
+    environment report. This asserts the probes actually run.
+    """
+    for probe in default_probes(context):
+        try:
+            result = probe.run()
+        except Exception as exc:  # noqa: BLE001 - that is the failure we test
+            raise AssertionError(f"{probe.probe_id} raised: {exc}") from exc
+        assert isinstance(result, ProbeResult), probe.probe_id
+
+
+def test_the_retrieval_probe_reports_a_real_database(context: ProbeContext) -> None:
+    from tabletop.campaign.live_probes import _retrieval_indexed
+
+    result = _retrieval_indexed(context)
+    assert result.status in {
+        CheckStatus.PASS, CheckStatus.SKIP, CheckStatus.NOT_APPLICABLE
+    }
+
+
+def test_the_documents_probe_reports_a_real_database(context: ProbeContext) -> None:
+    from tabletop.campaign.live_probes import _documents_readable
+
+    result = _documents_readable(context)
+    assert result.status in {
+        CheckStatus.PASS, CheckStatus.SKIP, CheckStatus.NOT_APPLICABLE
+    }

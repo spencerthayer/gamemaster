@@ -14,6 +14,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from tabletop.campaign.validation import CheckStatus, ValidationCheck, ValidationReport
