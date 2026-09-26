@@ -281,12 +281,12 @@ If the same check fails again without new evidence, change the diagnostic method
 
 | Field | Current state |
 |---|---|
-| Phase | P1 Scene Lifecycle and P2 Natural Language complete. P3 Setup not started. |
-| Active task | Task 16: declarative setup manifest |
-| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 1102 passed, 7 skipped at commit a99549f (baseline was 885 passed, 7 skipped) |
-| Current approach | P1 proved scene authority across a process restart. P2 proved that natural language reaches mechanics only through deterministic planning: `ActionProposal` -> `plan_resolution` -> `submit_action` -> the unchanged plugin guard. Continue with P3. |
+| Phase | P1 Scene Lifecycle, P2 Natural Language, and P3 Setup complete. P4 Validation not started. |
+| Active task | Task 21: structured static validation |
+| Last confirmed result | `python3.11 -m pytest tests/ -q` -> 1175 passed, 7 skipped at commit cf9fc14 (baseline was 885 passed, 7 skipped) |
+| Current approach | P1 proved scene authority across a process restart. P2 proved natural language reaches mechanics only through deterministic planning. P3 made setup reproducible: a strict manifest, a reviewable dry run, idempotent apply, and a wizard that builds the same object. Continue with P4. |
 | Blockers / open decisions | None. Docker is unavailable in this environment, so the P8 container gate (Tasks 45 and 47 step 3) will be recorded `inconclusive` rather than pass. |
-| Next action | Task 16: add `tabletop/campaign/setup.py` with a strict, safe `CampaignSetupManifest` |
+| Next action | Task 21: add `tabletop/campaign/validation.py` with stable structured check IDs |
 
 ## Proposed pull-request slices
 
@@ -1510,3 +1510,8 @@ Tests must catch behavior, boundaries, precedence, transitions, persistence, vis
 | 2026-09-25 | Task 13, Omega cutover | The model submits proposals and cannot reach the plugin by guessing the old shape | full suite 1067 passed, 7 skipped | `resolve-action` removed with no compatibility alias. The Python `resolve_action` and `play_turn` remain as the internal deterministic seam, as the plan directs. |
 | 2026-09-25 | Task 14, transcript runner | The runner asserts intermediate structure and semantic predicates, not prose | 12 passed | The sentinel check reads only the player snapshot; including the GM view would make every sentinel fail and prove nothing about visibility. |
 | 2026-09-25 | Task 15, fourteen transcript cases | Every required behavior and both named adversarial cases pass | 35 passed in `tests/play_transcripts`; full suite 1102 passed, 7 skipped | Added per-turn `state_writes` so a case can model a GM ruling arriving mid-case, which is what makes the override case meaningful rather than a rerun. P2 acceptance criteria are met. |
+| 2026-09-25 | Task 16, setup manifest | The manifest is strict, safe, and never executes what it names | 26 passed in `test_setup_manifest`; 33 passed in `test_security_boundaries` | An unknown field is rejected rather than ignored, because a typo in `system_id` would otherwise configure a campaign nobody asked for. A credential-shaped key anywhere in the file stops the run. |
+| 2026-09-25 | Task 17, plan and idempotent apply | A dry run writes nothing, a rerun creates nothing, and a conflict fails loudly | 14 passed; full suite 1147 passed, 7 skipped | Two nested-transaction crashes surfaced and are fixed at the source with `create_campaign_in_transaction` and `bind_principal_in_transaction`. Two real idempotency bugs fixed: apply bound principals unconditionally, and starting state was never recognized as satisfied. |
+| 2026-09-25 | Task 18, wizard and CLI | `campaign setup` works from a manifest and interactively through one service | 14 passed; full suite 1175 passed, 7 skipped | Setup prints the exact `campaign start` commands and never launches a process itself. A test asserts no process is started. |
+| 2026-09-25 | Task 19, starting scene materialization | Setup composes the real campaign, membership, scene, and clock services | 9 passed | Setup emits no play events: it configures, it does not forge play history. A rerun does not resurrect a scene the operator already closed. |
+| 2026-09-25 | Task 20, P3 acceptance | Dry run, apply, and rerun are reproducible through real CLI processes | 5 passed in `test_p3_setup_acceptance`; full suite 1175 passed, 7 skipped | A dry run leaves the authoritative state digest byte-identical. P3 acceptance criteria are met. |
