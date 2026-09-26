@@ -1,6 +1,6 @@
 """Plugin API contracts shared between the runtime and game-system plugins."""
 
-from tabletop.api.actions import GameAction
+from tabletop.api.actions import ActionProposal, GameAction, parse_action_proposal
 from tabletop.api.capabilities import Capability
 from tabletop.api.entities import EntityRef
 from tabletop.api.events import GameEvent
@@ -21,7 +21,7 @@ from tabletop.api.resolution import (
 from tabletop.api.rules import RuleReference
 
 __all__ = [
-    "TABLETOP_PLUGIN_API_VERSION",
+    "ActionProposal",
     "Capability",
     "EntityRef",
     "GameAction",
@@ -35,5 +35,5 @@ __all__ = [
     "StateChange",
     "StateOperation",
     "ValidationIssue",
-    "ValidationResult",
+    "parse_action_proposal",
 ]

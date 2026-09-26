@@ -154,6 +154,17 @@ class GameSystemPlugin(ABC):
                 system_id=self.info.id, capability=capability
             )
 
+    def action_requirements(self, action_type: str) -> tuple[str, ...]:
+        """Names of the parameters this action type needs before it can resolve.
+
+        Declared parameters are rules-authoritative: a value whose only source
+        is the model's own proposal cannot satisfy one. Returning an empty
+        tuple is the default and keeps existing plugins compatible; overriding
+        it declares the same contract rather than defining a new one, so no
+        second API version is needed.
+        """
+        return ()
+
     def initialize(self) -> None:
         """Prepare plugin resources. Safe no-op by default."""
 

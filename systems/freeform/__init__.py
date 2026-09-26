@@ -53,6 +53,17 @@ class FreeformPlugin(GameSystemPlugin):
             }
         )
 
+    def action_requirements(self, action_type: str) -> tuple[str, ...]:
+        """Declare the rules-authoritative parameters each action needs.
+
+        ``freeform`` deliberately declares only a target difficulty: it
+        models generic checks, not a rules set with its own numbers.
+        """
+
+        if action_type == "check":
+            return ("difficulty",)
+        return ()
+
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         """Resolve a supported generic action without mutating context state."""
         if action.action_type == "check":

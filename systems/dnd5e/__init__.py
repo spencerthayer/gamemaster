@@ -104,6 +104,20 @@ class Dnd5ePlugin(GameSystemPlugin):
             }
         )
 
+    def action_requirements(self, action_type: str) -> tuple[str, ...]:
+        """Declare the rules-authoritative parameters each action needs.
+
+        A difficulty class is a rules fact. Without this declaration the
+        planner cannot tell a DC taken from the rules or a GM ruling apart
+        from one the model invented.
+        """
+
+        if action_type in ("ability_check", "saving_throw"):
+            return ("dc",)
+        if action_type == "attack":
+            return ("attack_bonus",)
+        return ()
+
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         """Resolve a supported 2014 mechanic without mutating context state."""
         if action.action_type in _UNSUPPORTED_ACTIONS:
