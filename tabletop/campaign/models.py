@@ -7,10 +7,12 @@ plan fills this in.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
+
+from tabletop.api.errors import StorageError
 
 
 class CanonState(str, Enum):
@@ -25,6 +27,85 @@ class KnowledgeState(str, Enum):
 
     UNREVEALED = "unrevealed"
     KNOWN = "known"
+
+
+
+class SceneStatus(str, Enum):
+    """Whether a scene is still running."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class PresenceType(str, Enum):
+    """What kind of thing is present in a scene.
+
+    Presence says nothing about who may learn about the entity. That is
+    viewpoint policy, resolved by ``visible_facts_clause`` and the scene
+    snapshot, never stored here.
+    """
+
+    PC = "pc"
+    NPC = "npc"
+    SUMMON = "summon"
+    PROP = "prop"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SceneMember:
+    """One entity's presence in one scene."""
+
+    scene_id: str
+    entity_id: str
+    presence_type: PresenceType
+    entered_at: str
+    exited_at: str | None = None
+
+    @property
+    def is_present(self) -> bool:
+        """True while the entity is still in the scene."""
+
+        return self.exited_at is None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Scene:
+    """An authoritative scene with its lifecycle bounds."""
+
+    scene_id: str
+    campaign_id: str
+    name: str
+    status: SceneStatus
+    started_at: str
+    session_id: str | None = None
+    location_entity_id: str | None = None
+    in_world_started_at: str | None = None
+    in_world_ended_at: str | None = None
+    ended_at: str | None = None
+    system_state: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "system_state", MappingProxyType(dict(self.system_state)))
+
+    @property
+    def is_open(self) -> bool:
+        """True while the scene is still running."""
+
+        return self.status is SceneStatus.OPEN
+
+
+@dataclass(frozen=True, kw_only=True)
+class GameTime:
+    """The campaign-wide in-world clock."""
+
+    campaign_id: str
+    updated_at: str
+    in_world_label: str | None = None
+    in_world_minutes: int | None = None
+
+
+class SceneInvariantError(StorageError):
+    """A scene operation would break a scene, presence, or clock invariant."""
 
 
 @dataclass(frozen=True, kw_only=True)
