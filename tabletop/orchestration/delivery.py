@@ -15,7 +15,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from tabletop.storage.sqlite import transaction
 
@@ -303,3 +303,96 @@ def _delivery_from_row(row: sqlite3.Row) -> Delivery:
         remote_ack=row["remote_ack"],
         last_error=row["last_error"],
     )
+
+
+#: Bounded retry. Past this the delivery is reported, not retried forever: a
+#: channel that is down should not spin a worker.
+MAX_DELIVERY_ATTEMPTS = 5
+
+
+@dataclass(frozen=True)
+class DeliveryOutcome:
+    """What one delivery attempt did."""
+
+    delivery_id: str
+    status: str
+    attempts: int
+    duplicate_possible: bool = False
+
+
+def recover_deliveries(
+    conn: sqlite3.Connection,
+    send: Callable[[Delivery], bool],
+    *,
+    max_attempts: int = MAX_DELIVERY_ATTEMPTS,
+) -> list[DeliveryOutcome]:
+    """Retry every deliverable segment, in per-turn order.
+
+    ``send`` returns True when the remote accepted the message. A transport
+    without an idempotency key reports an uncertain send by raising
+    ``DeliveryUncertain``; that becomes ``ambiguous`` rather than a retry,
+    because the message may already be on the channel.
+
+    Nothing here reruns an action. Only stored output is resent.
+    """
+    store = DeliveryStore(conn)
+    outcomes: list[DeliveryOutcome] = []
+    # Both are retryable: `pending` never went out, `failed` was refused. A
+    # crashed-before-send delivery sits in one of exactly these two states.
+    recoverable = sorted(
+        (
+            *store.list_by_status("pending"),
+            *store.list_by_status("failed"),
+        ),
+        key=lambda d: (d.turn_id, d.segment),
+    )
+    for delivery in recoverable:
+        if delivery.attempts >= max_attempts:
+            store.mark_failed(
+                delivery.turn_id,
+                delivery.delivery_id,
+                reason=f"exceeded {max_attempts} delivery attempts",
+            )
+            outcomes.append(
+                DeliveryOutcome(delivery.delivery_id, "failed", delivery.attempts + 1)
+            )
+            continue
+        store.mark_sending(
+            delivery.turn_id, delivery.delivery_id, client_seq=delivery.client_seq
+        )
+        try:
+            accepted = send(delivery)
+        except DeliveryUncertain as exc:
+            store.mark_ambiguous(
+                delivery.turn_id, delivery.delivery_id, reason=str(exc)
+            )
+            outcomes.append(
+                DeliveryOutcome(
+                    delivery.delivery_id, "ambiguous", delivery.attempts + 1,
+                    duplicate_possible=True,
+                )
+            )
+            continue
+        if accepted:
+            store.mark_delivered(delivery.turn_id, delivery.delivery_id)
+            outcomes.append(
+                DeliveryOutcome(delivery.delivery_id, "delivered", delivery.attempts + 1)
+            )
+        else:
+            store.mark_failed(
+                delivery.turn_id, delivery.delivery_id, reason="transport refused"
+            )
+            outcomes.append(
+                DeliveryOutcome(delivery.delivery_id, "failed", delivery.attempts + 1)
+            )
+    return outcomes
+
+
+class DeliveryUncertain(Exception):
+    """A send whose outcome the transport cannot confirm.
+
+    Raised by a transport with no idempotency key when it cannot tell whether
+    the remote accepted the message. The delivery becomes ``ambiguous``: an
+    operator may resend and accept a possible duplicate, but the system never
+    claims a delivery it cannot prove.
+    """
