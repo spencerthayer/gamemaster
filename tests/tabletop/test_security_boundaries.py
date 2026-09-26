@@ -705,3 +705,82 @@ def test_ingested_and_imported_text_is_never_evaluated_or_sql_interpolated(
     # Ingestors exist and accept only file paths, not executable payloads.
     assert callable(MarkdownIngestor().supports)
     assert callable(PdfIngestor().supports)
+
+
+# -- campaign setup manifest -------------------------------------------------
+
+
+def test_setup_manifest_rejects_traversal_and_absolute_paths(tmp_path: Path) -> None:
+    from tabletop.campaign.setup import SetupManifestError, parse_setup_manifest
+
+    base = {"campaign_id": "demo", "name": "Demo", "system_id": "freeform"}
+    for bad in ("../outside.md", "/etc/passwd", "sub/../../outside.md"):
+        with pytest.raises(SetupManifestError, match="escapes|must be relative"):
+            parse_setup_manifest(
+                {**base, "content": [{"path": bad}]}, base_dir=tmp_path
+            )
+
+
+def test_setup_manifest_rejects_symlink_escape(tmp_path: Path) -> None:
+    from tabletop.campaign.setup import SetupManifestError, parse_setup_manifest
+
+    outside = tmp_path.parent / "setup-outside.md"
+    outside.write_text("secret", encoding="utf-8")
+    (tmp_path / "linked.md").symlink_to(outside)
+    with pytest.raises(SetupManifestError, match="escapes"):
+        parse_setup_manifest(
+            {
+                "campaign_id": "demo",
+                "name": "Demo",
+                "system_id": "freeform",
+                "content": [{"path": "linked.md"}],
+            },
+            base_dir=tmp_path,
+        )
+
+
+def test_setup_manifest_rejects_executable_content(tmp_path: Path) -> None:
+    from tabletop.campaign.setup import SetupManifestError, parse_setup_manifest
+
+    (tmp_path / "payload.py").write_text("import os", encoding="utf-8")
+    with pytest.raises(SetupManifestError, match="executable material"):
+        parse_setup_manifest(
+            {
+                "campaign_id": "demo",
+                "name": "Demo",
+                "system_id": "freeform",
+                "content": [{"path": "payload.py"}],
+            },
+            base_dir=tmp_path,
+        )
+
+
+def test_setup_manifest_rejects_credential_shaped_keys(tmp_path: Path) -> None:
+    from tabletop.campaign.setup import SetupManifestError, parse_setup_manifest
+
+    with pytest.raises(SetupManifestError, match="credential"):
+        parse_setup_manifest(
+            {
+                "campaign_id": "demo",
+                "name": "Demo",
+                "system_id": "freeform",
+                "game_time": {"label": "Day 1", "api_token": "hunter2"},
+            },
+            base_dir=tmp_path,
+        )
+
+
+def test_setup_manifest_rejects_unsafe_yaml_tags(tmp_path: Path) -> None:
+    from tabletop.campaign.setup import SetupManifestError, load_setup_manifest
+
+    sentinel = tmp_path / "yaml-executed"
+    path = tmp_path / "campaign.setup.yaml"
+    path.write_text(
+        f"campaign_id: !!python/object/apply:pathlib.Path.touch ['{sentinel}']\n"
+        "name: Demo\n"
+        "system_id: freeform\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SetupManifestError):
+        load_setup_manifest(path)
+    assert not sentinel.exists()
