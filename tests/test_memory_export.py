@@ -11,6 +11,33 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+def _stub_channel(*texts, replies=None):
+    """A channel stub carrying several messages, each with its own identity.
+
+    The loop used to join these with " | " and lose every message id, so a
+    literal " | " in player text became indistinguishable from a separator.
+    """
+    from src.channel_message import InboundMessage
+
+    class _Stub:
+        def receive(self):
+            return ""
+
+        def receive_messages(self):
+            return [
+                InboundMessage(
+                    channel="telegram", external_message_id=str(index), text=text
+                )
+                for index, text in enumerate(texts)
+            ]
+
+        def send(self, message):
+            if replies is not None:
+                replies.append(message)
+
+    return _Stub()
+
+
 @pytest.fixture
 def handler(monkeypatch):
     logger_mod = types.ModuleType("src.logger")
@@ -450,13 +477,12 @@ def test_commchannel_receive_dispatches_control_commands(monkeypatch):
     channels = importlib.import_module("channels")
 
     replies: list[str] = []
-    channels._commchannel = types.SimpleNamespace(
-        receive=lambda: "alice: /memory-export both | alice: hello",
-        send=replies.append,
+    channels._commchannel = _stub_channel(
+        "alice: /memory-export both", "alice: hello", replies=replies
     )
     channels._commchannel_id = "telegram"
 
-    assert channels.commChannelReceive() == "alice: hello"
+    assert [m.text for m in channels.commChannelReceive()] == ["alice: hello"]
     assert principals == [authenticated_user_id]
     assert replies == ["Memory export complete"]
 
@@ -482,13 +508,12 @@ def test_commchannel_receive_denies_export_without_authenticated_user(monkeypatc
     channels = importlib.import_module("channels")
 
     replies: list[str] = []
-    channels._commchannel = types.SimpleNamespace(
-        receive=lambda: "alice: /memory-export both",
-        send=replies.append,
+    channels._commchannel = _stub_channel(
+        "alice: /memory-export both", replies=replies
     )
     channels._commchannel_id = "telegram"
 
-    assert channels.commChannelReceive() == ""
+    assert channels.commChannelReceive() == []
     assert replies == ["Memory export denied: an authenticated user is required."]
 
 
@@ -515,13 +540,10 @@ def test_commchannel_receive_dispatches_websocket_export(monkeypatch):
     channels = importlib.import_module("channels")
 
     replies: list[str] = []
-    channels._commchannel = types.SimpleNamespace(
-        receive=lambda: "/memory-export both",
-        send=replies.append,
-    )
+    channels._commchannel = _stub_channel("/memory-export both", replies=replies)
     channels._commchannel_id = "websocket"
 
-    assert channels.commChannelReceive() == ""
+    assert channels.commChannelReceive() == []
     assert commands == ["/memory-export both"]
     assert principals == [
         f"websocket:{hashlib.sha256(websocket_token.encode('utf-8')).hexdigest()}"
@@ -542,6 +564,10 @@ def test_websocket_export_requires_bearer_token(monkeypatch):
     assert channels._authenticated_export_principal() is None
 
 
+def _fail_on_send(_message: str) -> None:
+    pytest.fail("normal messages must not generate replies")
+
+
 def test_commchannel_receive_does_not_consume_command_mentions(monkeypatch):
     control = types.ModuleType("src.memory_export")
     control.is_export_command = lambda text: text == "/memory-export both"
@@ -554,10 +580,10 @@ def test_commchannel_receive_does_not_consume_command_mentions(monkeypatch):
     channels = importlib.import_module("channels")
 
     message = "alice: please use /memory-export both"
-    channels._commchannel = types.SimpleNamespace(
-        receive=lambda: message,
-        send=lambda *_: pytest.fail("normal messages must not generate replies"),
+    channels._commchannel = _stub_channel(
+        message,
+        replies=_fail_on_send,
     )
     channels._commchannel_id = "telegram"
 
-    assert channels.commChannelReceive() == message
+    assert [m.text for m in channels.commChannelReceive()] == [message]

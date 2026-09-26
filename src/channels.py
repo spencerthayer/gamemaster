@@ -59,8 +59,38 @@ class CommChannel:
         pass
 
     def receive(self) -> str:
-        """Receive message from the communication channel"""
+        """Receive one message as text.
+
+        Retained as the narrow primitive. Adapters that carry a native
+        message identity should override ``receive_messages`` instead; the
+        default here synthesizes one from the text.
+        """
         raise NotImplementedError()
+
+    def receive_messages(self) -> list:
+        """Receive zero or more messages, each with its native identity.
+
+        The default wraps ``receive`` in a single synthetic message so an
+        adapter that has no identity to report still participates in the
+        structured path rather than needing its own plumbing.
+        """
+        from src.channel_message import InboundMessage, synthetic_message_id
+
+        text = self.receive()
+        if not text:
+            return []
+        return [
+            InboundMessage(
+                channel=self.channel_id,
+                external_message_id=synthetic_message_id(self.channel_id, text, 0),
+                text=text,
+            )
+        ]
+
+    @property
+    def channel_id(self) -> str:
+        """This channel's stable name, set at registration."""
+        return getattr(self, "_channel_id", "unknown")
 
     def send(self, message: str) -> None:
         """Send message via the communication channel"""
@@ -76,6 +106,7 @@ def registerCommChannel(id: str, channel: CommChannel) -> None:
     """
     global _commChannelRegistry
     logger.info(f"registerCommChannel: registering communication channel {id}")
+    channel._channel_id = id
     _commChannelRegistry[id] = channel
 
 _commchannel: CommChannel = None
@@ -94,12 +125,20 @@ def commChannelStart(commchannel):
     _commchannel.start()
 
 def commChannelReceive():
-    """Receive message from selected communication channel"""
+    """Receive messages from the selected channel, with their identities.
+
+    Control messages are handled and removed. The rest are returned as
+    structured messages rather than one string joined by a separator, so a
+    literal " | " in a player's text is just text and duplicate suppression
+    works on message identity instead of on equality.
+    """
     global _commchannel
-    messages = _commchannel.receive().split(" | ")
-    return " | ".join(
-        message for message in messages if not handle_control_message(message)
-    )
+    received = _commchannel.receive_messages()
+    return [
+        message
+        for message in received
+        if not handle_control_message(message.text)
+    ]
 
 def commChannelSend(message):
     """Send message via selected communication channel"""
