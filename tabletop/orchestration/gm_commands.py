@@ -235,3 +235,262 @@ class GmRouter:
                 for event in reversed(events)
             ],
         }
+
+
+class GmMutatingCommand(str, Enum):
+    """GM commands that change authoritative state.
+
+    Every one of these dispatches to an existing service and emits that
+    service's event. None of them writes SQL directly, so an authority change
+    is one edit rather than one per command.
+    """
+
+    SCENE_OPEN = "scene open"
+    SCENE_CLOSE = "scene close"
+    SCENE_TRANSITION = "scene transition"
+    SCENE_ENTER = "scene enter"
+    SCENE_EXIT = "scene exit"
+    SCENE_LOCATION = "scene location"
+    TIME_SET = "time set"
+    RULING_RECORD = "ruling record"
+    RULING_PROMOTE = "ruling promote"
+    FACT_REVEAL = "fact reveal"
+    FACT_REJECT = "fact reject"
+
+
+_MUTATING_ARGUMENT_COUNT: Mapping[GmMutatingCommand, tuple[int, ...]] = {
+    GmMutatingCommand.SCENE_OPEN: (2,),
+    GmMutatingCommand.SCENE_CLOSE: (1,),
+    GmMutatingCommand.SCENE_TRANSITION: (2,),
+    GmMutatingCommand.SCENE_ENTER: (3,),
+    GmMutatingCommand.SCENE_EXIT: (2,),
+    GmMutatingCommand.SCENE_LOCATION: (2,),
+    GmMutatingCommand.TIME_SET: (1,),
+    GmMutatingCommand.RULING_RECORD: (2,),
+    GmMutatingCommand.RULING_PROMOTE: (1,),
+    GmMutatingCommand.FACT_REVEAL: (1,),
+    GmMutatingCommand.FACT_REJECT: (1,),
+}
+
+
+@dataclass(frozen=True)
+class GmMutation:
+    """One parsed mutating GM command."""
+
+    command: GmMutatingCommand
+    arguments: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"command": self.command.value, "arguments": list(self.arguments)}
+
+
+def parse_gm_mutation(text: str) -> GmMutation:
+    """Parse one mutating GM control line, validating arity and shape."""
+    stripped = text.strip()
+    if stripped.startswith("/gm"):
+        stripped = stripped[3:].strip()
+    parts = stripped.split()
+    if len(parts) < 2:
+        raise GmCommandError("expected a mutating GM command and its arguments")
+    verb = " ".join(parts[:2]).casefold()
+    arguments = parts[2:]
+    try:
+        command = GmMutatingCommand(verb)
+    except ValueError as exc:
+        raise GmCommandError(
+            f"unknown GM command {verb!r}; choose one of "
+            f"{', '.join(c.value for c in GmMutatingCommand)}"
+        ) from exc
+    expected = _MUTATING_ARGUMENT_COUNT[command]
+    if len(arguments) not in expected:
+        raise GmCommandError(
+            f"{command.value} takes {' or '.join(map(str, expected))} arguments, "
+            f"got {len(arguments)}"
+        )
+    for argument in arguments:
+        if len(argument) > MAX_ARGUMENT_LENGTH:
+            raise GmCommandError("GM argument is too long")
+        if not _IDENTIFIER.fullmatch(argument):
+            raise GmCommandError(
+                f"arguments must be plain identifiers, got {argument!r}"
+            )
+    return GmMutation(command=command, arguments=tuple(arguments))
+
+
+def _scene_service(conn: sqlite3.Connection):
+    from tabletop.campaign.scenes import SceneStore
+
+    return SceneStore(conn)
+
+
+def apply_gm_mutation(
+    conn: sqlite3.Connection, mutation: GmMutation, campaign_id: str
+) -> dict[str, Any]:
+    """Execute one mutating GM command through the existing services.
+
+    Every branch ends in a service call that also appends the matching event.
+    Recording a ruling does not confirm it: a new ruling starts proposed and
+    unrevealed unless the GM explicitly promotes it.
+    """
+    from tabletop.campaign.event_store import (
+        EventStore,
+        close_scene_event,
+        entity_entered_event,
+        entity_exited_event,
+        open_scene_event,
+        scene_location_changed_event,
+        scene_time_changed_event,
+    )
+    from tabletop.campaign.models import PresenceType
+    from tabletop.campaign.rulings import Ruling, RulingStore
+    from tabletop.campaign.store import CampaignStore
+    from tabletop.storage.sqlite import transaction
+
+    scenes = _scene_service(conn)
+    command, args = mutation.command, mutation.arguments
+
+    if command is GmMutatingCommand.SCENE_OPEN:
+        with transaction(conn):
+            scene = scenes.open_scene_in_transaction(campaign_id, args[0], args[1])
+            EventStore(conn).append_in_transaction(
+                conn, campaign_id,
+                open_scene_event(
+                    scene_id=scene.scene_id, name=scene.name, started_at=scene.started_at
+                ),
+                scene_id=scene.scene_id, occurred_at=scene.started_at,
+            )
+        return {"command": command.value, "scene_id": scene.scene_id}
+
+    if command is GmMutatingCommand.SCENE_CLOSE:
+        with transaction(conn):
+            scene = scenes.close_scene_in_transaction(campaign_id, args[0])
+            EventStore(conn).append_in_transaction(
+                conn, campaign_id,
+                close_scene_event(
+                    scene_id=scene.scene_id, ended_at=scene.ended_at or ""
+                ),
+                scene_id=scene.scene_id, occurred_at=scene.ended_at,
+            )
+        return {"command": command.value, "scene_id": scene.scene_id}
+
+    if command is GmMutatingCommand.SCENE_TRANSITION:
+        with transaction(conn):
+            current = scenes.get_open_scene(campaign_id)
+            if current is not None:
+                closed = scenes.close_scene_in_transaction(campaign_id, current.scene_id)
+                EventStore(conn).append_in_transaction(
+                    conn, campaign_id,
+                    close_scene_event(
+                        scene_id=closed.scene_id, ended_at=closed.ended_at or ""
+                    ),
+                    scene_id=closed.scene_id, occurred_at=closed.ended_at,
+                )
+            opened = scenes.open_scene_in_transaction(campaign_id, args[0], args[1])
+            EventStore(conn).append_in_transaction(
+                conn, campaign_id,
+                open_scene_event(
+                    scene_id=opened.scene_id, name=opened.name,
+                    started_at=opened.started_at,
+                ),
+                scene_id=opened.scene_id, occurred_at=opened.started_at,
+            )
+        return {"command": command.value, "scene_id": opened.scene_id}
+
+    if command is GmMutatingCommand.SCENE_ENTER:
+        scene_id, entity_id, raw_presence = args
+        try:
+            presence = PresenceType(raw_presence.casefold())
+        except ValueError as exc:
+            raise GmCommandError(
+                f"presence type must be one of "
+                f"{', '.join(p.value for p in PresenceType)}"
+            ) from exc
+        with transaction(conn):
+            member = scenes.enter_in_transaction(
+                campaign_id, scene_id, entity_id, presence
+            )
+            EventStore(conn).append_in_transaction(
+                conn, campaign_id,
+                entity_entered_event(
+                    scene_id=scene_id, entity_id=entity_id,
+                    presence_type=presence.value, entered_at=member.entered_at,
+                ),
+                scene_id=scene_id, occurred_at=member.entered_at,
+            )
+        return {"command": command.value, "entity_id": entity_id}
+
+    if command is GmMutatingCommand.SCENE_EXIT:
+        with transaction(conn):
+            scene_id, entity_id = args
+            member = scenes.exit_in_transaction(campaign_id, scene_id, entity_id)
+            EventStore(conn).append_in_transaction(
+                conn, campaign_id,
+                entity_exited_event(
+                    scene_id=scene_id, entity_id=entity_id,
+                    exited_at=member.exited_at or "",
+                ),
+                scene_id=scene_id, occurred_at=member.exited_at,
+            )
+        return {"command": command.value, "entity_id": entity_id}
+
+    if command is GmMutatingCommand.SCENE_LOCATION:
+        scene_id, raw_location = args
+        location = None if raw_location.casefold() == "none" else raw_location
+        with transaction(conn):
+            scene = scenes.set_location_in_transaction(campaign_id, scene_id, location)
+            EventStore(conn).append_in_transaction(
+                conn, campaign_id,
+                scene_location_changed_event(
+                    scene_id=scene.scene_id, location_entity_id=location,
+                    changed_at=scene.started_at,
+                ),
+                scene_id=scene.scene_id,
+            )
+        return {"command": command.value, "location_entity_id": location}
+
+    if command is GmMutatingCommand.TIME_SET:
+        with transaction(conn):
+            clock = scenes.set_game_time_in_transaction(campaign_id, in_world_label=args[0])
+            EventStore(conn).append_in_transaction(
+                conn, campaign_id,
+                scene_time_changed_event(
+                    in_world_label=clock.in_world_label,
+                    in_world_minutes=clock.in_world_minutes,
+                    changed_at=clock.updated_at,
+                ),
+                occurred_at=clock.updated_at,
+            )
+        return {"command": command.value, "in_world_label": clock.in_world_label}
+
+    if command is GmMutatingCommand.RULING_RECORD:
+        ruling_id, scope = args
+        # Recording does not confirm. A ruling starts proposed and unrevealed.
+        ruling = RulingStore(conn).record(
+            Ruling(
+                ruling_id=ruling_id,
+                campaign_id=campaign_id,
+                system_id=str(
+                    CampaignStore(conn).get_campaign(campaign_id)["system_id"]
+                ),
+                question=f"GM ruling recorded for {scope}",
+                decision="recorded",
+                scope=scope,
+                source_references=(),
+                session_id=None,
+                created_at=datetime.now(timezone.utc).replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            )
+        )
+        return {"command": command.value, "ruling_id": ruling.ruling_id,
+                "canon_state": ruling.canon_state.value,
+                "knowledge_state": ruling.knowledge_state.value}
+
+    if command is GmMutatingCommand.RULING_PROMOTE:
+        ruling = RulingStore(conn).promote(args[0])
+        # Promoting confirms precedent. It does not reveal it to players.
+        return {"command": command.value, "ruling_id": ruling.ruling_id,
+                "canon_state": ruling.canon_state.value,
+                "knowledge_state": ruling.knowledge_state.value}
+
+    raise GmCommandError(f"{command.value} is not implemented")
