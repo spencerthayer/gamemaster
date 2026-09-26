@@ -71,6 +71,20 @@ _UNSUPPORTED_ACTIONS = frozenset(
     }
 )
 
+_SUPPORTED_ACTIONS = frozenset(
+    {
+        "ability_check",
+        "saving_throw",
+        "attack",
+        "apply_damage",
+        "apply_condition",
+        "roll_initiative",
+        "move",
+        "short_rest",
+        "long_rest",
+    }
+)
+
 
 class Dnd5ePlugin(GameSystemPlugin):
     """Partial 2014 D&D 5e mechanics as StateChange requests."""
@@ -117,6 +131,13 @@ class Dnd5ePlugin(GameSystemPlugin):
         if action_type == "attack":
             return ("attack_bonus",)
         return ()
+
+    def handles_action(self, action_type: str) -> bool:
+        """Report which 2014 mechanics this partial plugin actually models."""
+
+        if action_type in _UNSUPPORTED_ACTIONS:
+            return False
+        return action_type in _SUPPORTED_ACTIONS
 
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         """Resolve a supported 2014 mechanic without mutating context state."""

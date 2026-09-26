@@ -165,6 +165,16 @@ class GameSystemPlugin(ABC):
         """
         return ()
 
+    def handles_action(self, action_type: str) -> bool:
+        """True when this plugin implements the named action type.
+
+        The planner asks before it builds anything, so a mechanic the system
+        does not model is reported as unsupported rather than reaching
+        ``resolve`` and failing there. Defaults to True for compatibility;
+        a plugin that publishes its action types overrides this.
+        """
+        return True
+
     def initialize(self) -> None:
         """Prepare plugin resources. Safe no-op by default."""
 

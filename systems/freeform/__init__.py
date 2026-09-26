@@ -25,6 +25,8 @@ from tabletop.dice import roller
 _SYSTEM_ID = "freeform"
 _DEFAULT_EXPRESSION = "1d20"
 
+_SUPPORTED_ACTIONS = frozenset({"check", "opposed_check", "decrement_resource"})
+
 
 class FreeformPlugin(GameSystemPlugin):
     """Generic checks without system-specific character or combat concepts."""
@@ -63,6 +65,11 @@ class FreeformPlugin(GameSystemPlugin):
         if action_type == "check":
             return ("difficulty",)
         return ()
+
+    def handles_action(self, action_type: str) -> bool:
+        """Report the generic mechanics this plugin models."""
+
+        return action_type in _SUPPORTED_ACTIONS
 
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         """Resolve a supported generic action without mutating context state."""

@@ -21,6 +21,18 @@ from tabletop.api.resolution import (
 )
 from tabletop.dice import roller
 
+_SUPPORTED_ACTIONS = frozenset(
+    {
+        "skill_check",
+        "contest",
+        "attack",
+        "active_defense",
+        "apply_damage",
+        "hit_location",
+        "spend_fatigue",
+    }
+)
+
 
 class GurpsPlugin(GameSystemPlugin):
     @property
@@ -59,6 +71,11 @@ class GurpsPlugin(GameSystemPlugin):
         if action_type in ("skill_check", "contest", "attack", "active_defense"):
             return ("skill", "difficulty")
         return ()
+
+    def handles_action(self, action_type: str) -> bool:
+        """Report which mechanics this partial gurps plugin models."""
+
+        return action_type in _SUPPORTED_ACTIONS
 
     def resolve(self, action: GameAction, context: ResolutionContext) -> Resolution:
         handler = {
