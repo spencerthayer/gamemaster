@@ -1088,6 +1088,7 @@ class TabletopRuntime:
                         "disposition": lookup.disposition.value,
                         "reason": lookup.reason,
                         "action": None,
+                        "resolution": None,
                         "missing_parameters": list(lookup.missing_parameters),
                         "clarification": None,
                     },
@@ -1106,6 +1107,7 @@ class TabletopRuntime:
                     "disposition": plan.disposition.value,
                     "reason": plan.reason,
                     "action": None,
+                    "resolution": None,
                     "missing_parameters": list(plan.missing_parameters),
                     "clarification": (
                         None
